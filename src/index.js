@@ -3,6 +3,31 @@
 //  Cloudflare Workers | 1 File | Modular | Production Ready
 // ═══════════════════════════════════════════════════════════════
 
+async function handleHttp(request, env) {
+  const url = new URL(request.url);
+  
+  // ===== DEBUG ENDPOINT =====
+  if (url.pathname === '/debug' && request.method === 'GET') {
+    const checks = {
+      has_token: !!env.TELEGRAM_BOT_TOKEN,
+      has_channel: !!env.TELEGRAM_CHANNEL_ID,
+      has_admin_id: !!env.ADMIN_ID,
+      has_admin_secret: !!env.ADMIN_SECRET,
+      has_kv: !!env.ALERTS_KV,
+      token_preview: env.TELEGRAM_BOT_TOKEN ? env.TELEGRAM_BOT_TOKEN.slice(0, 10) + '...' : 'MISSING',
+      channel_id: env.TELEGRAM_CHANNEL_ID || 'MISSING',
+      admin_id: env.ADMIN_ID || 'MISSING',
+    };
+    return new Response(JSON.stringify(checks, null, 2), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+  // ==========================
+  
+  // ... بقیه کد handleHttp ...
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 1. CONFIG
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
