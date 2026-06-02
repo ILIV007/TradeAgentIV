@@ -1,6 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
 //  TRADEAGENT IV — Telegram Bot + Admin Panel + Channel Manager
-//  Cloudflare Workers | 1 File | Modular | Production Ready
 // ═══════════════════════════════════════════════════════════════
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -605,7 +604,7 @@ async function handleCron(cron, env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 14. HTTP HANDLER (فقط یکی!)
+// 14. HTTP HANDLER
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleHttp(request, env) {
@@ -629,7 +628,7 @@ async function handleHttp(request, env) {
     });
   }
 
-  // Telegram Webhook
+  // Telegram Webhook — POST without x-admin-secret
   if (request.method === 'POST' && !request.headers.get('x-admin-secret')) {
     try {
       const update = await request.json();
@@ -644,7 +643,7 @@ async function handleHttp(request, env) {
     }
   }
 
-  // Manual trigger (requires secret)
+  // Manual trigger — POST with x-admin-secret
   if (request.method === 'POST') {
     if (!checkSecret(request, env)) {
       return new Response('Forbidden', { status: 403 });
