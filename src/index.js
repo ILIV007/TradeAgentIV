@@ -480,7 +480,7 @@ async function handleHelp(chatId, env, userId) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 12. WEBHOOK PROCESSOR (با Error Handling داخلی)
+// 12. WEBHOOK PROCESSOR
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function processWebhook(update, env) {
@@ -575,7 +575,6 @@ async function processWebhook(update, env) {
       }
     }
   } catch (err) {
-    // اگه خطایی رخ داد، به کاربر بگو ولی throw نکن (تا 403 نشه)
     console.error('WEBHOOK ERROR:', err.message);
     try {
       const chatId = update.message?.chat?.id || update.callback_query?.message?.chat?.id;
@@ -630,7 +629,7 @@ async function handleHttp(request, env) {
     });
   }
 
-  // Telegram Webhook — فقط POST بدون x-admin-secret
+  // Telegram Webhook
   if (request.method === 'POST' && !request.headers.get('x-admin-secret')) {
     try {
       const update = await request.json();
@@ -640,13 +639,12 @@ async function handleHttp(request, env) {
       }
       return new Response('Not a Telegram update', { status: 200 });
     } catch (e) {
-      // خطای Telegram Webhook → 200 بده تا retry نکنه
       console.error('Webhook parse error:', e.message);
       return new Response('OK', { status: 200 });
     }
   }
 
-  // Manual trigger — فقط با secret
+  // Manual trigger (requires secret)
   if (request.method === 'POST') {
     if (!checkSecret(request, env)) {
       return new Response('Forbidden', { status: 403 });
@@ -669,7 +667,7 @@ async function handleHttp(request, env) {
     }
   }
 
-  // GET — Info
+  // GET
   return new Response(
     `TradeAgent IV Bot\n\nWebhook: POST / (Telegram updates)\nManual: POST /?type=price|volume|daily|trending|fng|all|alert\nHeader: x-admin-secret required for manual\nDebug: GET /debug\n`,
     { status: 200 }
