@@ -1,0 +1,334 @@
+// ═══════════════════════════════════════════════════════════════
+//  CRYPTO TELEGRAM BOT — Cloudflare Workers
+//  1 File | Modular | Production Ready
+// ═══════════════════════════════════════════════════════════════
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 1. CONFIG
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const COINS = {
+  bitcoin:           { symbol: 'BTC', emoji: '₿',   name: 'Bitcoin' },
+  ethereum:          { symbol: 'ETH', emoji: 'Ξ',   name: 'Ethereum' },
+  solana:            { symbol: 'SOL', emoji: '◎',   name: 'Solana' },
+  binancecoin:       { symbol: 'BNB', emoji: '🔶',  name: 'BNB' },
+  ripple:            { symbol: 'XRP', emoji: '✕',   name: 'XRP' },
+  'the-open-network':{ symbol: 'TON', emoji: '💎',  name: 'Toncoin' },
+};
+
+const COIN_IDS   = Object.keys(COINS).join(',');
+const CRON_PRICE = '*/30 * * * *';   // Every 30 min
+const CRON_VOL   = '0 * * * *';      // Every hour
+const CRON_DAILY = '0 13 * * *';     // Daily 13:00 UTC
+
+// Alert thresholds (USD)
+const ALERTS = {
+  bitcoin:  { above: 110000, below: 95000 },
+  ethereum: { above: 4500,   below: 3200 },
+  solana:   { above: 250,    below: 180 },
+};
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 2. UTILS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const fmt = {
+  price: (n) => {
+    if (n >= 1000) return n.toLocaleString('en-US', { maximumFractionDigits: 0 });
+    if (n >= 1)    return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return n.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 6 });
+  },
+  vol: (n) => {
+    if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+    if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
+    return `$${(n / 1e3).toFixed(2)}K`;
+  },
+  cap: (n) => {
+    if (n >= 1e12) return `$${(n / 1e12).toFixed(2)}T`;
+    if (n >= 1e9)  return `$${(n / 1e9).toFixed(2)}B`;
+    return `$${(n / 1e6).toFixed(2)}M`;
+  },
+  change: (n) => {
+    const v = n || 0;
+    return `${v >= 0 ? '🟢' : '🔴'} ${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
+  },
+  time: () => new Date().toISOString().slice(0, 16).replace('T', ' '),
+  date: () => new Date().toISOString().slice(0, 10),
+};
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 3. API
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+async function api(url, retries = 3) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const r = await fetch(url, { headers: { Accept: 'application/json' } });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return await r.json();
+    } catch (e) {
+      if (i === retries - 1) throw e;
+      await new Promise((r) => setTimeout(r, 1000 * (i + 1)));
+    }
+  }
+}
+
+function getCoins() {
+  const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${COIN_IDS}&order=market_cap_desc&sparkline=false&price_change_percentage=24h`;
+  return api(url);
+}
+
+function getGlobal() {
+  return api('https://api.coingecko.com/api/v3/global');
+}
+
+function getTrending() {
+  return api('https://api.coingecko.com/api/v3/search/trending');
+}
+
+function getFearGreed() {
+  return api('https://api.alternative.me/fng/?limit=1');
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 4. TELEGRAM
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+async function tg(env, text) {
+  const { TELEGRAM_BOT_TOKEN, TELEGRAM_CHANNEL_ID } = env;
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHANNEL_ID) {
+    throw new Error('Secrets missing: TELEGRAM_BOT_TOKEN or TELEGRAM_CHANNEL_ID');
+  }
+
+  const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+  const body = JSON.stringify({
+    chat_id: TELEGRAM_CHANNEL_ID,
+    text,
+    parse_mode: 'Markdown',
+    disable_web_page_preview: true,
+  });
+
+  for (let i = 0; i < 3; i++) {
+    try {
+      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+      const d = await r.json();
+      if (!d.ok) throw new Error(d.description);
+      return d;
+    } catch (e) {
+      if (i === 2) throw e;
+      await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
+    }
+  }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 5. MESSAGE BUILDERS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// ── 5.1 Price Update (Every 30 min) ────────────────────────────
+async function buildPrice(coins) {
+  let m = `📊 *Live Price Update*\n`;
+  m += `━━━━━━━━━━━━━━━━━━━━\n\n`;
+
+  for (const c of coins) {
+    const i = COINS[c.id];
+    if (!i) continue;
+    m += `${i.emoji} *${i.symbol}*  —  $${fmt.price(c.current_price)}\n`;
+    m += `   ${fmt.change(c.price_change_percentage_24h)}\n\n`;
+  }
+
+  m += `━━━━━━━━━━━━━━━━━━━━\n🕒 ${fmt.time()} UTC\n📡 @TradeAgentIV`;
+  return m;
+}
+
+// ── 5.2 Volume Update (Every hour) ─────────────────────────────
+async function buildVolume(coins) {
+  let m = `📈 *Volume & Market Cap*\n`;
+  m += `━━━━━━━━━━━━━━━━━━━━\n\n`;
+
+  for (const c of coins) {
+    const i = COINS[c.id];
+    if (!i) continue;
+    m += `${i.emoji} *${i.symbol}*  —  $${fmt.price(c.current_price)}\n`;
+    m += `   📊 Vol 24H: ${fmt.vol(c.total_volume)}\n`;
+    m += `   🏦 Market Cap: ${fmt.cap(c.market_cap)}\n\n`;
+  }
+
+  m += `━━━━━━━━━━━━━━━━━━━━\n🕒 ${fmt.time()} UTC\n📡 @TradeAgentIV`;
+  return m;
+}
+
+// ── 5.3 Daily Report (13:00 UTC) ───────────────────────────────
+async function buildDaily(coins, globalData, trending, fear) {
+  const sorted = [...coins].sort((a, b) => (b.price_change_percentage_24h || 0) - (a.price_change_percentage_24h || 0));
+  const best = sorted[0];
+  const worst = sorted[sorted.length - 1];
+
+  let m = `📉 *Daily Market Report — 24H*\n`;
+  m += `━━━━━━━━━━━━━━━━━━━━\n\n`;
+
+  // Global stats
+  if (globalData?.data) {
+    const g = globalData.data;
+    m += `🌍 *Global Market*\n`;
+    m += `   Total Cap: ${fmt.cap(g.total_market_cap?.usd || 0)}\n`;
+    m += `   24H Vol: ${fmt.vol(g.total_volume?.usd || 0)}\n`;
+    m += `   BTC Dom: ${g.market_cap_percentage?.btc?.toFixed(1) || '?'}%\n\n`;
+  }
+
+  // Fear & Greed
+  if (fear?.data?.[0]) {
+    const f = fear.data[0];
+    const v = parseInt(f.value);
+    const em = v >= 75 ? '😱' : v >= 55 ? '😊' : v >= 45 ? '😐' : v >= 25 ? '😰' : '😨';
+    m += `🧠 *Fear & Greed*\n`;
+    m += `   ${em} ${v}/100 — ${f.value_classification}\n\n`;
+  }
+
+  // Coin details
+  m += `━━━━━━━━━━━━━━━━━━━━\n\n`;
+  for (const c of sorted) {
+    const i = COINS[c.id];
+    if (!i) continue;
+    m += `${i.emoji} *${i.symbol}*  —  $${fmt.price(c.current_price)}\n`;
+    m += `   24H: ${fmt.change(c.price_change_percentage_24h)}  |  Cap: ${fmt.cap(c.market_cap)}\n\n`;
+  }
+
+  // Best / Worst
+  if (best && COINS[best.id]) {
+    const i = COINS[best.id];
+    m += `🏆 *Top Gainer*\n${i.emoji} ${i.symbol}  ${fmt.change(best.price_change_percentage_24h)}\n\n`;
+  }
+  if (worst && COINS[worst.id]) {
+    const i = COINS[worst.id];
+    m += `⚠️ *Top Loser*\n${i.emoji} ${i.symbol}  ${fmt.change(worst.price_change_percentage_24h)}\n\n`;
+  }
+
+  // Trending
+  if (trending?.coins?.length) {
+    m += `🔥 *Trending*\n`;
+    for (const t of trending.coins.slice(0, 3)) {
+      m += `   ${t.item.symbol} — ${t.item.name}\n`;
+    }
+    m += `\n`;
+  }
+
+  m += `━━━━━━━━━━━━━━━━━━━━\n📅 ${fmt.date()} — Daily Report\n📡 @TradeAgentIV`;
+  return m;
+}
+
+// ── 5.4 Alert Message ──────────────────────────────────────────
+function buildAlert(coinId, price, type) {
+  const i = COINS[coinId];
+  const t = type === 'above' ? '🚀 ABOVE' : '📉 BELOW';
+  return `🚨 *${i.symbol} ALERT*\n\n${i.emoji} ${i.name}\n${t} target!\n\nCurrent: $${fmt.price(price)}\n🕒 ${fmt.time()} UTC\n📡 @TradeAgentIV`;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 6. ALERT SYSTEM (KV)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+async function checkAlerts(env, coins) {
+  if (!env.ALERTS_KV) return; // Skip if KV not bound
+
+  for (const c of coins) {
+    const cfg = ALERTS[c.id];
+    if (!cfg) continue;
+
+    const price = c.current_price;
+    const key = `alert:${c.id}`;
+    const last = await env.ALERTS_KV.get(key);
+
+    // Above threshold
+    if (cfg.above && price >= cfg.above) {
+      if (last !== 'above') {
+        await tg(env, buildAlert(c.id, price, 'above'));
+        await env.ALERTS_KV.put(key, 'above');
+      }
+    }
+    // Below threshold
+    else if (cfg.below && price <= cfg.below) {
+      if (last !== 'below') {
+        await tg(env, buildAlert(c.id, price, 'below'));
+        await env.ALERTS_KV.put(key, 'below');
+      }
+    }
+    // Reset if back to normal zone
+    else if (last) {
+      await env.ALERTS_KV.delete(key);
+    }
+  }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 7. HANDLERS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+async function handlePrice(env) {
+  const coins = await getCoins();
+  await checkAlerts(env, coins);
+  await tg(env, await buildPrice(coins));
+}
+
+async function handleVolume(env) {
+  const coins = await getCoins();
+  await tg(env, await buildVolume(coins));
+}
+
+async function handleDaily(env) {
+  const [coins, globalData, trending, fear] = await Promise.all([
+    getCoins(),
+    getGlobal(),
+    getTrending(),
+    getFearGreed(),
+  ]);
+  await tg(env, await buildDaily(coins, globalData, trending, fear));
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 8. ENTRY POINT
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export default {
+  // Cron triggers
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(
+      (async () => {
+        try {
+          switch (event.cron) {
+            case CRON_PRICE: await handlePrice(env);  break;
+            case CRON_VOL:   await handleVolume(env); break;
+            case CRON_DAILY: await handleDaily(env);  break;
+            default:         await handlePrice(env);
+          }
+        } catch (err) {
+          console.error(`[CRON ERROR] ${event.cron}: ${err.message}`);
+        }
+      })()
+    );
+  },
+
+  // Manual trigger via HTTP
+  async fetch(request, env, ctx) {
+    if (request.method !== 'POST') {
+      return new Response(
+        'Crypto Bot — POST /?type=price|volume|daily|alert',
+        { status: 200 }
+      );
+    }
+
+    try {
+      const type = new URL(request.url).searchParams.get('type') || 'price';
+      if (type === 'price')  await handlePrice(env);
+      if (type === 'volume') await handleVolume(env);
+      if (type === 'daily')  await handleDaily(env);
+      if (type === 'alert') {
+        const coins = await getCoins();
+        await checkAlerts(env, coins);
+      }
+      return new Response('✅ Sent!', { status: 200 });
+    } catch (e) {
+      return new Response(`❌ ${e.message}`, { status: 500 });
+    }
+  },
+};
