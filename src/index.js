@@ -604,13 +604,13 @@ async function handleCron(cron, env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 14. HTTP HANDLER
+// 14. HTTP HANDLER — FIX: Routing درست
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleHttp(request, env) {
   const url = new URL(request.url);
 
-  // Debug endpoint
+  // ── 14.1 DEBUG ───────────────────────────────────────────────
   if (url.pathname === '/debug' && request.method === 'GET') {
     const checks = {
       has_token: !!env.TELEGRAM_BOT_TOKEN,
@@ -628,7 +628,8 @@ async function handleHttp(request, env) {
     });
   }
 
-  // Telegram Webhook — POST without x-admin-secret
+  // ── 14.2 TELEGRAM WEBHOOK (اولویت اول) ──────────────────────
+  // Telegram هیچ secret نمی‌فرسته → فقط چک کن Telegram update باشه
   if (request.method === 'POST' && !request.headers.get('x-admin-secret')) {
     try {
       const update = await request.json();
@@ -636,14 +637,13 @@ async function handleHttp(request, env) {
         await processWebhook(update, env);
         return new Response('OK', { status: 200 });
       }
-      return new Response('Not a Telegram update', { status: 200 });
+      // اگه JSON بود ولی update_id نداشت → ممکنه manual باشه، ادامه بده
     } catch (e) {
-      console.error('Webhook parse error:', e.message);
-      return new Response('OK', { status: 200 });
+      // JSON parse failed → ادامه بده (شاید manual form-data باشه)
     }
   }
 
-  // Manual trigger — POST with x-admin-secret
+  // ── 14.3 MANUAL TRIGGER (با secret) ─────────────────────────
   if (request.method === 'POST') {
     if (!checkSecret(request, env)) {
       return new Response('Forbidden', { status: 403 });
@@ -666,7 +666,7 @@ async function handleHttp(request, env) {
     }
   }
 
-  // GET
+  // ── 14.4 GET INFO ────────────────────────────────────────────
   return new Response(
     `TradeAgent IV Bot\n\nWebhook: POST / (Telegram updates)\nManual: POST /?type=price|volume|daily|trending|fng|all|alert\nHeader: x-admin-secret required for manual\nDebug: GET /debug\n`,
     { status: 200 }
