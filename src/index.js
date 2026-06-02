@@ -3,31 +3,6 @@
 //  Cloudflare Workers | 1 File | Modular | Production Ready
 // ═══════════════════════════════════════════════════════════════
 
-async function handleHttp(request, env) {
-  const url = new URL(request.url);
-  
-  // ===== DEBUG ENDPOINT =====
-  if (url.pathname === '/debug' && request.method === 'GET') {
-    const checks = {
-      has_token: !!env.TELEGRAM_BOT_TOKEN,
-      has_channel: !!env.TELEGRAM_CHANNEL_ID,
-      has_admin_id: !!env.ADMIN_ID,
-      has_admin_secret: !!env.ADMIN_SECRET,
-      has_kv: !!env.ALERTS_KV,
-      token_preview: env.TELEGRAM_BOT_TOKEN ? env.TELEGRAM_BOT_TOKEN.slice(0, 10) + '...' : 'MISSING',
-      channel_id: env.TELEGRAM_CHANNEL_ID || 'MISSING',
-      admin_id: env.ADMIN_ID || 'MISSING',
-    };
-    return new Response(JSON.stringify(checks, null, 2), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-  // ==========================
-  
-  // ... بقیه کد handleHttp ...
-}
-
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 1. CONFIG
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -42,9 +17,9 @@ const COINS = {
 };
 
 const COIN_IDS   = Object.keys(COINS).join(',');
-const CRON_PRICE = '*/30 * * * *';   // Every 30 min
-const CRON_VOL   = '0 * * * *';      // Every hour
-const CRON_DAILY = '0 13 * * *';     // Daily 13:00 UTC
+const CRON_PRICE = '*/30 * * * *';
+const CRON_VOL   = '0 * * * *';
+const CRON_DAILY = '0 13 * * *';
 
 const ALERT_PRESETS = {
   bitcoin:  { above: 110000, below: 95000 },
@@ -618,13 +593,31 @@ async function handleCron(cron, env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 14. HTTP HANDLER
+// 14. HTTP HANDLER (فقط یکی!)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleHttp(request, env) {
   const url = new URL(request.url);
 
-  // Telegram Webhook (POST without x-admin-secret header)
+  // Debug endpoint
+  if (url.pathname === '/debug' && request.method === 'GET') {
+    const checks = {
+      has_token: !!env.TELEGRAM_BOT_TOKEN,
+      has_channel: !!env.TELEGRAM_CHANNEL_ID,
+      has_admin_id: !!env.ADMIN_ID,
+      has_admin_secret: !!env.ADMIN_SECRET,
+      has_kv: !!env.ALERTS_KV,
+      token_preview: env.TELEGRAM_BOT_TOKEN ? env.TELEGRAM_BOT_TOKEN.slice(0, 10) + '...' : 'MISSING',
+      channel_id: env.TELEGRAM_CHANNEL_ID || 'MISSING',
+      admin_id: env.ADMIN_ID || 'MISSING',
+    };
+    return new Response(JSON.stringify(checks, null, 2), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Telegram Webhook (POST without x-admin-secret)
   if (request.method === 'POST' && !request.headers.get('x-admin-secret')) {
     try {
       const update = await request.json();
@@ -633,7 +626,7 @@ async function handleHttp(request, env) {
         return new Response('OK', { status: 200 });
       }
     } catch (e) {
-      // Not a valid Telegram update, fall through to manual trigger
+      // Not a valid Telegram update, fall through
     }
   }
 
@@ -662,7 +655,7 @@ async function handleHttp(request, env) {
 
   // GET — Info
   return new Response(
-    `TradeAgent IV Bot\n\nWebhook: POST / (Telegram updates)\nManual: POST /?type=price|volume|daily|trending|fng|all|alert\nHeader: x-admin-secret required for manual\n`,
+    `TradeAgent IV Bot\n\nWebhook: POST / (Telegram updates)\nManual: POST /?type=price|volume|daily|trending|fng|all|alert\nHeader: x-admin-secret required for manual\nDebug: GET /debug\n`,
     { status: 200 }
   );
 }
@@ -673,10 +666,19 @@ async function handleHttp(request, env) {
 
 export default {
   async fetch(request, env, ctx) {
-    return handleHttp(request, env);
+    try {
+      return await handleHttp(request, env);
+    } catch (err) {
+      return new Response(
+        `❌ ERROR: ${err.message}\n\n📍 STACK:\n${err.stack}`,
+        { status: 500, headers: { 'Content-Type': 'text/plain' } }
+      );
+    }
   },
 
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(handleCron(event.cron, env));
+    ctx.waitUntil(
+      handleCron(event.cron, env).catch(e => console.error('CRON ERROR:', e))
+    );
   },
 };
