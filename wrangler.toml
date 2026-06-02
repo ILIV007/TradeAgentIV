@@ -5,8 +5,3 @@ compatibility_date = "2026-02-06"
 # Cron Jobs
 [triggers]
 crons = ["*/30 * * * *", "0 * * * *", "0 13 * * *"]
-
-# KV Binding — اینجا باید ID واقعی KV ات رو بذاری
-[[kv_namespaces]]
-binding = "ALERTS_KV"
-id = "9d52537a39ff42feb02dedcc5fd740a3"
