@@ -480,97 +480,110 @@ async function handleHelp(chatId, env, userId) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 12. WEBHOOK PROCESSOR
+// 12. WEBHOOK PROCESSOR (با Error Handling داخلی)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function processWebhook(update, env) {
-  if (update.message) {
-    const msg = update.message;
-    const chatId = msg.chat.id;
-    const userId = msg.from.id;
-    const text = msg.text || '';
+  try {
+    if (update.message) {
+      const msg = update.message;
+      const chatId = msg.chat.id;
+      const userId = msg.from.id;
+      const text = msg.text || '';
 
-    if (text === '/start') {
-      await handleStart(chatId, userId, env);
-    } else if (text === '/price' || text === '📊 Prices') {
-      await handlePrices(chatId, env);
-    } else if (text === '/volume' || text === '📈 Market Report') {
-      await handleVolume(chatId, env);
-    } else if (text === '/daily') {
-      await handleDaily(chatId, env);
-    } else if (text === '/trending') {
-      await handleTrending(chatId, env);
-    } else if (text === '/fng' || text === '🧠 Fear & Greed') {
-      await handleFng(chatId, env);
-    } else if (text === '/alerts' || text === '🚨 Alerts') {
-      await handleAlerts(chatId, env);
-    } else if (text === '/settings' || text === '⚙️ Settings') {
-      await handleSettings(chatId, env);
-    } else if (text === '/help') {
-      await handleHelp(chatId, env, userId);
-    } else if (text === '/admin' || text === '📣 Admin Panel') {
-      if (!isAdmin(userId, env)) {
-        await sendMessage(env, chatId, '⛔️ *Forbidden*\n\nYou are not authorized.');
+      if (text === '/start') {
+        await handleStart(chatId, userId, env);
+      } else if (text === '/price' || text === '📊 Prices') {
+        await handlePrices(chatId, env);
+      } else if (text === '/volume' || text === '📈 Market Report') {
+        await handleVolume(chatId, env);
+      } else if (text === '/daily') {
+        await handleDaily(chatId, env);
+      } else if (text === '/trending') {
+        await handleTrending(chatId, env);
+      } else if (text === '/fng' || text === '🧠 Fear & Greed') {
+        await handleFng(chatId, env);
+      } else if (text === '/alerts' || text === '🚨 Alerts') {
+        await handleAlerts(chatId, env);
+      } else if (text === '/settings' || text === '⚙️ Settings') {
+        await handleSettings(chatId, env);
+      } else if (text === '/help') {
+        await handleHelp(chatId, env, userId);
+      } else if (text === '/admin' || text === '📣 Admin Panel') {
+        if (!isAdmin(userId, env)) {
+          await sendMessage(env, chatId, '⛔️ *Forbidden*\n\nYou are not authorized.');
+          return;
+        }
+        await handleAdmin(chatId, env);
+      } else if (text === '/sendprice') {
+        if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
+        await sendMessage(env, chatId, '⏳ Sending price to channel...');
+        await sendChannelPrice(env);
+        await sendMessage(env, chatId, '✅ Price sent to channel!');
+      } else if (text === '/senddaily') {
+        if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
+        await sendMessage(env, chatId, '⏳ Sending daily to channel...');
+        await sendChannelDaily(env);
+        await sendMessage(env, chatId, '✅ Daily report sent to channel!');
+      } else {
+        await sendMessage(env, chatId, '❓ Unknown command. Use /help to see options.');
+      }
+    }
+
+    if (update.callback_query) {
+      const q = update.callback_query;
+      const chatId = q.message.chat.id;
+      const userId = q.from.id;
+      const data = q.data;
+      const msgId = q.message.message_id;
+
+      await answerCallback(env, q.id);
+
+      if (data.startsWith('send_')) {
+        if (!isAdmin(userId, env)) {
+          await sendMessage(env, chatId, '⛔️ *Forbidden*');
+          return;
+        }
+        await sendMessage(env, chatId, '⏳ Sending to channel...');
+        try {
+          if (data === 'send_price')    await sendChannelPrice(env);
+          if (data === 'send_volume')   await sendChannelVolume(env);
+          if (data === 'send_daily')    await sendChannelDaily(env);
+          if (data === 'send_trending') await sendChannelTrending(env);
+          if (data === 'send_fng')      await sendChannelFng(env);
+          if (data === 'send_all')      await sendChannelAll(env);
+          await editMessage(env, chatId, msgId, '✅ *Sent to channel successfully!*', adminInline);
+        } catch (e) {
+          await editMessage(env, chatId, msgId, `❌ *Error:* ${e.message}`, adminInline);
+        }
         return;
       }
-      await handleAdmin(chatId, env);
-    } else if (text === '/sendprice') {
-      if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
-      await sendMessage(env, chatId, '⏳ Sending price to channel...');
-      await sendChannelPrice(env);
-      await sendMessage(env, chatId, '✅ Price sent to channel!');
-    } else if (text === '/senddaily') {
-      if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
-      await sendMessage(env, chatId, '⏳ Sending daily to channel...');
-      await sendChannelDaily(env);
-      await sendMessage(env, chatId, '✅ Daily report sent to channel!');
-    } else {
-      await sendMessage(env, chatId, '❓ Unknown command. Use /help to see options.');
-    }
-  }
 
-  if (update.callback_query) {
-    const q = update.callback_query;
-    const chatId = q.message.chat.id;
-    const userId = q.from.id;
-    const data = q.data;
-    const msgId = q.message.message_id;
-
-    await answerCallback(env, q.id);
-
-    if (data.startsWith('send_')) {
-      if (!isAdmin(userId, env)) {
-        await sendMessage(env, chatId, '⛔️ *Forbidden*');
+      if (data.startsWith('toggle:')) {
+        const key = data.replace('toggle:', '');
+        const current = await getAlertState(env, key);
+        await setAlertState(env, key, !current);
+        const states = await getAllAlertStates(env);
+        await editMessage(env, chatId, msgId, `🚨 *Alert Settings*\n\nUpdated!`, alertsInline(states));
         return;
       }
-      await sendMessage(env, chatId, '⏳ Sending to channel...');
-      try {
-        if (data === 'send_price')    await sendChannelPrice(env);
-        if (data === 'send_volume')   await sendChannelVolume(env);
-        if (data === 'send_daily')    await sendChannelDaily(env);
-        if (data === 'send_trending') await sendChannelTrending(env);
-        if (data === 'send_fng')      await sendChannelFng(env);
-        if (data === 'send_all')      await sendChannelAll(env);
-        await editMessage(env, chatId, msgId, '✅ *Sent to channel successfully!*', adminInline);
-      } catch (e) {
-        await editMessage(env, chatId, msgId, `❌ *Error:* ${e.message}`, adminInline);
+
+      if (data === 'back_main') {
+        const admin = isAdmin(userId, env);
+        await sendMessage(env, chatId, '👋 *Main Menu*', mainKeyboard(admin));
+        return;
       }
-      return;
     }
-
-    if (data.startsWith('toggle:')) {
-      const key = data.replace('toggle:', '');
-      const current = await getAlertState(env, key);
-      await setAlertState(env, key, !current);
-      const states = await getAllAlertStates(env);
-      await editMessage(env, chatId, msgId, `🚨 *Alert Settings*\n\nUpdated!`, alertsInline(states));
-      return;
-    }
-
-    if (data === 'back_main') {
-      const admin = isAdmin(userId, env);
-      await sendMessage(env, chatId, '👋 *Main Menu*', mainKeyboard(admin));
-      return;
+  } catch (err) {
+    // اگه خطایی رخ داد، به کاربر بگو ولی throw نکن (تا 403 نشه)
+    console.error('WEBHOOK ERROR:', err.message);
+    try {
+      const chatId = update.message?.chat?.id || update.callback_query?.message?.chat?.id;
+      if (chatId) {
+        await sendMessage(env, chatId, `❌ *Error:* ${err.message}\n\nPlease try again later.`);
+      }
+    } catch (e) {
+      // Ignore
     }
   }
 }
@@ -617,7 +630,7 @@ async function handleHttp(request, env) {
     });
   }
 
-  // Telegram Webhook (POST without x-admin-secret)
+  // Telegram Webhook — فقط POST بدون x-admin-secret
   if (request.method === 'POST' && !request.headers.get('x-admin-secret')) {
     try {
       const update = await request.json();
@@ -625,12 +638,15 @@ async function handleHttp(request, env) {
         await processWebhook(update, env);
         return new Response('OK', { status: 200 });
       }
+      return new Response('Not a Telegram update', { status: 200 });
     } catch (e) {
-      // Not a valid Telegram update, fall through
+      // خطای Telegram Webhook → 200 بده تا retry نکنه
+      console.error('Webhook parse error:', e.message);
+      return new Response('OK', { status: 200 });
     }
   }
 
-  // Manual trigger (requires secret)
+  // Manual trigger — فقط با secret
   if (request.method === 'POST') {
     if (!checkSecret(request, env)) {
       return new Response('Forbidden', { status: 403 });
