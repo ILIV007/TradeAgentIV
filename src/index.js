@@ -1,5 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV — Telegram Bot + Admin Panel + Channel Manager
+//  TRADEAGENT IV — Production Ready
+//  Routes: /webhook | /admin | /debug
 // ═══════════════════════════════════════════════════════════════
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -101,11 +102,13 @@ function getFearGreed() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 5. TELEGRAM API
+// 5. TELEGRAM API (با Logging)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function tgMethod(token, method, body) {
   const url = `https://api.telegram.org/bot${token}/${method}`;
+  console.log(`[TG] ${method} → ${body.chat_id || 'N/A'}`);
+
   for (let i = 0; i < 3; i++) {
     try {
       const r = await fetch(url, {
@@ -114,9 +117,11 @@ async function tgMethod(token, method, body) {
         body: JSON.stringify(body),
       });
       const d = await r.json();
+      console.log(`[TG] ${method} ← ok=${d.ok}`, d.ok ? '' : d.description);
       if (!d.ok) throw new Error(d.description);
       return d;
     } catch (e) {
+      console.error(`[TG] ${method} attempt ${i+1} failed:`, e.message);
       if (i === 2) throw e;
       await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
     }
@@ -359,35 +364,65 @@ async function checkAlerts(env, coins) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 10. CHANNEL SENDERS
+// 10. CHANNEL SENDERS (با try/catch)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function sendChannelPrice(env) {
-  const coins = await getCoins();
-  await checkAlerts(env, coins);
-  await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildPrice(coins));
+  try {
+    const coins = await getCoins();
+    await checkAlerts(env, coins);
+    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildPrice(coins));
+    console.log('[SEND] Price OK');
+  } catch (e) {
+    console.error('[SEND] Price FAILED:', e.message);
+    throw e;
+  }
 }
 
 async function sendChannelVolume(env) {
-  const coins = await getCoins();
-  await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildVolume(coins));
+  try {
+    const coins = await getCoins();
+    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildVolume(coins));
+    console.log('[SEND] Volume OK');
+  } catch (e) {
+    console.error('[SEND] Volume FAILED:', e.message);
+    throw e;
+  }
 }
 
 async function sendChannelDaily(env) {
-  const [coins, globalData, trending, fear] = await Promise.all([
-    getCoins(), getGlobal(), getTrending(), getFearGreed(),
-  ]);
-  await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildDaily(coins, globalData, trending, fear));
+  try {
+    const [coins, globalData, trending, fear] = await Promise.all([
+      getCoins(), getGlobal(), getTrending(), getFearGreed(),
+    ]);
+    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildDaily(coins, globalData, trending, fear));
+    console.log('[SEND] Daily OK');
+  } catch (e) {
+    console.error('[SEND] Daily FAILED:', e.message);
+    throw e;
+  }
 }
 
 async function sendChannelTrending(env) {
-  const trending = await getTrending();
-  await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildTrending(trending));
+  try {
+    const trending = await getTrending();
+    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildTrending(trending));
+    console.log('[SEND] Trending OK');
+  } catch (e) {
+    console.error('[SEND] Trending FAILED:', e.message);
+    throw e;
+  }
 }
 
 async function sendChannelFng(env) {
-  const fear = await getFearGreed();
-  await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildFng(fear));
+  try {
+    const fear = await getFearGreed();
+    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildFng(fear));
+    console.log('[SEND] FNG OK');
+  } catch (e) {
+    console.error('[SEND] FNG FAILED:', e.message);
+    throw e;
+  }
 }
 
 async function sendChannelAll(env) {
@@ -490,6 +525,8 @@ async function processWebhook(update, env) {
       const userId = msg.from.id;
       const text = msg.text || '';
 
+      console.log(`[BOT] ${userId}: ${text}`);
+
       if (text === '/start') {
         await handleStart(chatId, userId, env);
       } else if (text === '/price' || text === '📊 Prices') {
@@ -536,6 +573,8 @@ async function processWebhook(update, env) {
       const data = q.data;
       const msgId = q.message.message_id;
 
+      console.log(`[BOT] callback: ${data}`);
+
       await answerCallback(env, q.id);
 
       if (data.startsWith('send_')) {
@@ -553,6 +592,7 @@ async function processWebhook(update, env) {
           if (data === 'send_all')      await sendChannelAll(env);
           await editMessage(env, chatId, msgId, '✅ *Sent to channel successfully!*', adminInline);
         } catch (e) {
+          console.error('[BOT] Send failed:', e.message);
           await editMessage(env, chatId, msgId, `❌ *Error:* ${e.message}`, adminInline);
         }
         return;
@@ -574,7 +614,7 @@ async function processWebhook(update, env) {
       }
     }
   } catch (err) {
-    console.error('WEBHOOK ERROR:', err.message);
+    console.error('[BOT] CRASH:', err.message);
     try {
       const chatId = update.message?.chat?.id || update.callback_query?.message?.chat?.id;
       if (chatId) {
@@ -604,77 +644,106 @@ async function handleCron(cron, env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 14. HTTP HANDLER — FIX: Routing درست
+// 14. HTTP ROUTER — جدا شده و تمیز
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+async function handleWebhook(request, env) {
+  // Telegram webhook — فقط POST، هیچ auth نمی‌خواد
+  try {
+    const update = await request.json();
+    if (update?.update_id) {
+      await processWebhook(update, env);
+      return new Response('OK', { status: 200 });
+    }
+    return new Response('Not a Telegram update', { status: 200 });
+  } catch (e) {
+    console.error('[WEBHOOK] Parse error:', e.message);
+    return new Response('OK', { status: 200 });
+  }
+}
+
+async function handleAdmin(request, env) {
+  // Manual trigger — فقط با secret
+  if (!checkSecret(request, env)) {
+    return new Response('Forbidden', { status: 403 });
+  }
+
+  const url = new URL(request.url);
+  const type = url.searchParams.get('type') || 'price';
+
+  try {
+    if (type === 'price')    await sendChannelPrice(env);
+    if (type === 'volume')   await sendChannelVolume(env);
+    if (type === 'daily')    await sendChannelDaily(env);
+    if (type === 'trending') await sendChannelTrending(env);
+    if (type === 'fng')      await sendChannelFng(env);
+    if (type === 'all')      await sendChannelAll(env);
+    if (type === 'alert') {
+      const coins = await getCoins();
+      await checkAlerts(env, coins);
+    }
+    return new Response('✅ Sent!', { status: 200 });
+  } catch (e) {
+    return new Response(`❌ ${e.message}`, { status: 500 });
+  }
+}
+
+async function handleDebug(env) {
+  const checks = {
+    has_token: !!env.TELEGRAM_BOT_TOKEN,
+    has_channel: !!env.TELEGRAM_CHANNEL_ID,
+    has_admin_id: !!env.ADMIN_ID,
+    has_admin_secret: !!env.ADMIN_SECRET,
+    has_kv: !!env.ALERTS_KV,
+    token_preview: env.TELEGRAM_BOT_TOKEN ? env.TELEGRAM_BOT_TOKEN.slice(0, 10) + '...' : 'MISSING',
+    channel_id: env.TELEGRAM_CHANNEL_ID || 'MISSING',
+    admin_id: env.ADMIN_ID || 'MISSING',
+  };
+  return new Response(JSON.stringify(checks, null, 2), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 15. MAIN ROUTER
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleHttp(request, env) {
   const url = new URL(request.url);
+  const path = url.pathname;
 
-  // ── 14.1 DEBUG ───────────────────────────────────────────────
-  if (url.pathname === '/debug' && request.method === 'GET') {
-    const checks = {
-      has_token: !!env.TELEGRAM_BOT_TOKEN,
-      has_channel: !!env.TELEGRAM_CHANNEL_ID,
-      has_admin_id: !!env.ADMIN_ID,
-      has_admin_secret: !!env.ADMIN_SECRET,
-      has_kv: !!env.ALERTS_KV,
-      token_preview: env.TELEGRAM_BOT_TOKEN ? env.TELEGRAM_BOT_TOKEN.slice(0, 10) + '...' : 'MISSING',
-      channel_id: env.TELEGRAM_CHANNEL_ID || 'MISSING',
-      admin_id: env.ADMIN_ID || 'MISSING',
-    };
-    return new Response(JSON.stringify(checks, null, 2), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
+  console.log(`[HTTP] ${request.method} ${path}`);
+
+  // ── 15.1 WEBHOOK (/webhook) ─────────────────────────────────
+  if (path === '/webhook' && request.method === 'POST') {
+    return handleWebhook(request, env);
   }
 
-  // ── 14.2 TELEGRAM WEBHOOK (اولویت اول) ──────────────────────
-  // Telegram هیچ secret نمی‌فرسته → فقط چک کن Telegram update باشه
-  if (request.method === 'POST' && !request.headers.get('x-admin-secret')) {
-    try {
-      const update = await request.json();
-      if (update.update_id) {
-        await processWebhook(update, env);
-        return new Response('OK', { status: 200 });
-      }
-      // اگه JSON بود ولی update_id نداشت → ممکنه manual باشه، ادامه بده
-    } catch (e) {
-      // JSON parse failed → ادامه بده (شاید manual form-data باشه)
-    }
+  // ── 15.2 ADMIN (/admin) ──────────────────────────────────────
+  if (path === '/admin' && request.method === 'POST') {
+    return handleAdmin(request, env);
   }
 
-  // ── 14.3 MANUAL TRIGGER (با secret) ─────────────────────────
-  if (request.method === 'POST') {
-    if (!checkSecret(request, env)) {
-      return new Response('Forbidden', { status: 403 });
-    }
-    const type = url.searchParams.get('type') || 'price';
-    try {
-      if (type === 'price')    await sendChannelPrice(env);
-      if (type === 'volume')   await sendChannelVolume(env);
-      if (type === 'daily')    await sendChannelDaily(env);
-      if (type === 'trending') await sendChannelTrending(env);
-      if (type === 'fng')      await sendChannelFng(env);
-      if (type === 'all')      await sendChannelAll(env);
-      if (type === 'alert') {
-        const coins = await getCoins();
-        await checkAlerts(env, coins);
-      }
-      return new Response('✅ Sent!', { status: 200 });
-    } catch (e) {
-      return new Response(`❌ ${e.message}`, { status: 500 });
-    }
+  // ── 15.3 DEBUG (/debug) ──────────────────────────────────────
+  if (path === '/debug' && request.method === 'GET') {
+    return handleDebug(env);
   }
 
-  // ── 14.4 GET INFO ────────────────────────────────────────────
-  return new Response(
-    `TradeAgent IV Bot\n\nWebhook: POST / (Telegram updates)\nManual: POST /?type=price|volume|daily|trending|fng|all|alert\nHeader: x-admin-secret required for manual\nDebug: GET /debug\n`,
-    { status: 200 }
-  );
+  // ── 15.4 INFO (/) ────────────────────────────────────────────
+  if (path === '/' && request.method === 'GET') {
+    return new Response(
+      `TradeAgent IV Bot\n\nRoutes:\n  POST /webhook  → Telegram webhook\n  POST /admin    → Manual trigger (x-admin-secret required)\n  GET  /debug    → Status check\n\nCron: ${CRON_PRICE}, ${CRON_VOL}, ${CRON_DAILY}\n`,
+      { status: 200 }
+    );
+  }
+
+  // ── 15.5 404 ─────────────────────────────────────────────────
+  return new Response('Not Found', { status: 404 });
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 15. EXPORT
+// 16. EXPORT
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 export default {
@@ -682,6 +751,7 @@ export default {
     try {
       return await handleHttp(request, env);
     } catch (err) {
+      console.error('[FETCH] FATAL:', err.message);
       return new Response(
         `❌ ERROR: ${err.message}\n\n📍 STACK:\n${err.stack}`,
         { status: 500, headers: { 'Content-Type': 'text/plain' } }
@@ -691,7 +761,7 @@ export default {
 
   async scheduled(event, env, ctx) {
     ctx.waitUntil(
-      handleCron(event.cron, env).catch(e => console.error('CRON ERROR:', e))
+      handleCron(event.cron, env).catch(e => console.error('[CRON] ERROR:', e))
     );
   },
 };
