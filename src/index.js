@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV — Debugged & Production Ready
+//  TRADEAGENT IV — CoinGecko Fix + Binance Fallback
 //  Routes: /webhook | /admin | /debug
 // ═══════════════════════════════════════════════════════════════
 
@@ -25,6 +25,17 @@ const ALERT_PRESETS = {
   bitcoin:  { above: 110000, below: 95000 },
   ethereum: { above: 4500,   below: 3200 },
   solana:   { above: 250,    below: 180 },
+};
+
+const COINGECKO_BASE = 'https://api.coingecko.com/api/v3';
+
+const BINANCE_MAP = {
+  bitcoin: 'BTCUSDT',
+  ethereum: 'ETHUSDT',
+  solana: 'SOLUSDT',
+  binancecoin: 'BNBUSDT',
+  ripple: 'XRPUSDT',
+  'the-open-network': 'TONUSDT',
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -74,8 +85,16 @@ const fmt = {
 async function api(url, retries = 3) {
   for (let i = 0; i < retries; i++) {
     try {
-      const r = await fetch(url, { headers: { Accept: 'application/json' } });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const r = await fetch(url, {
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': 'TradeAgentIV/1.0',
+        },
+      });
+      if (!r.ok) {
+        const txt = await r.text().catch(() => '');
+        throw new Error(`HTTP ${r.status} ${txt.slice(0, 100)}`);
+      }
       return await r.json();
     } catch (e) {
       if (i === retries - 1) throw e;
@@ -84,17 +103,62 @@ async function api(url, retries = 3) {
   }
 }
 
-function getCoins() {
-  const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${COIN_IDS}&order=market_cap_desc&sparkline=false&price_change_percentage=24h`;
+// ── 4.1 COINGECKO (needs API key to avoid 403 from Cloudflare Workers) ──
+function getCoinsCG(env) {
+  const key = env.COINGECKO_API_KEY;
+  if (!key) return null;
+  const url = `${COINGECKO_BASE}/coins/markets?vs_currency=usd&ids=${COIN_IDS}&order=market_cap_desc&sparkline=false&price_change_percentage=24h&x_cg_demo_api_key=${key}`;
   return api(url);
 }
 
-function getGlobal() {
-  return api('https://api.coingecko.com/api/v3/global');
+function getGlobalCG(env) {
+  const key = env.COINGECKO_API_KEY;
+  if (!key) return null;
+  return api(`${COINGECKO_BASE}/global?x_cg_demo_api_key=${key}`);
 }
 
-function getTrending() {
-  return api('https://api.coingecko.com/api/v3/search/trending');
+function getTrendingCG(env) {
+  const key = env.COINGECKO_API_KEY;
+  if (!key) return null;
+  return api(`${COINGECKO_BASE}/search/trending?x_cg_demo_api_key=${key}`);
+}
+
+// ── 4.2 BINANCE FALLBACK (free, no key, works from Cloudflare Workers) ──
+async function getCoinsBinance() {
+  const symbols = Object.values(BINANCE_MAP).map(s => `"${s}"`).join(',');
+  const url = `https://api.binance.com/api/v3/ticker/24hr?symbols=[${symbols}]`;
+  const data = await api(url);
+  return data.map(b => {
+    const id = Object.keys(BINANCE_MAP).find(k => BINANCE_MAP[k] === b.symbol);
+    const price = parseFloat(b.lastPrice);
+    return {
+      id,
+      current_price: price,
+      price_change_percentage_24h: parseFloat(b.priceChangePercent),
+      total_volume: parseFloat(b.volume) * price, // approx USD volume
+      market_cap: 0, // Binance doesn't provide market cap
+    };
+  });
+}
+
+// ── 4.3 SMART FETCH (CoinGecko first, Binance fallback) ──
+async function getCoins(env) {
+  try {
+    const cg = await getCoinsCG(env);
+    if (cg) return cg;
+  } catch (e) {
+    console.error('[API] CoinGecko failed:', e.message);
+  }
+  console.log('[API] Falling back to Binance...');
+  return getCoinsBinance();
+}
+
+function getGlobal(env) {
+  return getGlobalCG(env); // returns null if no key
+}
+
+function getTrending(env) {
+  return getTrendingCG(env); // returns null if no key
 }
 
 function getFearGreed() {
@@ -102,7 +166,7 @@ function getFearGreed() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 5. TELEGRAM API (با Logging بهتر)
+// 5. TELEGRAM API
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function tgMethod(token, method, body) {
@@ -208,13 +272,14 @@ async function buildPrice(coins) {
 }
 
 async function buildVolume(coins) {
-  let m = `📈 *Volume & Market Cap*\n━━━━━━━━━━━━━━━━━━━━\n\n`;
+  let m = `📈 *Volume Report*\n━━━━━━━━━━━━━━━━━━━━\n\n`;
   for (const c of coins) {
     const i = COINS[c.id];
     if (!i) continue;
     m += `${i.emoji} *${i.symbol}*  —  $${fmt.price(c.current_price)}\n`;
     m += `   📊 Vol 24H: ${fmt.vol(c.total_volume)}\n`;
-    m += `   🏦 Cap: ${fmt.cap(c.market_cap)}\n\n`;
+    if (c.market_cap) m += `   🏦 Cap: ${fmt.cap(c.market_cap)}\n`;
+    m += `\n`;
   }
   m += `━━━━━━━━━━━━━━━━━━━━\n🕒 ${fmt.time()} UTC`;
   return m;
@@ -242,7 +307,9 @@ async function buildDaily(coins, globalData, trending, fear) {
     const i = COINS[c.id];
     if (!i) continue;
     m += `${i.emoji} *${i.symbol}*  —  $${fmt.price(c.current_price)}\n`;
-    m += `   24H: ${fmt.change(c.price_change_percentage_24h)}  |  Cap: ${fmt.cap(c.market_cap)}\n\n`;
+    m += `   24H: ${fmt.change(c.price_change_percentage_24h)}`;
+    if (c.market_cap) m += `  |  Cap: ${fmt.cap(c.market_cap)}`;
+    m += `\n\n`;
   }
 
   if (best && COINS[best.id]) {
@@ -369,7 +436,7 @@ async function checkAlerts(env, coins) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 10. CHANNEL SENDERS (با Validation و try/catch جداگانه)
+// 10. CHANNEL SENDERS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function ensureChannel(env) {
@@ -379,7 +446,7 @@ function ensureChannel(env) {
 async function sendChannelPrice(env) {
   try {
     ensureChannel(env);
-    const coins = await getCoins();
+    const coins = await getCoins(env);
     await checkAlerts(env, coins);
     await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildPrice(coins));
     console.log('[SEND] Price OK');
@@ -392,7 +459,7 @@ async function sendChannelPrice(env) {
 async function sendChannelVolume(env) {
   try {
     ensureChannel(env);
-    const coins = await getCoins();
+    const coins = await getCoins(env);
     await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildVolume(coins));
     console.log('[SEND] Volume OK');
   } catch (e) {
@@ -405,7 +472,7 @@ async function sendChannelDaily(env) {
   try {
     ensureChannel(env);
     const [coins, globalData, trending, fear] = await Promise.all([
-      getCoins(), getGlobal(), getTrending(), getFearGreed(),
+      getCoins(env), getGlobal(env), getTrending(env), getFearGreed(),
     ]);
     await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildDaily(coins, globalData, trending, fear));
     console.log('[SEND] Daily OK');
@@ -418,7 +485,11 @@ async function sendChannelDaily(env) {
 async function sendChannelTrending(env) {
   try {
     ensureChannel(env);
-    const trending = await getTrending();
+    const trending = await getTrending(env);
+    if (!trending) {
+      await sendMessage(env, env.TELEGRAM_CHANNEL_ID, '🔥 *Trending*\n\nTrending data requires CoinGecko API Key.\nSet `COINGECKO_API_KEY` in Worker environment.');
+      return;
+    }
     await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildTrending(trending));
     console.log('[SEND] Trending OK');
   } catch (e) {
@@ -440,7 +511,6 @@ async function sendChannelFng(env) {
 }
 
 async function sendChannelAll(env) {
-  // FIX: هر کدوم جداگانه try/catch می‌شن که اگر یکی fail بقیه اجرا بشن
   const results = [];
   const senders = [
     { name: 'Price',    fn: sendChannelPrice },
@@ -458,7 +528,6 @@ async function sendChannelAll(env) {
     }
   }
   console.log('[SEND ALL] Results:\n' + results.join('\n'));
-  // اگر همه fail شدن، ارور بده
   if (results.every(r => r.startsWith('❌'))) {
     throw new Error('All sends failed. Check logs.');
   }
@@ -477,24 +546,28 @@ async function handleStart(chatId, userId, env) {
 }
 
 async function handlePrices(chatId, env) {
-  const coins = await getCoins();
+  const coins = await getCoins(env);
   await sendMessage(env, chatId, await buildPrice(coins));
 }
 
 async function handleVolume(chatId, env) {
-  const coins = await getCoins();
+  const coins = await getCoins(env);
   await sendMessage(env, chatId, await buildVolume(coins));
 }
 
 async function handleDaily(chatId, env) {
   const [coins, globalData, trending, fear] = await Promise.all([
-    getCoins(), getGlobal(), getTrending(), getFearGreed(),
+    getCoins(env), getGlobal(env), getTrending(env), getFearGreed(),
   ]);
   await sendMessage(env, chatId, await buildDaily(coins, globalData, trending, fear));
 }
 
 async function handleTrending(chatId, env) {
-  const trending = await getTrending();
+  const trending = await getTrending(env);
+  if (!trending) {
+    await sendMessage(env, chatId, '🔥 *Trending*\n\nTrending data requires CoinGecko API Key.\nGet a free key at coingecko.com/en/api and set `COINGECKO_API_KEY`.');
+    return;
+  }
   await sendMessage(env, chatId, await buildTrending(trending));
 }
 
@@ -517,7 +590,8 @@ async function handleAlerts(chatId, env) {
 }
 
 async function handleSettings(chatId, env) {
-  await sendMessage(env, chatId, `⚙️ *Settings*\n\nChannel: ${env.TELEGRAM_CHANNEL_ID || 'Not set'}\nCron Jobs: Active\n\nUse /admin for admin panel.`);
+  const cgStatus = env.COINGECKO_API_KEY ? '✅ Connected' : '⚠️ Using Binance Fallback';
+  await sendMessage(env, chatId, `⚙️ *Settings*\n\nChannel: ${env.TELEGRAM_CHANNEL_ID || 'Not set'}\nCoinGecko: ${cgStatus}\nCron Jobs: Active\n\nUse /admin for admin panel.`);
 }
 
 async function showAdminPanel(chatId, env) {
@@ -529,7 +603,7 @@ async function handleHelp(chatId, env, userId) {
   let text = `📖 *Commands*\n\n`;
   text += `/start — Main menu\n`;
   text += `/price — Live prices\n`;
-  text += `/volume — Volume & Market Cap\n`;
+  text += `/volume — Volume report\n`;
   text += `/daily — Daily report\n`;
   text += `/trending — Trending coins\n`;
   text += `/fng — Fear & Greed Index\n`;
@@ -634,7 +708,6 @@ async function processWebhook(update, env) {
           if (data === 'send_fng')      await sendChannelFng(env);
           if (data === 'send_all')      await sendChannelAll(env);
 
-          // FIX: اضافه کردن زمان به پیام موفقیت برای جلوگیری از "not modified"
           const successText = `✅ *Sent to channel successfully!*\n🕒 ${fmt.time()}`;
           try {
             await editMessage(env, chatId, msgId, successText, adminInline);
@@ -684,7 +757,7 @@ async function processWebhook(update, env) {
         await sendMessage(env, chatId, `❌ *Error:* ${err.message}\n\nPlease try again later.`);
       }
     } catch (e) {
-      // Ignore secondary errors (e.g. user blocked bot)
+      // Ignore
     }
   }
 }
@@ -740,7 +813,7 @@ async function routeAdmin(request, env) {
     if (type === 'fng')      await sendChannelFng(env);
     if (type === 'all')      await sendChannelAll(env);
     if (type === 'alert') {
-      const coins = await getCoins();
+      const coins = await getCoins(env);
       await checkAlerts(env, coins);
     }
     return new Response('✅ Sent!', { status: 200 });
@@ -756,12 +829,12 @@ async function handleDebug(env) {
     has_admin_id: !!env.ADMIN_ID,
     has_admin_secret: !!env.ADMIN_SECRET,
     has_kv: !!env.ALERTS_KV,
+    has_coingecko_key: !!env.COINGECKO_API_KEY,
     token_preview: env.TELEGRAM_BOT_TOKEN ? env.TELEGRAM_BOT_TOKEN.slice(0, 10) + '...' : 'MISSING',
     channel_id: env.TELEGRAM_CHANNEL_ID || 'MISSING',
     admin_id: env.ADMIN_ID || 'MISSING',
   };
 
-  // Try to verify bot can post to channel
   if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHANNEL_ID) {
     try {
       const me = await tgMethod(env.TELEGRAM_BOT_TOKEN, 'getMe', {});
@@ -776,6 +849,22 @@ async function handleDebug(env) {
       checks.channel_access = `ERROR: ${e.message}`;
       checks.can_post = false;
     }
+  }
+
+  // Test CoinGecko API
+  try {
+    const test = await getCoinsCG(env);
+    checks.coingecko_status = test ? '✅ OK' : '⚠️ No API Key';
+  } catch (e) {
+    checks.coingecko_status = `❌ ${e.message}`;
+  }
+
+  // Test Binance API
+  try {
+    await getCoinsBinance();
+    checks.binance_status = '✅ OK';
+  } catch (e) {
+    checks.binance_status = `❌ ${e.message}`;
   }
 
   return new Response(JSON.stringify(checks, null, 2), {
@@ -808,7 +897,7 @@ async function handleHttp(request, env) {
 
   if (path === '/' && request.method === 'GET') {
     return new Response(
-      `TradeAgent IV Bot\n\nRoutes:\n  POST /webhook  → Telegram webhook\n  POST /admin    → Manual trigger (x-admin-secret required)\n  GET  /debug    → Status check + channel permissions\n\nCron: ${CRON_PRICE}, ${CRON_VOL}, ${CRON_DAILY}\n`,
+      `TradeAgent IV Bot\n\nRoutes:\n  POST /webhook  → Telegram webhook\n  POST /admin    → Manual trigger (x-admin-secret required)\n  GET  /debug    → Status check + API tests\n\nCron: ${CRON_PRICE}, ${CRON_VOL}, ${CRON_DAILY}\n`,
       { status: 200 }
     );
   }
