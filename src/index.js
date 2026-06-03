@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV — Production Ready
+//  TRADEAGENT IV — Debugged & Production Ready
 //  Routes: /webhook | /admin | /debug
 // ═══════════════════════════════════════════════════════════════
 
@@ -102,7 +102,7 @@ function getFearGreed() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 5. TELEGRAM API (با Logging)
+// 5. TELEGRAM API (با Logging بهتر)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function tgMethod(token, method, body) {
@@ -118,7 +118,11 @@ async function tgMethod(token, method, body) {
       });
       const d = await r.json();
       console.log(`[TG] ${method} ← ok=${d.ok}`, d.ok ? '' : d.description);
-      if (!d.ok) throw new Error(d.description);
+      if (!d.ok) {
+        const err = new Error(d.description || `Telegram API error ${method}`);
+        err.code = d.error_code;
+        throw err;
+      }
       return d;
     } catch (e) {
       console.error(`[TG] ${method} attempt ${i+1} failed:`, e.message);
@@ -153,6 +157,7 @@ async function editMessage(env, chatId, messageId, text, markup = null) {
 function mainKeyboard(isAdmin) {
   const kb = [
     [{ text: '📊 Prices' }, { text: '📈 Market Report' }],
+    [{ text: '🔥 Trending' }, { text: '🧠 F&G' }],
     [{ text: '🚨 Alerts' }, { text: '⚙️ Settings' }],
   ];
   if (isAdmin) kb.push([{ text: '📣 Admin Panel' }]);
@@ -364,11 +369,16 @@ async function checkAlerts(env, coins) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 10. CHANNEL SENDERS (با try/catch)
+// 10. CHANNEL SENDERS (با Validation و try/catch جداگانه)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function ensureChannel(env) {
+  if (!env.TELEGRAM_CHANNEL_ID) throw new Error('TELEGRAM_CHANNEL_ID is not set in Worker environment');
+}
 
 async function sendChannelPrice(env) {
   try {
+    ensureChannel(env);
     const coins = await getCoins();
     await checkAlerts(env, coins);
     await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildPrice(coins));
@@ -381,6 +391,7 @@ async function sendChannelPrice(env) {
 
 async function sendChannelVolume(env) {
   try {
+    ensureChannel(env);
     const coins = await getCoins();
     await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildVolume(coins));
     console.log('[SEND] Volume OK');
@@ -392,6 +403,7 @@ async function sendChannelVolume(env) {
 
 async function sendChannelDaily(env) {
   try {
+    ensureChannel(env);
     const [coins, globalData, trending, fear] = await Promise.all([
       getCoins(), getGlobal(), getTrending(), getFearGreed(),
     ]);
@@ -405,6 +417,7 @@ async function sendChannelDaily(env) {
 
 async function sendChannelTrending(env) {
   try {
+    ensureChannel(env);
     const trending = await getTrending();
     await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildTrending(trending));
     console.log('[SEND] Trending OK');
@@ -416,6 +429,7 @@ async function sendChannelTrending(env) {
 
 async function sendChannelFng(env) {
   try {
+    ensureChannel(env);
     const fear = await getFearGreed();
     await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildFng(fear));
     console.log('[SEND] FNG OK');
@@ -426,11 +440,28 @@ async function sendChannelFng(env) {
 }
 
 async function sendChannelAll(env) {
-  await sendChannelPrice(env);
-  await sendChannelVolume(env);
-  await sendChannelDaily(env);
-  await sendChannelTrending(env);
-  await sendChannelFng(env);
+  // FIX: هر کدوم جداگانه try/catch می‌شن که اگر یکی fail بقیه اجرا بشن
+  const results = [];
+  const senders = [
+    { name: 'Price',    fn: sendChannelPrice },
+    { name: 'Volume',   fn: sendChannelVolume },
+    { name: 'Daily',    fn: sendChannelDaily },
+    { name: 'Trending', fn: sendChannelTrending },
+    { name: 'F&G',      fn: sendChannelFng },
+  ];
+  for (const s of senders) {
+    try {
+      await s.fn(env);
+      results.push(`✅ ${s.name}`);
+    } catch (e) {
+      results.push(`❌ ${s.name}: ${e.message}`);
+    }
+  }
+  console.log('[SEND ALL] Results:\n' + results.join('\n'));
+  // اگر همه fail شدن، ارور بده
+  if (results.every(r => r.startsWith('❌'))) {
+    throw new Error('All sends failed. Check logs.');
+  }
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -489,7 +520,6 @@ async function handleSettings(chatId, env) {
   await sendMessage(env, chatId, `⚙️ *Settings*\n\nChannel: ${env.TELEGRAM_CHANNEL_ID || 'Not set'}\nCron Jobs: Active\n\nUse /admin for admin panel.`);
 }
 
-// ⬇️ RENAMED: handleAdmin → showAdminPanel
 async function showAdminPanel(chatId, env) {
   await sendMessage(env, chatId, `📣 *Admin Panel*\n\nChoose what to send to channel:`, adminInline);
 }
@@ -509,7 +539,9 @@ async function handleHelp(chatId, env, userId) {
     text += `\n*Admin Commands:*\n`;
     text += `/admin — Admin panel\n`;
     text += `/sendprice — Send price to channel\n`;
+    text += `/sendvolume — Send volume to channel\n`;
     text += `/senddaily — Send daily to channel\n`;
+    text += `/sendall — Send everything to channel\n`;
   }
   await sendMessage(env, chatId, text);
 }
@@ -536,9 +568,9 @@ async function processWebhook(update, env) {
         await handleVolume(chatId, env);
       } else if (text === '/daily') {
         await handleDaily(chatId, env);
-      } else if (text === '/trending') {
+      } else if (text === '/trending' || text === '🔥 Trending') {
         await handleTrending(chatId, env);
-      } else if (text === '/fng' || text === '🧠 Fear & Greed') {
+      } else if (text === '/fng' || text === '🧠 F&G') {
         await handleFng(chatId, env);
       } else if (text === '/alerts' || text === '🚨 Alerts') {
         await handleAlerts(chatId, env);
@@ -551,18 +583,27 @@ async function processWebhook(update, env) {
           await sendMessage(env, chatId, '⛔️ *Forbidden*\n\nYou are not authorized.');
           return;
         }
-        // ⬇️ UPDATED: handleAdmin → showAdminPanel
         await showAdminPanel(chatId, env);
       } else if (text === '/sendprice') {
         if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
         await sendMessage(env, chatId, '⏳ Sending price to channel...');
         await sendChannelPrice(env);
         await sendMessage(env, chatId, '✅ Price sent to channel!');
+      } else if (text === '/sendvolume') {
+        if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
+        await sendMessage(env, chatId, '⏳ Sending volume to channel...');
+        await sendChannelVolume(env);
+        await sendMessage(env, chatId, '✅ Volume sent to channel!');
       } else if (text === '/senddaily') {
         if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
         await sendMessage(env, chatId, '⏳ Sending daily to channel...');
         await sendChannelDaily(env);
         await sendMessage(env, chatId, '✅ Daily report sent to channel!');
+      } else if (text === '/sendall') {
+        if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
+        await sendMessage(env, chatId, '⏳ Sending all reports to channel...');
+        await sendChannelAll(env);
+        await sendMessage(env, chatId, '✅ All reports sent to channel!');
       } else {
         await sendMessage(env, chatId, '❓ Unknown command. Use /help to see options.');
       }
@@ -592,10 +633,30 @@ async function processWebhook(update, env) {
           if (data === 'send_trending') await sendChannelTrending(env);
           if (data === 'send_fng')      await sendChannelFng(env);
           if (data === 'send_all')      await sendChannelAll(env);
-          await editMessage(env, chatId, msgId, '✅ *Sent to channel successfully!*', adminInline);
+
+          // FIX: اضافه کردن زمان به پیام موفقیت برای جلوگیری از "not modified"
+          const successText = `✅ *Sent to channel successfully!*\n🕒 ${fmt.time()}`;
+          try {
+            await editMessage(env, chatId, msgId, successText, adminInline);
+          } catch (editErr) {
+            if (editErr.message && editErr.message.includes('not modified')) {
+              console.log('[BOT] Edit skipped: message already up to date');
+            } else {
+              throw editErr;
+            }
+          }
         } catch (e) {
           console.error('[BOT] Send failed:', e.message);
-          await editMessage(env, chatId, msgId, `❌ *Error:* ${e.message}`, adminInline);
+          const errText = `❌ *Error:* ${e.message}`;
+          try {
+            await editMessage(env, chatId, msgId, errText, adminInline);
+          } catch (editErr2) {
+            if (editErr2.message && editErr2.message.includes('not modified')) {
+              console.log('[BOT] Edit skipped on error: not modified');
+            } else {
+              await sendMessage(env, chatId, errText);
+            }
+          }
         }
         return;
       }
@@ -623,7 +684,7 @@ async function processWebhook(update, env) {
         await sendMessage(env, chatId, `❌ *Error:* ${err.message}\n\nPlease try again later.`);
       }
     } catch (e) {
-      // Ignore
+      // Ignore secondary errors (e.g. user blocked bot)
     }
   }
 }
@@ -646,7 +707,7 @@ async function handleCron(cron, env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 14. HTTP ROUTER — جدا شده و تمیز
+// 14. HTTP ROUTER
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleWebhook(request, env) {
@@ -663,10 +724,9 @@ async function handleWebhook(request, env) {
   }
 }
 
-// ⬇️ RENAMED: handleAdmin → routeAdmin
 async function routeAdmin(request, env) {
   if (!checkSecret(request, env)) {
-    return new Response('Forbidden', { status: 403 });
+    return new Response('Forbidden: x-admin-secret header missing or invalid', { status: 403 });
   }
 
   const url = new URL(request.url);
@@ -700,6 +760,24 @@ async function handleDebug(env) {
     channel_id: env.TELEGRAM_CHANNEL_ID || 'MISSING',
     admin_id: env.ADMIN_ID || 'MISSING',
   };
+
+  // Try to verify bot can post to channel
+  if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHANNEL_ID) {
+    try {
+      const me = await tgMethod(env.TELEGRAM_BOT_TOKEN, 'getMe', {});
+      const botId = me.result.id;
+      const member = await tgMethod(env.TELEGRAM_BOT_TOKEN, 'getChatMember', {
+        chat_id: env.TELEGRAM_CHANNEL_ID,
+        user_id: botId,
+      });
+      checks.channel_access = member.result.status;
+      checks.can_post = ['administrator', 'creator'].includes(member.result.status);
+    } catch (e) {
+      checks.channel_access = `ERROR: ${e.message}`;
+      checks.can_post = false;
+    }
+  }
+
   return new Response(JSON.stringify(checks, null, 2), {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
@@ -716,31 +794,25 @@ async function handleHttp(request, env) {
 
   console.log(`[HTTP] ${request.method} ${path}`);
 
-  // ── 15.1 WEBHOOK (/webhook) ─────────────────────────────────
   if (path === '/webhook' && request.method === 'POST') {
     return handleWebhook(request, env);
   }
 
-  // ── 15.2 ADMIN (/admin) ──────────────────────────────────────
   if (path === '/admin' && request.method === 'POST') {
-    // ⬇️ UPDATED: handleAdmin → routeAdmin
     return routeAdmin(request, env);
   }
 
-  // ── 15.3 DEBUG (/debug) ──────────────────────────────────────
   if (path === '/debug' && request.method === 'GET') {
     return handleDebug(env);
   }
 
-  // ── 15.4 INFO (/) ────────────────────────────────────────────
   if (path === '/' && request.method === 'GET') {
     return new Response(
-      `TradeAgent IV Bot\n\nRoutes:\n  POST /webhook  → Telegram webhook\n  POST /admin    → Manual trigger (x-admin-secret required)\n  GET  /debug    → Status check\n\nCron: ${CRON_PRICE}, ${CRON_VOL}, ${CRON_DAILY}\n`,
+      `TradeAgent IV Bot\n\nRoutes:\n  POST /webhook  → Telegram webhook\n  POST /admin    → Manual trigger (x-admin-secret required)\n  GET  /debug    → Status check + channel permissions\n\nCron: ${CRON_PRICE}, ${CRON_VOL}, ${CRON_DAILY}\n`,
       { status: 200 }
     );
   }
 
-  // ── 15.5 404 ─────────────────────────────────────────────────
   return new Response('Not Found', { status: 404 });
 }
 
