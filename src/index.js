@@ -489,7 +489,8 @@ async function handleSettings(chatId, env) {
   await sendMessage(env, chatId, `⚙️ *Settings*\n\nChannel: ${env.TELEGRAM_CHANNEL_ID || 'Not set'}\nCron Jobs: Active\n\nUse /admin for admin panel.`);
 }
 
-async function handleAdmin(chatId, env) {
+// ⬇️ RENAMED: handleAdmin → showAdminPanel
+async function showAdminPanel(chatId, env) {
   await sendMessage(env, chatId, `📣 *Admin Panel*\n\nChoose what to send to channel:`, adminInline);
 }
 
@@ -550,7 +551,8 @@ async function processWebhook(update, env) {
           await sendMessage(env, chatId, '⛔️ *Forbidden*\n\nYou are not authorized.');
           return;
         }
-        await handleAdmin(chatId, env);
+        // ⬇️ UPDATED: handleAdmin → showAdminPanel
+        await showAdminPanel(chatId, env);
       } else if (text === '/sendprice') {
         if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
         await sendMessage(env, chatId, '⏳ Sending price to channel...');
@@ -648,7 +650,6 @@ async function handleCron(cron, env) {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleWebhook(request, env) {
-  // Telegram webhook — فقط POST، هیچ auth نمی‌خواد
   try {
     const update = await request.json();
     if (update?.update_id) {
@@ -662,8 +663,8 @@ async function handleWebhook(request, env) {
   }
 }
 
-async function handleAdmin(request, env) {
-  // Manual trigger — فقط با secret
+// ⬇️ RENAMED: handleAdmin → routeAdmin
+async function routeAdmin(request, env) {
   if (!checkSecret(request, env)) {
     return new Response('Forbidden', { status: 403 });
   }
@@ -722,7 +723,8 @@ async function handleHttp(request, env) {
 
   // ── 15.2 ADMIN (/admin) ──────────────────────────────────────
   if (path === '/admin' && request.method === 'POST') {
-    return handleAdmin(request, env);
+    // ⬇️ UPDATED: handleAdmin → routeAdmin
+    return routeAdmin(request, env);
   }
 
   // ── 15.3 DEBUG (/debug) ──────────────────────────────────────
