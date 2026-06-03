@@ -20,8 +20,8 @@ const COINS = {
 
 const COIN_IDS   = Object.keys(COINS).join(',');
 const CRON_PRICE = '*/30 * * * *';
-const CRON_AI    = '0 15 * * *';   // 15:00 UTC = 18:30 Iran (Daylight) / 19:30 Iran (Standard)
-const CRON_FNG   = '0 21 * * *';   // 21:00 UTC = 00:30 Iran+1d
+const CRON_AI    = '0 15 * * *';
+const CRON_FNG   = '0 21 * * *';
 
 const ALERT_PRESETS = {
   bitcoin:  { above: 110000, below: 95000 },
@@ -392,7 +392,7 @@ async function getAIAnalysis(env, prompt) {
 async function testGeminiConnection(env) {
   if (!env.GEMINI_API_KEY) return { ok: false, error: 'No API key' };
   try {
-    const res = await api(`${GEMINI_URL}?key=${env.GEMINI_API_KEY}`, {
+    const res = await fetch(`${GEMINI_URL}?key=${env.GEMINI_API_KEY}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -400,7 +400,10 @@ async function testGeminiConnection(env) {
         generationConfig: { temperature: 0, maxOutputTokens: 10 }
       })
     });
-    const text = res.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (res.status === 429) return { ok: false, error: 'Rate limited (429) — quota exceeded', source: 'Gemini' };
+    if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+    const data = await res.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
     if (text && text.toLowerCase().includes('ok')) return { ok: true, source: 'Gemini' };
     return { ok: false, error: 'Unexpected response' };
   } catch (e) {
@@ -1379,7 +1382,7 @@ async function handleDebug(env) {
   }
 
   const geminiTest = await testGeminiConnection(env);
-  checks.gemini_status = geminiTest.ok ? `✅ ${geminiTest.source}` : `❌ ${geminiTest.error}`;
+  checks.gemini_status = geminiTest.ok ? `✅ ${geminiTest.source}` : `⚠️ ${geminiTest.error}`;
 
   try {
     const f = await getBinanceFutures('BTCUSDT');
