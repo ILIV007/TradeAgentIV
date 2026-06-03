@@ -1,6 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV — Multi-API Failover Edition
-//  Sources: CoinGecko → CoinMarketCap → Binance → CoinCap
+//  TRADEAGENT IV — HTML Edition + Multi-API Failover
 //  Routes: /webhook | /admin (GET/POST) | /debug
 // ═══════════════════════════════════════════════════════════════
 
@@ -50,6 +49,7 @@ const SYMBOL_TO_ID = {
 };
 
 const CMC_SYMBOLS = 'BTC,ETH,SOL,BNB,XRP,TON';
+const FOOTER = `<blockquote>📡 @TradeAgentIV</blockquote>`;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 2. SECURITY
@@ -66,6 +66,15 @@ function checkSecret(request, env) {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 3. UTILS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function esc(text) {
+  if (typeof text !== 'string') return text;
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
 
 const fmt = {
   price: (n) => {
@@ -90,6 +99,15 @@ const fmt = {
   time: () => new Date().toISOString().slice(0, 16).replace('T', ' '),
   date: () => new Date().toISOString().slice(0, 10),
 };
+
+function getBias(fearValue) {
+  const v = parseInt(fearValue);
+  if (v >= 75) return '😱 Extreme Greed — 🔴 Caution';
+  if (v >= 55) return '😊 Greed — 🟡 FOMO Zone';
+  if (v >= 45) return '😐 Neutral — 🟢 Balanced';
+  if (v >= 25) return '😰 Fear — 🟢 Accumulation';
+  return '😨 Extreme Fear — 🟢 Opportunity';
+}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 4. API HELPERS
@@ -119,7 +137,7 @@ async function api(url, opts = {}, retries = 3) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 5. NORMALIZERS (همه APIها را به فرمت واحد تبدیل می‌کند)
+// 5. NORMALIZERS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function normalizeCG(coins) {
@@ -134,7 +152,7 @@ function normalizeCG(coins) {
 
 function normalizeCMC(data) {
   const result = [];
-  for (const [_, coin] of Object.entries(data.data || {})) {
+  for (const coin of Object.values(data.data || {})) {
     const id = SYMBOL_TO_ID[coin.symbol];
     if (!id) continue;
     const q = coin.quote?.USD || {};
@@ -165,11 +183,11 @@ function normalizeBinance(data) {
 
 function normalizeCoinCap(data) {
   const result = [];
+  const allowed = new Set(Object.keys(COINS));
   for (const asset of data.data || []) {
-    const id = Object.keys(COINS).find(k => COINS[k].symbol === asset.symbol);
-    if (!id) continue;
+    if (!allowed.has(asset.id)) continue;
     result.push({
-      id,
+      id: asset.id,
       current_price: parseFloat(asset.priceUsd) || 0,
       price_change_percentage_24h: parseFloat(asset.changePercent24Hr) || 0,
       total_volume: parseFloat(asset.volumeUsd24Hr) || 0,
@@ -186,8 +204,8 @@ function normalizeCoinCap(data) {
 async function getCoinsCG(env) {
   const key = env.COINGECKO_API_KEY;
   if (!key) return null;
-  const url = `${COINGECKO_BASE}/coins/markets?vs_currency=usd&ids=${COIN_IDS}&order=market_cap_desc&sparkline=false&price_change_percentage=24h&x_cg_demo_api_key=${key}`;
-  const data = await api(url);
+  const url = `${COINGECKO_BASE}/coins/markets?vs_currency=usd&ids=${COIN_IDS}&order=market_cap_desc&sparkline=false&price_change_percentage=24h`;
+  const data = await api(url, { headers: { 'x-cg-demo-api-key': key } });
   return normalizeCG(data);
 }
 
@@ -207,35 +225,30 @@ async function getCoinsBinance() {
 }
 
 async function getCoinsCoinCap() {
-  const ids = Object.keys(COINS).join(',');
-  const url = `https://api.coincap.io/v2/assets?ids=${ids}`;
+  const url = `https://api.coincap.io/v2/assets?limit=50`;
   const data = await api(url);
   return normalizeCoinCap(data);
 }
 
 async function getCoins(env) {
-  // 1. CoinGecko
   try {
     const cg = await getCoinsCG(env);
-    if (cg && cg.length) return { source: 'coingecko', data: cg };
+    if (cg && cg.length) return { source: 'CoinGecko', data: cg };
   } catch (e) { console.error('[API] CG prices failed:', e.message); }
 
-  // 2. CoinMarketCap
   try {
     const cmc = await getCoinsCMC(env);
-    if (cmc && cmc.length) return { source: 'coinmarketcap', data: cmc };
+    if (cmc && cmc.length) return { source: 'CoinMarketCap', data: cmc };
   } catch (e) { console.error('[API] CMC prices failed:', e.message); }
 
-  // 3. Binance
   try {
     const bin = await getCoinsBinance();
-    if (bin && bin.length) return { source: 'binance', data: bin };
+    if (bin && bin.length) return { source: 'Binance', data: bin };
   } catch (e) { console.error('[API] Binance prices failed:', e.message); }
 
-  // 4. CoinCap
   try {
     const cc = await getCoinsCoinCap();
-    if (cc && cc.length) return { source: 'coincap', data: cc };
+    if (cc && cc.length) return { source: 'CoinCap', data: cc };
   } catch (e) { console.error('[API] CoinCap prices failed:', e.message); }
 
   throw new Error('All price APIs failed (CG, CMC, Binance, CoinCap)');
@@ -248,7 +261,7 @@ async function getCoins(env) {
 async function getGlobalCG(env) {
   const key = env.COINGECKO_API_KEY;
   if (!key) return null;
-  return api(`${COINGECKO_BASE}/global?x_cg_demo_api_key=${key}`);
+  return api(`${COINGECKO_BASE}/global`, { headers: { 'x-cg-demo-api-key': key } });
 }
 
 async function getGlobalCMC(env) {
@@ -288,7 +301,7 @@ async function getGlobal(env) {
 async function getTrendingCG(env) {
   const key = env.COINGECKO_API_KEY;
   if (!key) return null;
-  return api(`${COINGECKO_BASE}/search/trending?x_cg_demo_api_key=${key}`);
+  return api(`${COINGECKO_BASE}/search/trending`, { headers: { 'x-cg-demo-api-key': key } });
 }
 
 async function getTrendingCMC(env) {
@@ -362,7 +375,7 @@ async function tgMethod(token, method, body) {
 }
 
 async function sendMessage(env, chatId, text, markup = null) {
-  const body = { chat_id: chatId, text, parse_mode: 'Markdown', disable_web_page_preview: true };
+  const body = { chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true };
   if (markup) body.reply_markup = markup;
   return tgMethod(env.TELEGRAM_BOT_TOKEN, 'sendMessage', body);
 }
@@ -374,7 +387,7 @@ async function answerCallback(env, queryId, text = null) {
 }
 
 async function editMessage(env, chatId, messageId, text, markup = null) {
-  const body = { chat_id: chatId, message_id: messageId, text, parse_mode: 'Markdown', disable_web_page_preview: true };
+  const body = { chat_id: chatId, message_id: messageId, text, parse_mode: 'HTML', disable_web_page_preview: true };
   if (markup) body.reply_markup = markup;
   return tgMethod(env.TELEGRAM_BOT_TOKEN, 'editMessageText', body);
 }
@@ -421,32 +434,42 @@ function alertsInline(states) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 12. MESSAGE BUILDERS
+// 12. MESSAGE BUILDERS — HTML EDITION
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function buildPrice(coins, source = '') {
-  let m = `📊 *Live Prices*${source ? ` \\[${source}\\]` : ''}\n━━━━━━━━━━━━━━━━━━━━\n\n`;
+  let m = `📊 <b>LIVE MARKET</b>${source ? ` <i>via ${esc(source)}</i>` : ''}\n\n`;
+  m += `<pre>`;
   for (const c of coins) {
     const i = COINS[c.id];
     if (!i) continue;
-    m += `${i.emoji} *${i.symbol}*  —  $${fmt.price(c.current_price)}\n`;
-    m += `   ${fmt.change(c.price_change_percentage_24h)}\n\n`;
+    const ch = c.price_change_percentage_24h || 0;
+    const em = ch >= 0 ? '🟢' : '🔴';
+    const sym = i.symbol.padEnd(4, ' ');
+    const pr = ('$' + fmt.price(c.current_price)).padStart(10, ' ');
+    const chStr = (em + (ch >= 0 ? '+' : '') + ch.toFixed(2) + '%').padStart(8, ' ');
+    m += `${sym} ${pr}  ${chStr}\n`;
   }
-  m += `━━━━━━━━━━━━━━━━━━━━\n🕒 ${fmt.time()} UTC`;
+  m += `</pre>\n\n${FOOTER}`;
   return m;
 }
 
 async function buildVolume(coins, source = '') {
-  let m = `📈 *Volume Report*${source ? ` \\[${source}\\]` : ''}\n━━━━━━━━━━━━━━━━━━━━\n\n`;
+  let m = `📈 <b>VOLUME REPORT</b>${source ? ` <i>via ${esc(source)}</i>` : ''}\n\n`;
+  m += `<pre>`;
   for (const c of coins) {
     const i = COINS[c.id];
     if (!i) continue;
-    m += `${i.emoji} *${i.symbol}*  —  $${fmt.price(c.current_price)}\n`;
-    m += `   📊 Vol 24H: ${fmt.vol(c.total_volume)}\n`;
-    if (c.market_cap) m += `   🏦 Cap: ${fmt.cap(c.market_cap)}\n`;
-    m += `\n`;
+    const sym = i.symbol.padEnd(4, ' ');
+    const pr = ('$' + fmt.price(c.current_price)).padStart(10, ' ');
+    const vol = fmt.vol(c.total_volume).padStart(10, ' ');
+    let line = `${sym} ${pr}  Vol:${vol}`;
+    if (c.market_cap) {
+      line += `  Cap:${fmt.cap(c.market_cap)}`;
+    }
+    m += line + '\n';
   }
-  m += `━━━━━━━━━━━━━━━━━━━━\n🕒 ${fmt.time()} UTC`;
+  m += `</pre>\n\n${FOOTER}`;
   return m;
 }
 
@@ -454,78 +477,94 @@ async function buildDaily(coins, globalData, trending, fear, source = '') {
   const sorted = [...coins].sort((a, b) => (b.price_change_percentage_24h || 0) - (a.price_change_percentage_24h || 0));
   const best = sorted[0];
   const worst = sorted[sorted.length - 1];
-  let m = `📉 *Daily Market Report*${source ? ` \\[${source}\\]` : ''}\n━━━━━━━━━━━━━━━━━━━━\n\n`;
+  let m = `📉 <b>DAILY INTELLIGENCE</b>${source ? ` <i>via ${esc(source)}</i>` : ''}\n\n`;
 
   if (globalData?.data) {
     const g = globalData.data;
-    m += `🌍 *Global*\n   Cap: ${fmt.cap(g.total_market_cap?.usd || 0)}\n   Vol: ${fmt.vol(g.total_volume?.usd || 0)}\n   BTC Dom: ${g.market_cap_percentage?.btc?.toFixed(1) || '?'}%\n\n`;
+    m += `🌍 <b>Global</b>\n`;
+    m += `Cap: ${fmt.cap(g.total_market_cap?.usd || 0)} | Vol: ${fmt.vol(g.total_volume?.usd || 0)} | BTC Dom: ${g.market_cap_percentage?.btc?.toFixed(1) || '?'}%\n\n`;
   }
+
   if (fear?.data?.[0]) {
     const f = fear.data[0];
     const v = parseInt(f.value);
-    const em = v >= 75 ? '😱' : v >= 55 ? '😊' : v >= 45 ? '😐' : v >= 25 ? '😰' : '😨';
-    m += `🧠 *Fear & Greed*\n   ${em} ${v}/100 — ${f.value_classification}\n\n`;
+    m += `🧠 <b>Sentiment</b>\n`;
+    m += `${getBias(v)}\n\n`;
   }
 
-  m += `━━━━━━━━━━━━━━━━━━━━\n\n`;
+  m += `<pre>`;
   for (const c of sorted) {
     const i = COINS[c.id];
     if (!i) continue;
-    m += `${i.emoji} *${i.symbol}*  —  $${fmt.price(c.current_price)}\n`;
-    m += `   24H: ${fmt.change(c.price_change_percentage_24h)}`;
-    if (c.market_cap) m += `  |  Cap: ${fmt.cap(c.market_cap)}`;
-    m += `\n\n`;
+    const ch = c.price_change_percentage_24h || 0;
+    const em = ch >= 0 ? '🟢' : '🔴';
+    const sym = i.symbol.padEnd(4, ' ');
+    const pr = ('$' + fmt.price(c.current_price)).padStart(10, ' ');
+    const chStr = (em + (ch >= 0 ? '+' : '') + ch.toFixed(2) + '%').padStart(8, ' ');
+    let line = `${sym} ${pr}  ${chStr}`;
+    if (c.market_cap) {
+      line += `  ${fmt.cap(c.market_cap)}`;
+    }
+    m += line + '\n';
   }
+  m += `</pre>\n\n`;
 
   if (best && COINS[best.id]) {
     const i = COINS[best.id];
-    m += `🏆 *Top Gainer*\n${i.emoji} ${i.symbol}  ${fmt.change(best.price_change_percentage_24h)}\n\n`;
+    m += `🏆 <b>Leader</b>\n${i.emoji} ${i.symbol}  ${fmt.change(best.price_change_percentage_24h)}\n\n`;
   }
   if (worst && COINS[worst.id]) {
     const i = COINS[worst.id];
-    m += `⚠️ *Top Loser*\n${i.emoji} ${i.symbol}  ${fmt.change(worst.price_change_percentage_24h)}\n\n`;
+    m += `⚠️ <b>Weakest</b>\n${i.emoji} ${i.symbol}  ${fmt.change(worst.price_change_percentage_24h)}\n\n`;
   }
   if (trending?.coins?.length) {
-    m += `🔥 *Trending*\n`;
+    m += `🔥 <b>Trending</b>\n`;
     for (const t of trending.coins.slice(0, 3)) {
-      m += `   ${t.item.symbol} — ${t.item.name}\n`;
+      m += `   ${esc(t.item.symbol)} — ${esc(t.item.name)}\n`;
     }
     m += `\n`;
   }
-  m += `━━━━━━━━━━━━━━━━━━━━\n📅 ${fmt.date()} UTC`;
+
+  m += `${FOOTER}`;
   return m;
 }
 
 async function buildTrending(trending) {
-  let m = `🔥 *Trending Coins*\n━━━━━━━━━━━━━━━━━━━━\n\n`;
+  let m = `🔥 <b>TRENDING COINS</b>\n\n`;
   if (trending?.coins?.length) {
+    m += `<pre>`;
     for (const t of trending.coins.slice(0, 10)) {
-      m += `   ${t.item.symbol} — ${t.item.name}\n`;
-      m += `   Rank: #${t.item.market_cap_rank || '?'}\n\n`;
+      const sym = esc(t.item.symbol).padEnd(6, ' ');
+      const rank = ('#' + (t.item.market_cap_rank || '?')).padStart(4, ' ');
+      m += `${sym} ${rank}  ${esc(t.item.name)}\n`;
     }
+    m += `</pre>\n\n`;
   } else {
-    m += `No trending data available.\n`;
+    m += `No trending data available.\n\n`;
   }
-  m += `━━━━━━━━━━━━━━━━━━━━\n🕒 ${fmt.time()} UTC`;
+  m += `${FOOTER}`;
   return m;
 }
 
 async function buildFng(fear) {
-  if (!fear?.data?.[0]) return `🧠 *Fear & Greed*\n\nData unavailable.`;
+  if (!fear?.data?.[0]) return `🧠 <b>MARKET SENTIMENT</b>\n\nData unavailable.\n\n${FOOTER}`;
   const f = fear.data[0];
   const v = parseInt(f.value);
-  const em = v >= 75 ? '😱' : v >= 55 ? '😊' : v >= 45 ? '😐' : v >= 25 ? '😰' : '😨';
-  return `🧠 *Fear & Greed Index*\n━━━━━━━━━━━━━━━━━━━━\n\n${em} *${v}/100*\nClassification: ${f.value_classification}\n\n━━━━━━━━━━━━━━━━━━━━\n🕒 ${fmt.time()} UTC`;
+  let m = `🧠 <b>MARKET SENTIMENT</b>\n\n`;
+  m += `<b>${v}/100</b>\n`;
+  m += `${getBias(v)}\n\n`;
+  m += `${FOOTER}`;
+  return m;
 }
 
 function buildAlert(coinId, price, type) {
   const i = COINS[coinId];
   const t = type === 'above' ? '🚀 ABOVE' : '📉 BELOW';
-  return `🚨 *${i.symbol} ALERT*\n\n${i.emoji} ${i.name}\n${t} target!\n\nCurrent: $${fmt.price(price)}\n🕒 ${fmt.time()} UTC\n📡 @TradeAgentIV`;
+  return `🚨 <b>${esc(i.symbol)} ALERT</b>\n\n${i.emoji} ${esc(i.name)}\n<b>${t}</b> target!\n\nCurrent: $${fmt.price(price)}\n\n${FOOTER}`;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 13. KV HELPERS
+// 13. KV HELPERS — OPTIMIZED (Parallel Reads)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function getAlertState(env, key) {
@@ -558,20 +597,32 @@ async function clearAlertLast(env, key) {
 async function getAllAlertStates(env) {
   const states = {};
   if (!env.ALERTS_KV) return states;
+  const promises = [];
   for (const coinId of Object.keys(ALERT_PRESETS)) {
     const cfg = ALERT_PRESETS[coinId];
-    if (cfg.above) states[`${coinId}:above`] = await getAlertState(env, `${coinId}:above`);
-    if (cfg.below) states[`${coinId}:below`] = await getAlertState(env, `${coinId}:below`);
+    if (cfg.above) {
+      promises.push(
+        getAlertState(env, `${coinId}:above`).then(v => { states[`${coinId}:above`] = v; })
+      );
+    }
+    if (cfg.below) {
+      promises.push(
+        getAlertState(env, `${coinId}:below`).then(v => { states[`${coinId}:below`] = v; })
+      );
+    }
   }
+  await Promise.all(promises);
   return states;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 14. CORE LOGIC
+// 14. CORE LOGIC — ALERTS (Optimized with Cached States)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function checkAlerts(env, coins) {
   if (!env.ALERTS_KV) return;
+  const states = await getAllAlertStates(env);
+
   for (const c of coins) {
     const cfg = ALERT_PRESETS[c.id];
     if (!cfg) continue;
@@ -581,8 +632,7 @@ async function checkAlerts(env, coins) {
       const threshold = cfg[dir];
       if (!threshold) continue;
       const key = `${c.id}:${dir}`;
-      const enabled = await getAlertState(env, key);
-      if (!enabled) continue;
+      if (!states[key]) continue;
 
       const last = await getAlertLast(env, key);
       let triggered = false;
@@ -652,7 +702,7 @@ async function sendChannelTrending(env) {
     ensureChannel(env);
     const trending = await getTrending(env);
     if (!trending) {
-      await sendMessage(env, env.TELEGRAM_CHANNEL_ID, '🔥 *Trending*\n\nTrending data unavailable. No API key configured or all sources failed.');
+      await sendMessage(env, env.TELEGRAM_CHANNEL_ID, `🔥 <b>TRENDING COINS</b>\n\nTrending data unavailable. No API key configured or all sources failed.\n\n${FOOTER}`);
       return;
     }
     await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildTrending(trending));
@@ -705,8 +755,8 @@ async function sendChannelAll(env) {
 async function handleStart(chatId, userId, env) {
   const admin = isAdmin(userId, env);
   const text = admin
-    ? '👋 *Welcome Admin!*\n\nTradeAgent IV Control Panel.\nSelect an option:'
-    : '👋 *Welcome to TradeAgent IV!*\n\nCrypto Dashboard.\nSelect an option:';
+    ? `👋 <b>Welcome Admin!</b>\n\nTradeAgent IV Control Panel.\nSelect an option:`
+    : `👋 <b>Welcome to TradeAgent IV!</b>\n\nCrypto Intelligence Dashboard.\nSelect an option:`;
   await sendMessage(env, chatId, text, mainKeyboard(admin));
 }
 
@@ -730,7 +780,7 @@ async function handleDaily(chatId, env) {
 async function handleTrending(chatId, env) {
   const trending = await getTrending(env);
   if (!trending) {
-    await sendMessage(env, chatId, '🔥 *Trending*\n\nTrending data unavailable. No API key configured or all sources failed.');
+    await sendMessage(env, chatId, `🔥 <b>TRENDING COINS</b>\n\nTrending data unavailable. No API key configured or all sources failed.\n\n${FOOTER}`);
     return;
   }
   await sendMessage(env, chatId, await buildTrending(trending));
@@ -743,10 +793,10 @@ async function handleFng(chatId, env) {
 
 async function handleAlerts(chatId, env) {
   const states = await getAllAlertStates(env);
-  let text = `🚨 *Alert Settings*\n\nToggle alerts on/off:\n\n`;
+  let text = `🚨 <b>Alert Settings</b>\n\nToggle alerts on/off:\n\n`;
   for (const [coinId, cfg] of Object.entries(ALERT_PRESETS)) {
     const c = COINS[coinId];
-    text += `${c.emoji} *${c.symbol}*\n`;
+    text += `${c.emoji} <b>${c.symbol}</b>\n`;
     if (cfg.above) text += `   Above: $${fmt.price(cfg.above)}\n`;
     if (cfg.below) text += `   Below: $${fmt.price(cfg.below)}\n`;
     text += `\n`;
@@ -758,29 +808,29 @@ async function handleSettings(chatId, env) {
   const sources = [];
   if (env.COINGECKO_API_KEY) sources.push('CoinGecko');
   if (env.CMC_API_KEY) sources.push('CoinMarketCap');
-  sources.push('Binance (fallback)');
-  sources.push('CoinCap (fallback)');
+  sources.push('Binance');
+  sources.push('CoinCap');
 
-  await sendMessage(env, chatId, `⚙️ *Settings*\n\nChannel: ${env.TELEGRAM_CHANNEL_ID || 'Not set'}\nData Sources: ${sources.join(', ')}\nCron Jobs: Active\n\nUse /admin for admin panel.`);
+  await sendMessage(env, chatId, `⚙️ <b>Settings</b>\n\nChannel: ${env.TELEGRAM_CHANNEL_ID || 'Not set'}\nSources: ${sources.join(', ')}\nCron: Active\n\nUse /admin for admin panel.`);
 }
 
 async function showAdminPanel(chatId, env) {
-  await sendMessage(env, chatId, `📣 *Admin Panel*\n\nChoose what to send to channel:`, adminInline);
+  await sendMessage(env, chatId, `📣 <b>Admin Panel</b>\n\nChoose what to send to channel:`, adminInline);
 }
 
 async function handleHelp(chatId, env, userId) {
   const admin = isAdmin(userId, env);
-  let text = `📖 *Commands*\n\n`;
+  let text = `📖 <b>Commands</b>\n\n`;
   text += `/start — Main menu\n`;
   text += `/price — Live prices\n`;
   text += `/volume — Volume report\n`;
   text += `/daily — Daily report\n`;
   text += `/trending — Trending coins\n`;
-  text += `/fng — Fear & Greed Index\n`;
+  text += `/fng — Market Sentiment\n`;
   text += `/alerts — Alert settings\n`;
   text += `/settings — Bot settings\n`;
   if (admin) {
-    text += `\n*Admin Commands:*\n`;
+    text += `\n<b>Admin Commands:</b>\n`;
     text += `/admin — Admin panel\n`;
     text += `/sendprice — Send price to channel\n`;
     text += `/sendvolume — Send volume to channel\n`;
@@ -824,7 +874,7 @@ async function processWebhook(update, env) {
         await handleHelp(chatId, env, userId);
       } else if (text === '/admin' || text === '📣 Admin Panel') {
         if (!isAdmin(userId, env)) {
-          await sendMessage(env, chatId, '⛔️ *Forbidden*\n\nYou are not authorized.');
+          await sendMessage(env, chatId, '⛔️ <b>Forbidden</b>\n\nYou are not authorized.');
           return;
         }
         await showAdminPanel(chatId, env);
@@ -866,7 +916,7 @@ async function processWebhook(update, env) {
 
       if (data.startsWith('send_')) {
         if (!isAdmin(userId, env)) {
-          await sendMessage(env, chatId, '⛔️ *Forbidden*');
+          await sendMessage(env, chatId, '⛔️ <b>Forbidden</b>');
           return;
         }
         await sendMessage(env, chatId, '⏳ Sending to channel...');
@@ -878,7 +928,7 @@ async function processWebhook(update, env) {
           if (data === 'send_fng')      await sendChannelFng(env);
           if (data === 'send_all')      await sendChannelAll(env);
 
-          const successText = `✅ *Sent to channel successfully!*\n🕒 ${fmt.time()}`;
+          const successText = `✅ <b>Sent to channel successfully!</b>\n🕒 ${fmt.time()}`;
           try {
             await editMessage(env, chatId, msgId, successText, adminInline);
           } catch (editErr) {
@@ -890,7 +940,7 @@ async function processWebhook(update, env) {
           }
         } catch (e) {
           console.error('[BOT] Send failed:', e.message);
-          const errText = `❌ *Error:* ${e.message}`;
+          const errText = `❌ <b>Error:</b> ${esc(e.message)}`;
           try {
             await editMessage(env, chatId, msgId, errText, adminInline);
           } catch (editErr2) {
@@ -909,13 +959,13 @@ async function processWebhook(update, env) {
         const current = await getAlertState(env, key);
         await setAlertState(env, key, !current);
         const states = await getAllAlertStates(env);
-        await editMessage(env, chatId, msgId, `🚨 *Alert Settings*\n\nUpdated!`, alertsInline(states));
+        await editMessage(env, chatId, msgId, `🚨 <b>Alert Settings</b>\n\nUpdated!`, alertsInline(states));
         return;
       }
 
       if (data === 'back_main') {
         const admin = isAdmin(userId, env);
-        await sendMessage(env, chatId, '👋 *Main Menu*', mainKeyboard(admin));
+        await sendMessage(env, chatId, '👋 <b>Main Menu</b>', mainKeyboard(admin));
         return;
       }
     }
@@ -924,7 +974,7 @@ async function processWebhook(update, env) {
     try {
       const chatId = update.message?.chat?.id || update.callback_query?.message?.chat?.id;
       if (chatId) {
-        await sendMessage(env, chatId, `❌ *Error:* ${err.message}\n\nPlease try again later.`);
+        await sendMessage(env, chatId, `❌ <b>Error:</b> ${esc(err.message)}\n\nPlease try again later.`);
       }
     } catch (e) {
       // Ignore
@@ -933,17 +983,16 @@ async function processWebhook(update, env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 18. CRON HANDLER
+// 18. CRON HANDLER — Flexible with Dashboard names
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-async function handleCron(cron, env) {
+async function handleCron(event, env) {
+  const cron = event.cron;
   try {
-    switch (cron) {
-      case CRON_PRICE: await sendChannelPrice(env); break;
-      case CRON_VOL:   await sendChannelVolume(env); break;
-      case CRON_DAILY: await sendChannelDaily(env);  break;
-      default:         await sendChannelPrice(env);
-    }
+    if (cron.includes('price') || cron === CRON_PRICE) await sendChannelPrice(env);
+    else if (cron.includes('volume') || cron === CRON_VOL) await sendChannelVolume(env);
+    else if (cron.includes('daily') || cron === CRON_DAILY) await sendChannelDaily(env);
+    else await sendChannelPrice(env);
   } catch (err) {
     console.error(`[CRON ERROR] ${cron}: ${err.message}`);
   }
@@ -1022,7 +1071,6 @@ async function handleDebug(env) {
     }
   }
 
-  // Test APIs
   try {
     const cg = await getCoinsCG(env);
     checks.coingecko_status = cg ? `✅ OK (${cg.length} coins)` : '⚠️ No API Key';
@@ -1071,7 +1119,6 @@ async function handleHttp(request, env) {
     return handleWebhook(request, env);
   }
 
-  // FIX: /admin now accepts BOTH GET and POST
   if (path === '/admin' && (request.method === 'POST' || request.method === 'GET')) {
     return routeAdmin(request, env);
   }
@@ -1082,7 +1129,7 @@ async function handleHttp(request, env) {
 
   if (path === '/' && request.method === 'GET') {
     return new Response(
-      `TradeAgent IV Bot — Multi-API Failover\n\nRoutes:\n  POST /webhook  → Telegram webhook\n  POST|GET /admin → Manual trigger (x-admin-secret required)\n  GET  /debug    → Status check + API tests\n\nCron: ${CRON_PRICE}, ${CRON_VOL}, ${CRON_DAILY}\n`,
+      `TradeAgent IV Bot — HTML Edition + Multi-API Failover\n\nRoutes:\n  POST /webhook  → Telegram webhook\n  POST|GET /admin → Manual trigger (x-admin-secret required)\n  GET  /debug    → Status check + API tests\n\nCron: ${CRON_PRICE}, ${CRON_VOL}, ${CRON_DAILY}\n`,
       { status: 200 }
     );
   }
@@ -1109,7 +1156,7 @@ export default {
 
   async scheduled(event, env, ctx) {
     ctx.waitUntil(
-      handleCron(event.cron, env).catch(e => console.error('[CRON] ERROR:', e))
+      handleCron(event, env).catch(e => console.error('[CRON] ERROR:', e))
     );
   },
 };
