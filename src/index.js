@@ -1,7 +1,7 @@
 // ═══════════════════════════════════════════════════════════════
 //  TRADEAGENT IV ULTIMATE — AI-Powered Crypto Intelligence
 //  Routes: /webhook | /admin (GET/POST) | /debug
-//  AI: Gemini 2.0 Flash Lite + OpenRouter Failover
+//  AI: Gemini 2.0 Flash Lite + OpenRouter Failover (DeepSeek/Qwen)
 //  Emotion Engine: Panic → Fear → Neutral → Momentum → Breakout → FOMO
 // ═══════════════════════════════════════════════════════════════
 
@@ -18,9 +18,9 @@ const COINS = {
   'the-open-network':{ symbol: 'TON', emoji: '💎',  name: 'Toncoin' },
 };
 
-const COIN_IDS   = Object.keys(COINS).join(',);
+const COIN_IDS   = Object.keys(COINS).join(',');
 const CRON_PRICE = '*/30 * * * *';
-const CRON_AI    = '0 15 * * *';   // 15:00 UTC = 18:30 Iran (Daylight) or 19:30 Iran (Standard)
+const CRON_AI    = '0 15 * * *';   // 15:00 UTC = 18:30 Iran (Daylight) / 19:30 Iran (Standard)
 const CRON_FNG   = '0 21 * * *';   // 21:00 UTC = 00:30 Iran+1d
 
 const ALERT_PRESETS = {
@@ -50,12 +50,12 @@ const FOOTER = `<blockquote>📡 <b>TradeAgent IV</b>\n<i>AI Crypto Intelligence
 const AI_MODES = { normal: 'Normal', deep: 'Deep', short: 'Short', emotion: 'Emotion' };
 const SCENARIOS = { bullish: 'Bullish', bearish: 'Bearish', neutral: 'Neutral', volatile: 'Volatile' };
 const EMOTION_STATES = {
-  PANIC:    { emoji: '💀🚨', tone: 'هشدار کوتاه، جدی. بازار در حالت پانیک است. روی ریسک و حفظ سرمایه تمرکز کن.' },
-  FEAR:     { emoji: '😰🧊', tone: 'محافظه‌کار. بازار ترسناک است اما فرصت انباشت وجود دارد. روی فرصت‌ها تمرکز کن.' },
-  NEUTRAL:  { emoji: '😐',   tone: 'خبری، بی‌طرف. بازار خنثی است. تحلیل متعادل بده.' },
-  MOMENTUM: { emoji: '🔥📈', tone: 'تحلیلی مثبت. مومنتوم صعودی شکل گرفته. فرصت‌ها را برجسته کن.' },
-  BREAKOUT: { emoji: '🚀⚡', tone: 'هیجانی کنترل‌شده. شکست قیمتی رخ داده. قدرت روند را تأیید کن اما ریسک اصلاح را هم بگو.' },
-  FOMO:     { emoji: '🧨📊', tone: 'هشدار + طنز. بازار در فاز طمع شدید است. روی ریسک فومو تأکید کن.' },
+  PANIC:    { emoji: '💀🚨', tone: 'Short, serious warnings. Market is panicking. Focus on capital preservation and risk.' },
+  FEAR:     { emoji: '😰🧊', tone: 'Conservative. Market is fearful but accumulation opportunities exist. Highlight opportunities.' },
+  NEUTRAL:  { emoji: '😐',   tone: 'Neutral, factual. Market is sideways. Provide balanced analysis.' },
+  MOMENTUM: { emoji: '🔥📈', tone: 'Analytical and optimistic. Upside momentum building. Highlight opportunities.' },
+  BREAKOUT: { emoji: '🚀⚡', tone: 'Controlled excitement. Price breakout confirmed. Confirm trend strength but warn of pullback risk.' },
+  FOMO:     { emoji: '🧨📊', tone: 'Warning with urgency. Market is in extreme greed. Emphasize FOMO risk and danger of entry at highs.' },
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -119,6 +119,15 @@ function getBias(fearValue) {
 function progressBar(value, max = 100, blocks = 10) {
   const filled = Math.round((value / max) * blocks);
   return '🟩'.repeat(filled) + '⬜'.repeat(blocks - filled);
+}
+
+function getShortModelName(fullName) {
+  if (!fullName) return 'AI';
+  const lower = fullName.toLowerCase();
+  if (lower.includes('gemini')) return 'Gemini';
+  if (lower.includes('deepseek')) return 'DeepSeek';
+  if (lower.includes('qwen')) return 'Qwen';
+  return fullName;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -240,7 +249,7 @@ async function getCoins(env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 7. ENHANCED DATA: Top Gainers, Categories, Charts, Futures, News
+// 7. ENHANCED DATA: Top Gainers, Categories, Charts, Futures
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function getTopGainersLosers(env) {
@@ -263,7 +272,7 @@ async function getCategories(env) {
 
 async function getMarketChart(coinId, days, env) {
   const key = env.COINGECKO_API_KEY;
-  if (!key) return null;
+  if (!key) return 0;
   try {
     const data = await api(`${COINGECKO_BASE}/coins/${coinId}/market_chart?vs_currency=usd&days=${days}`, { headers: { 'x-cg-demo-api-key': key } });
     const prices = data.prices;
@@ -286,15 +295,6 @@ async function getBinanceFutures(symbol) {
       longShortRatio: ls && ls[0] ? parseFloat(ls[0].longShortRatio) : null,
     };
   } catch (e) { console.error('[API] Futures fail:', e.message); return {}; }
-}
-
-async function getNews(env) {
-  const token = env.CRYPTOPANIC_API_KEY;
-  if (!token) return null;
-  try {
-    const data = await api(`https://cryptopanic.com/api/v1/posts/?auth_token=${token}&public=true&limit=5`);
-    return (data.results || []).map(r => ({ title: r.title, domain: r.domain }));
-  } catch (e) { console.error('[API] News fail:', e.message); return null; }
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -349,7 +349,6 @@ function getFearGreed() {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function getAIAnalysis(env, prompt) {
-  // Try 1: Gemini (Google AI Studio)
   if (env.GEMINI_API_KEY) {
     try {
       const res = await api(`${GEMINI_URL}?key=${env.GEMINI_API_KEY}`, {
@@ -357,7 +356,7 @@ async function getAIAnalysis(env, prompt) {
         body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.3, maxOutputTokens: 800 } }),
       });
       const text = res.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (text) return { text: text.trim(), source: 'Gemini 2.0 Flash' };
+      if (text) return { text: text.trim(), source: 'Gemini' };
     } catch (e) { console.error('[AI] Gemini fail:', e.message); }
   }
 
@@ -383,16 +382,35 @@ async function getAIAnalysis(env, prompt) {
       });
       const data = await res.json();
       const text = data.choices?.[0]?.message?.content;
-      if (text) return { text: text.trim(), source: model.split('/')[1] };
+      if (text) return { text: text.trim(), source: getShortModelName(model) };
     } catch (e) { console.error(`[AI] ${model} fail:`, e.message); }
   }
 
   return null;
 }
 
+async function testGeminiConnection(env) {
+  if (!env.GEMINI_API_KEY) return { ok: false, error: 'No API key' };
+  try {
+    const res = await api(`${GEMINI_URL}?key=${env.GEMINI_API_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: 'Reply with exactly: OK' }] }],
+        generationConfig: { temperature: 0, maxOutputTokens: 10 }
+      })
+    });
+    const text = res.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (text && text.toLowerCase().includes('ok')) return { ok: true, source: 'Gemini' };
+    return { ok: false, error: 'Unexpected response' };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
 function buildAIPrompt(today, yesterday, mode, scenario, emotion) {
   const t = today, y = yesterday || {};
-  const emo = emotion || { state: 'NEUTRAL', intensity: 50, tone: 'خبری' };
+  const emo = emotion || { state: 'NEUTRAL', intensity: 50, tone: 'Neutral, factual.' };
 
   const coinChanges = [];
   for (const c of t.coins) {
@@ -427,11 +445,6 @@ function buildAIPrompt(today, yesterday, mode, scenario, emotion) {
     catText = '\nCategory Performance:\n' + t.categories.map(c => `  ${c.name}: ${fmt.pct(c.change)}`).join('\n');
   }
 
-  let newsText = '';
-  if (t.news?.length) {
-    newsText = '\nTop News:\n' + t.news.map(n => `  • ${n.title} (${n.domain})`).join('\n');
-  }
-
   const btcDomChange = y.btcDominance ? (t.btcDominance - y.btcDominance).toFixed(1) : '0';
   const fngChange = y.fearGreed ? (t.fearGreed - y.fearGreed) : 0;
 
@@ -449,7 +462,7 @@ function buildAIPrompt(today, yesterday, mode, scenario, emotion) {
     volatile: 'High volatility expected. Emphasize risk management and wide ranges.',
   };
 
-  return `You are "TradeAgent IV", a professional Persian-speaking crypto market intelligence analyst.
+  return `You are "TradeAgent IV", a professional English-speaking crypto market intelligence analyst.
 
 CURRENT MODE: ${mode} — ${modeDesc[mode] || modeDesc.normal}
 CURRENT SCENARIO: ${scenario} — ${scenDesc[scenario] || scenDesc.neutral}
@@ -468,7 +481,7 @@ OUTPUT STRUCTURE:
 7. <b>Conclusion</b> — 1 sentence summary
 
 RULES:
-- Write in Persian (Farsi)
+- Write in English
 - Maximum 500 words
 - Use valid Telegram HTML tags only: <b>, <i>, <blockquote>
 - Match tone with emotion state
@@ -477,7 +490,7 @@ RULES:
 - Emphasize opportunity in Fear states
 - Mention funding rates and open interest if abnormal
 - Compare 7D/30D trends vs 24h
-- End with: "⚠️ این تحلیل صرفاً اطلاع‌رسانی است و توصیه مالی نیست."
+- End with: "⚠️ This analysis is for informational purposes only and is not financial advice."
 
 TODAY'S DATA:
 Date: ${t.date}
@@ -496,8 +509,6 @@ ${losersText}
 Trending: ${t.trending.map(x => x.item.symbol).join(', ')}
 
 ${catText}
-
-${newsText}
 
 YESTERDAY'S DATA:
 ${y.date ? `Date: ${y.date}` : 'No historical data'}
@@ -856,14 +867,12 @@ async function checkAlerts(env, coins) {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function collectMarketData(env) {
-  const [{ source, data }, globalData, trending, fear, gainersLosers, categories, news] = await Promise.all([
+  const [{ source, data }, globalData, trending, fear, gainersLosers, categories] = await Promise.all([
     getCoins(env), getGlobal(env), getTrending(env), getFearGreed(),
     getTopGainersLosers(env).catch(() => null),
     getCategories(env).catch(() => null),
-    getNews(env).catch(() => null),
   ]);
 
-  // 7D & 30D changes for BTC, ETH, SOL
   const changes7d = {}, changes30d = {};
   if (env.COINGECKO_API_KEY) {
     const chartCoins = ['bitcoin', 'ethereum', 'solana'];
@@ -873,7 +882,6 @@ async function collectMarketData(env) {
     }));
   }
 
-  // Futures data for BTC, ETH
   const futures = {};
   if (env.ENABLE_FUTURES !== 'false') {
     for (const [id, sym] of Object.entries({ bitcoin: 'BTCUSDT', ethereum: 'ETHUSDT' })) {
@@ -899,7 +907,7 @@ async function collectMarketData(env) {
     btcPrice: btc?.current_price || 0, btcChange: btc?.price_change_percentage_24h || 0,
     ethPrice: eth?.current_price || 0, ethChange: eth?.price_change_percentage_24h || 0,
     solPrice: sol?.current_price || 0, solChange: sol?.price_change_percentage_24h || 0,
-    changes7d, changes30d, gainersLosers, categories, news, futures,
+    changes7d, changes30d, gainersLosers, categories, futures,
   };
 }
 
@@ -956,7 +964,6 @@ async function sendChannelAI(env, customPrompt = null) {
   const today = await collectMarketData(env);
   const yesterday = await getSnapshot(env);
 
-  // Calculate emotion
   const yesterdayMarketCap = yesterday?.totalMarketCap || today.totalMarketCap;
   today.yesterdayMarketCap = yesterdayMarketCap;
   today.btcDominanceChange = today.btcDominance - (yesterday?.btcDominance || today.btcDominance);
@@ -978,7 +985,6 @@ async function sendChannelAI(env, customPrompt = null) {
     return;
   }
 
-  // Store last AI result for resend
   if (env.ALERTS_KV) {
     await env.ALERTS_KV.put('last:ai_result', JSON.stringify(aiResult));
     await env.ALERTS_KV.put('last:today', JSON.stringify(today));
@@ -1098,7 +1104,6 @@ async function processWebhook(update, env) {
       const userId = msg.from.id;
       const text = msg.text || '';
 
-      // Check user state (custom prompt awaiting)
       const state = await getUserState(env, userId);
       if (state === 'awaiting_prompt' && text !== '/cancel') {
         await setUserState(env, userId, null);
@@ -1349,7 +1354,6 @@ async function handleDebug(env) {
     has_cmc_key: !!env.CMC_API_KEY,
     has_gemini_key: !!env.GEMINI_API_KEY,
     has_openrouter_key: !!env.OPENROUTER_API_KEY,
-    has_cryptopanic_key: !!env.CRYPTOPANIC_API_KEY,
     token_preview: env.TELEGRAM_BOT_TOKEN ? env.TELEGRAM_BOT_TOKEN.slice(0, 10) + '...' : 'MISSING',
     channel_id: env.TELEGRAM_CHANNEL_ID || 'MISSING',
     admin_id: env.ADMIN_ID || 'MISSING',
@@ -1374,12 +1378,8 @@ async function handleDebug(env) {
     } catch (e) { checks[`${name}_status`] = `❌ ${e.message}`; }
   }
 
-  try {
-    if (env.GEMINI_API_KEY) {
-      const test = await getAIAnalysis(env, 'Say "OK" only.');
-      checks.gemini_status = test ? `✅ OK (${test.source})` : '⚠️ Empty';
-    } else checks.gemini_status = '⚠️ No Key';
-  } catch (e) { checks.gemini_status = `❌ ${e.message}`; }
+  const geminiTest = await testGeminiConnection(env);
+  checks.gemini_status = geminiTest.ok ? `✅ ${geminiTest.source}` : `❌ ${geminiTest.error}`;
 
   try {
     const f = await getBinanceFutures('BTCUSDT');
