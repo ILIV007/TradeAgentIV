@@ -1,6 +1,7 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV — CoinGecko Fix + Binance Fallback
-//  Routes: /webhook | /admin | /debug
+//  TRADEAGENT IV — Multi-API Failover Edition
+//  Sources: CoinGecko → CoinMarketCap → Binance → CoinCap
+//  Routes: /webhook | /admin (GET/POST) | /debug
 // ═══════════════════════════════════════════════════════════════
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -28,6 +29,7 @@ const ALERT_PRESETS = {
 };
 
 const COINGECKO_BASE = 'https://api.coingecko.com/api/v3';
+const CMC_BASE = 'https://pro-api.coinmarketcap.com/v1';
 
 const BINANCE_MAP = {
   bitcoin: 'BTCUSDT',
@@ -37,6 +39,17 @@ const BINANCE_MAP = {
   ripple: 'XRPUSDT',
   'the-open-network': 'TONUSDT',
 };
+
+const SYMBOL_TO_ID = {
+  BTC: 'bitcoin',
+  ETH: 'ethereum',
+  SOL: 'solana',
+  BNB: 'binancecoin',
+  XRP: 'ripple',
+  TON: 'the-open-network',
+};
+
+const CMC_SYMBOLS = 'BTC,ETH,SOL,BNB,XRP,TON';
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 2. SECURITY
@@ -79,16 +92,18 @@ const fmt = {
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 4. API
+// 4. API HELPERS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-async function api(url, retries = 3) {
+async function api(url, opts = {}, retries = 3) {
   for (let i = 0; i < retries; i++) {
     try {
       const r = await fetch(url, {
+        ...opts,
         headers: {
           Accept: 'application/json',
           'User-Agent': 'TradeAgentIV/1.0',
+          ...opts.headers,
         },
       });
       if (!r.ok) {
@@ -103,31 +118,38 @@ async function api(url, retries = 3) {
   }
 }
 
-// ── 4.1 COINGECKO (needs API key to avoid 403 from Cloudflare Workers) ──
-function getCoinsCG(env) {
-  const key = env.COINGECKO_API_KEY;
-  if (!key) return null;
-  const url = `${COINGECKO_BASE}/coins/markets?vs_currency=usd&ids=${COIN_IDS}&order=market_cap_desc&sparkline=false&price_change_percentage=24h&x_cg_demo_api_key=${key}`;
-  return api(url);
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 5. NORMALIZERS (همه APIها را به فرمت واحد تبدیل می‌کند)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function normalizeCG(coins) {
+  return coins.map(c => ({
+    id: c.id,
+    current_price: c.current_price,
+    price_change_percentage_24h: c.price_change_percentage_24h,
+    total_volume: c.total_volume,
+    market_cap: c.market_cap,
+  }));
 }
 
-function getGlobalCG(env) {
-  const key = env.COINGECKO_API_KEY;
-  if (!key) return null;
-  return api(`${COINGECKO_BASE}/global?x_cg_demo_api_key=${key}`);
+function normalizeCMC(data) {
+  const result = [];
+  for (const [_, coin] of Object.entries(data.data || {})) {
+    const id = SYMBOL_TO_ID[coin.symbol];
+    if (!id) continue;
+    const q = coin.quote?.USD || {};
+    result.push({
+      id,
+      current_price: q.price || 0,
+      price_change_percentage_24h: q.percent_change_24h || 0,
+      total_volume: q.volume_24h || 0,
+      market_cap: q.market_cap || 0,
+    });
+  }
+  return result;
 }
 
-function getTrendingCG(env) {
-  const key = env.COINGECKO_API_KEY;
-  if (!key) return null;
-  return api(`${COINGECKO_BASE}/search/trending?x_cg_demo_api_key=${key}`);
-}
-
-// ── 4.2 BINANCE FALLBACK (free, no key, works from Cloudflare Workers) ──
-async function getCoinsBinance() {
-  const symbols = Object.values(BINANCE_MAP).map(s => `"${s}"`).join(',');
-  const url = `https://api.binance.com/api/v3/ticker/24hr?symbols=[${symbols}]`;
-  const data = await api(url);
+function normalizeBinance(data) {
   return data.map(b => {
     const id = Object.keys(BINANCE_MAP).find(k => BINANCE_MAP[k] === b.symbol);
     const price = parseFloat(b.lastPrice);
@@ -135,38 +157,181 @@ async function getCoinsBinance() {
       id,
       current_price: price,
       price_change_percentage_24h: parseFloat(b.priceChangePercent),
-      total_volume: parseFloat(b.volume) * price, // approx USD volume
-      market_cap: 0, // Binance doesn't provide market cap
+      total_volume: parseFloat(b.volume) * price,
+      market_cap: 0,
     };
   });
 }
 
-// ── 4.3 SMART FETCH (CoinGecko first, Binance fallback) ──
+function normalizeCoinCap(data) {
+  const result = [];
+  for (const asset of data.data || []) {
+    const id = Object.keys(COINS).find(k => COINS[k].symbol === asset.symbol);
+    if (!id) continue;
+    result.push({
+      id,
+      current_price: parseFloat(asset.priceUsd) || 0,
+      price_change_percentage_24h: parseFloat(asset.changePercent24Hr) || 0,
+      total_volume: parseFloat(asset.volumeUsd24Hr) || 0,
+      market_cap: parseFloat(asset.marketCapUsd) || 0,
+    });
+  }
+  return result;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 6. PRICE API — FAILOVER: CG → CMC → Binance → CoinCap
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+async function getCoinsCG(env) {
+  const key = env.COINGECKO_API_KEY;
+  if (!key) return null;
+  const url = `${COINGECKO_BASE}/coins/markets?vs_currency=usd&ids=${COIN_IDS}&order=market_cap_desc&sparkline=false&price_change_percentage=24h&x_cg_demo_api_key=${key}`;
+  const data = await api(url);
+  return normalizeCG(data);
+}
+
+async function getCoinsCMC(env) {
+  const key = env.CMC_API_KEY;
+  if (!key) return null;
+  const url = `${CMC_BASE}/cryptocurrency/quotes/latest?symbol=${CMC_SYMBOLS}`;
+  const data = await api(url, { headers: { 'X-CMC_PRO_API_KEY': key } });
+  return normalizeCMC(data);
+}
+
+async function getCoinsBinance() {
+  const symbols = Object.values(BINANCE_MAP).map(s => `"${s}"`).join(',');
+  const url = `https://api.binance.com/api/v3/ticker/24hr?symbols=[${symbols}]`;
+  const data = await api(url);
+  return normalizeBinance(data);
+}
+
+async function getCoinsCoinCap() {
+  const ids = Object.keys(COINS).join(',');
+  const url = `https://api.coincap.io/v2/assets?ids=${ids}`;
+  const data = await api(url);
+  return normalizeCoinCap(data);
+}
+
 async function getCoins(env) {
+  // 1. CoinGecko
   try {
     const cg = await getCoinsCG(env);
+    if (cg && cg.length) return { source: 'coingecko', data: cg };
+  } catch (e) { console.error('[API] CG prices failed:', e.message); }
+
+  // 2. CoinMarketCap
+  try {
+    const cmc = await getCoinsCMC(env);
+    if (cmc && cmc.length) return { source: 'coinmarketcap', data: cmc };
+  } catch (e) { console.error('[API] CMC prices failed:', e.message); }
+
+  // 3. Binance
+  try {
+    const bin = await getCoinsBinance();
+    if (bin && bin.length) return { source: 'binance', data: bin };
+  } catch (e) { console.error('[API] Binance prices failed:', e.message); }
+
+  // 4. CoinCap
+  try {
+    const cc = await getCoinsCoinCap();
+    if (cc && cc.length) return { source: 'coincap', data: cc };
+  } catch (e) { console.error('[API] CoinCap prices failed:', e.message); }
+
+  throw new Error('All price APIs failed (CG, CMC, Binance, CoinCap)');
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 7. GLOBAL DATA — FAILOVER: CG → CMC
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+async function getGlobalCG(env) {
+  const key = env.COINGECKO_API_KEY;
+  if (!key) return null;
+  return api(`${COINGECKO_BASE}/global?x_cg_demo_api_key=${key}`);
+}
+
+async function getGlobalCMC(env) {
+  const key = env.CMC_API_KEY;
+  if (!key) return null;
+  const data = await api(`${CMC_BASE}/global-metrics/quotes/latest`, {
+    headers: { 'X-CMC_PRO_API_KEY': key },
+  });
+  const q = data.data?.quote?.USD || {};
+  return {
+    data: {
+      total_market_cap: { usd: q.total_market_cap || 0 },
+      total_volume: { usd: q.total_volume_24h || 0 },
+      market_cap_percentage: { btc: data.data?.btc_dominance || 0 },
+    },
+  };
+}
+
+async function getGlobal(env) {
+  try {
+    const cg = await getGlobalCG(env);
     if (cg) return cg;
-  } catch (e) {
-    console.error('[API] CoinGecko failed:', e.message);
-  }
-  console.log('[API] Falling back to Binance...');
-  return getCoinsBinance();
+  } catch (e) { console.error('[API] CG global failed:', e.message); }
+
+  try {
+    const cmc = await getGlobalCMC(env);
+    if (cmc) return cmc;
+  } catch (e) { console.error('[API] CMC global failed:', e.message); }
+
+  return null;
 }
 
-function getGlobal(env) {
-  return getGlobalCG(env); // returns null if no key
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 8. TRENDING — FAILOVER: CG → CMC
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+async function getTrendingCG(env) {
+  const key = env.COINGECKO_API_KEY;
+  if (!key) return null;
+  return api(`${COINGECKO_BASE}/search/trending?x_cg_demo_api_key=${key}`);
 }
 
-function getTrending(env) {
-  return getTrendingCG(env); // returns null if no key
+async function getTrendingCMC(env) {
+  const key = env.CMC_API_KEY;
+  if (!key) return null;
+  const data = await api(`${CMC_BASE}/cryptocurrency/trending/latest?limit=10`, {
+    headers: { 'X-CMC_PRO_API_KEY': key },
+  });
+  return {
+    coins: (data.data || []).map(c => ({
+      item: {
+        symbol: c.symbol,
+        name: c.name,
+        market_cap_rank: c.cmc_rank || '?',
+      },
+    })),
+  };
 }
+
+async function getTrending(env) {
+  try {
+    const cg = await getTrendingCG(env);
+    if (cg) return cg;
+  } catch (e) { console.error('[API] CG trending failed:', e.message); }
+
+  try {
+    const cmc = await getTrendingCMC(env);
+    if (cmc) return cmc;
+  } catch (e) { console.error('[API] CMC trending failed:', e.message); }
+
+  return null;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 9. FEAR & GREED
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function getFearGreed() {
   return api('https://api.alternative.me/fng/?limit=1');
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 5. TELEGRAM API
+// 10. TELEGRAM API
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function tgMethod(token, method, body) {
@@ -215,7 +380,7 @@ async function editMessage(env, chatId, messageId, text, markup = null) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 6. KEYBOARDS
+// 11. KEYBOARDS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function mainKeyboard(isAdmin) {
@@ -256,11 +421,11 @@ function alertsInline(states) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 7. MESSAGE BUILDERS
+// 12. MESSAGE BUILDERS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-async function buildPrice(coins) {
-  let m = `📊 *Live Prices*\n━━━━━━━━━━━━━━━━━━━━\n\n`;
+async function buildPrice(coins, source = '') {
+  let m = `📊 *Live Prices*${source ? ` \\[${source}\\]` : ''}\n━━━━━━━━━━━━━━━━━━━━\n\n`;
   for (const c of coins) {
     const i = COINS[c.id];
     if (!i) continue;
@@ -271,8 +436,8 @@ async function buildPrice(coins) {
   return m;
 }
 
-async function buildVolume(coins) {
-  let m = `📈 *Volume Report*\n━━━━━━━━━━━━━━━━━━━━\n\n`;
+async function buildVolume(coins, source = '') {
+  let m = `📈 *Volume Report*${source ? ` \\[${source}\\]` : ''}\n━━━━━━━━━━━━━━━━━━━━\n\n`;
   for (const c of coins) {
     const i = COINS[c.id];
     if (!i) continue;
@@ -285,11 +450,11 @@ async function buildVolume(coins) {
   return m;
 }
 
-async function buildDaily(coins, globalData, trending, fear) {
+async function buildDaily(coins, globalData, trending, fear, source = '') {
   const sorted = [...coins].sort((a, b) => (b.price_change_percentage_24h || 0) - (a.price_change_percentage_24h || 0));
   const best = sorted[0];
   const worst = sorted[sorted.length - 1];
-  let m = `📉 *Daily Market Report*\n━━━━━━━━━━━━━━━━━━━━\n\n`;
+  let m = `📉 *Daily Market Report*${source ? ` \\[${source}\\]` : ''}\n━━━━━━━━━━━━━━━━━━━━\n\n`;
 
   if (globalData?.data) {
     const g = globalData.data;
@@ -360,7 +525,7 @@ function buildAlert(coinId, price, type) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 8. KV HELPERS
+// 13. KV HELPERS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function getAlertState(env, key) {
@@ -402,7 +567,7 @@ async function getAllAlertStates(env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 9. CORE LOGIC
+// 14. CORE LOGIC
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function checkAlerts(env, coins) {
@@ -436,7 +601,7 @@ async function checkAlerts(env, coins) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 10. CHANNEL SENDERS
+// 15. CHANNEL SENDERS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function ensureChannel(env) {
@@ -446,10 +611,10 @@ function ensureChannel(env) {
 async function sendChannelPrice(env) {
   try {
     ensureChannel(env);
-    const coins = await getCoins(env);
-    await checkAlerts(env, coins);
-    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildPrice(coins));
-    console.log('[SEND] Price OK');
+    const { source, data } = await getCoins(env);
+    await checkAlerts(env, data);
+    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildPrice(data, source));
+    console.log(`[SEND] Price OK [${source}]`);
   } catch (e) {
     console.error('[SEND] Price FAILED:', e.message);
     throw e;
@@ -459,9 +624,9 @@ async function sendChannelPrice(env) {
 async function sendChannelVolume(env) {
   try {
     ensureChannel(env);
-    const coins = await getCoins(env);
-    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildVolume(coins));
-    console.log('[SEND] Volume OK');
+    const { source, data } = await getCoins(env);
+    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildVolume(data, source));
+    console.log(`[SEND] Volume OK [${source}]`);
   } catch (e) {
     console.error('[SEND] Volume FAILED:', e.message);
     throw e;
@@ -471,11 +636,11 @@ async function sendChannelVolume(env) {
 async function sendChannelDaily(env) {
   try {
     ensureChannel(env);
-    const [coins, globalData, trending, fear] = await Promise.all([
+    const [{ source, data }, globalData, trending, fear] = await Promise.all([
       getCoins(env), getGlobal(env), getTrending(env), getFearGreed(),
     ]);
-    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildDaily(coins, globalData, trending, fear));
-    console.log('[SEND] Daily OK');
+    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildDaily(data, globalData, trending, fear, source));
+    console.log(`[SEND] Daily OK [${source}]`);
   } catch (e) {
     console.error('[SEND] Daily FAILED:', e.message);
     throw e;
@@ -487,7 +652,7 @@ async function sendChannelTrending(env) {
     ensureChannel(env);
     const trending = await getTrending(env);
     if (!trending) {
-      await sendMessage(env, env.TELEGRAM_CHANNEL_ID, '🔥 *Trending*\n\nTrending data requires CoinGecko API Key.\nSet `COINGECKO_API_KEY` in Worker environment.');
+      await sendMessage(env, env.TELEGRAM_CHANNEL_ID, '🔥 *Trending*\n\nTrending data unavailable. No API key configured or all sources failed.');
       return;
     }
     await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildTrending(trending));
@@ -534,7 +699,7 @@ async function sendChannelAll(env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 11. BOT HANDLERS
+// 16. BOT HANDLERS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleStart(chatId, userId, env) {
@@ -546,26 +711,26 @@ async function handleStart(chatId, userId, env) {
 }
 
 async function handlePrices(chatId, env) {
-  const coins = await getCoins(env);
-  await sendMessage(env, chatId, await buildPrice(coins));
+  const { source, data } = await getCoins(env);
+  await sendMessage(env, chatId, await buildPrice(data, source));
 }
 
 async function handleVolume(chatId, env) {
-  const coins = await getCoins(env);
-  await sendMessage(env, chatId, await buildVolume(coins));
+  const { source, data } = await getCoins(env);
+  await sendMessage(env, chatId, await buildVolume(data, source));
 }
 
 async function handleDaily(chatId, env) {
-  const [coins, globalData, trending, fear] = await Promise.all([
+  const [{ source, data }, globalData, trending, fear] = await Promise.all([
     getCoins(env), getGlobal(env), getTrending(env), getFearGreed(),
   ]);
-  await sendMessage(env, chatId, await buildDaily(coins, globalData, trending, fear));
+  await sendMessage(env, chatId, await buildDaily(data, globalData, trending, fear, source));
 }
 
 async function handleTrending(chatId, env) {
   const trending = await getTrending(env);
   if (!trending) {
-    await sendMessage(env, chatId, '🔥 *Trending*\n\nTrending data requires CoinGecko API Key.\nGet a free key at coingecko.com/en/api and set `COINGECKO_API_KEY`.');
+    await sendMessage(env, chatId, '🔥 *Trending*\n\nTrending data unavailable. No API key configured or all sources failed.');
     return;
   }
   await sendMessage(env, chatId, await buildTrending(trending));
@@ -590,8 +755,13 @@ async function handleAlerts(chatId, env) {
 }
 
 async function handleSettings(chatId, env) {
-  const cgStatus = env.COINGECKO_API_KEY ? '✅ Connected' : '⚠️ Using Binance Fallback';
-  await sendMessage(env, chatId, `⚙️ *Settings*\n\nChannel: ${env.TELEGRAM_CHANNEL_ID || 'Not set'}\nCoinGecko: ${cgStatus}\nCron Jobs: Active\n\nUse /admin for admin panel.`);
+  const sources = [];
+  if (env.COINGECKO_API_KEY) sources.push('CoinGecko');
+  if (env.CMC_API_KEY) sources.push('CoinMarketCap');
+  sources.push('Binance (fallback)');
+  sources.push('CoinCap (fallback)');
+
+  await sendMessage(env, chatId, `⚙️ *Settings*\n\nChannel: ${env.TELEGRAM_CHANNEL_ID || 'Not set'}\nData Sources: ${sources.join(', ')}\nCron Jobs: Active\n\nUse /admin for admin panel.`);
 }
 
 async function showAdminPanel(chatId, env) {
@@ -621,7 +791,7 @@ async function handleHelp(chatId, env, userId) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 12. WEBHOOK PROCESSOR
+// 17. WEBHOOK PROCESSOR
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function processWebhook(update, env) {
@@ -763,7 +933,7 @@ async function processWebhook(update, env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 13. CRON HANDLER
+// 18. CRON HANDLER
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleCron(cron, env) {
@@ -780,7 +950,7 @@ async function handleCron(cron, env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 14. HTTP ROUTER
+// 19. HTTP ROUTER
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleWebhook(request, env) {
@@ -813,8 +983,8 @@ async function routeAdmin(request, env) {
     if (type === 'fng')      await sendChannelFng(env);
     if (type === 'all')      await sendChannelAll(env);
     if (type === 'alert') {
-      const coins = await getCoins(env);
-      await checkAlerts(env, coins);
+      const { data } = await getCoins(env);
+      await checkAlerts(env, data);
     }
     return new Response('✅ Sent!', { status: 200 });
   } catch (e) {
@@ -830,6 +1000,7 @@ async function handleDebug(env) {
     has_admin_secret: !!env.ADMIN_SECRET,
     has_kv: !!env.ALERTS_KV,
     has_coingecko_key: !!env.COINGECKO_API_KEY,
+    has_cmc_key: !!env.CMC_API_KEY,
     token_preview: env.TELEGRAM_BOT_TOKEN ? env.TELEGRAM_BOT_TOKEN.slice(0, 10) + '...' : 'MISSING',
     channel_id: env.TELEGRAM_CHANNEL_ID || 'MISSING',
     admin_id: env.ADMIN_ID || 'MISSING',
@@ -851,20 +1022,33 @@ async function handleDebug(env) {
     }
   }
 
-  // Test CoinGecko API
+  // Test APIs
   try {
-    const test = await getCoinsCG(env);
-    checks.coingecko_status = test ? '✅ OK' : '⚠️ No API Key';
+    const cg = await getCoinsCG(env);
+    checks.coingecko_status = cg ? `✅ OK (${cg.length} coins)` : '⚠️ No API Key';
   } catch (e) {
     checks.coingecko_status = `❌ ${e.message}`;
   }
 
-  // Test Binance API
   try {
-    await getCoinsBinance();
-    checks.binance_status = '✅ OK';
+    const cmc = await getCoinsCMC(env);
+    checks.cmc_status = cmc ? `✅ OK (${cmc.length} coins)` : '⚠️ No API Key';
+  } catch (e) {
+    checks.cmc_status = `❌ ${e.message}`;
+  }
+
+  try {
+    const bin = await getCoinsBinance();
+    checks.binance_status = `✅ OK (${bin.length} coins)`;
   } catch (e) {
     checks.binance_status = `❌ ${e.message}`;
+  }
+
+  try {
+    const cc = await getCoinsCoinCap();
+    checks.coincap_status = `✅ OK (${cc.length} coins)`;
+  } catch (e) {
+    checks.coincap_status = `❌ ${e.message}`;
   }
 
   return new Response(JSON.stringify(checks, null, 2), {
@@ -874,7 +1058,7 @@ async function handleDebug(env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 15. MAIN ROUTER
+// 20. MAIN ROUTER
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleHttp(request, env) {
@@ -887,7 +1071,8 @@ async function handleHttp(request, env) {
     return handleWebhook(request, env);
   }
 
-  if (path === '/admin' && request.method === 'POST') {
+  // FIX: /admin now accepts BOTH GET and POST
+  if (path === '/admin' && (request.method === 'POST' || request.method === 'GET')) {
     return routeAdmin(request, env);
   }
 
@@ -897,7 +1082,7 @@ async function handleHttp(request, env) {
 
   if (path === '/' && request.method === 'GET') {
     return new Response(
-      `TradeAgent IV Bot\n\nRoutes:\n  POST /webhook  → Telegram webhook\n  POST /admin    → Manual trigger (x-admin-secret required)\n  GET  /debug    → Status check + API tests\n\nCron: ${CRON_PRICE}, ${CRON_VOL}, ${CRON_DAILY}\n`,
+      `TradeAgent IV Bot — Multi-API Failover\n\nRoutes:\n  POST /webhook  → Telegram webhook\n  POST|GET /admin → Manual trigger (x-admin-secret required)\n  GET  /debug    → Status check + API tests\n\nCron: ${CRON_PRICE}, ${CRON_VOL}, ${CRON_DAILY}\n`,
       { status: 200 }
     );
   }
@@ -906,7 +1091,7 @@ async function handleHttp(request, env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 16. EXPORT
+// 21. EXPORT
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 export default {
