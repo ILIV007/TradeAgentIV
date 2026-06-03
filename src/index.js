@@ -1,6 +1,7 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV — HTML Edition + Multi-API Failover
+//  TRADEAGENT IV PRO — AI-Powered Crypto Intelligence
 //  Routes: /webhook | /admin (GET/POST) | /debug
+//  AI: Gemini 2.0 Flash Lite (Free Tier)
 // ═══════════════════════════════════════════════════════════════
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -18,8 +19,8 @@ const COINS = {
 
 const COIN_IDS   = Object.keys(COINS).join(',');
 const CRON_PRICE = '*/30 * * * *';
-const CRON_VOL   = '0 * * * *';
-const CRON_DAILY = '0 13 * * *';
+const CRON_AI    = '0 15 * * *';
+const CRON_FNG   = '0 21 * * *';
 
 const ALERT_PRESETS = {
   bitcoin:  { above: 110000, below: 95000 },
@@ -29,6 +30,7 @@ const ALERT_PRESETS = {
 
 const COINGECKO_BASE = 'https://api.coingecko.com/api/v3';
 const CMC_BASE = 'https://pro-api.coinmarketcap.com/v1';
+const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent';
 
 const BINANCE_MAP = {
   bitcoin: 'BTCUSDT',
@@ -49,7 +51,7 @@ const SYMBOL_TO_ID = {
 };
 
 const CMC_SYMBOLS = 'BTC,ETH,SOL,BNB,XRP,TON';
-const FOOTER = `<blockquote>📡 @TradeAgentIV</blockquote>`;
+const FOOTER = `<blockquote>📡 <b>TradeAgent IV</b>\n<i>AI Crypto Intelligence</i>\n@TradeAgentIV</blockquote>`;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 2. SECURITY
@@ -107,6 +109,12 @@ function getBias(fearValue) {
   if (v >= 45) return '😐 Neutral — 🟢 Balanced';
   if (v >= 25) return '😰 Fear — 🟢 Accumulation';
   return '😨 Extreme Fear — 🟢 Opportunity';
+}
+
+function progressBar(value, max = 100, blocks = 10) {
+  const filled = Math.round((value / max) * blocks);
+  const empty = blocks - filled;
+  return '🟩'.repeat(filled) + '⬜'.repeat(empty);
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -344,7 +352,101 @@ function getFearGreed() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 10. TELEGRAM API
+// 10. GEMINI AI ANALYSIS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+async function getGeminiAnalysis(env, todayData, yesterdayData) {
+  const key = env.GEMINI_API_KEY;
+  if (!key) return null;
+
+  const prompt = buildAIPrompt(todayData, yesterdayData);
+
+  try {
+    const res = await api(`${GEMINI_URL}?key=${key}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.3,
+          maxOutputTokens: 400,
+        },
+      }),
+    });
+
+    const text = res.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) throw new Error('Empty Gemini response');
+    return text.trim();
+  } catch (e) {
+    console.error('[AI] Gemini failed:', e.message);
+    return null;
+  }
+}
+
+function buildAIPrompt(today, yesterday) {
+  const t = today;
+  const y = yesterday || {};
+
+  const changes = [];
+  for (const c of t.coins) {
+    const yc = y.coins?.find(x => x.id === c.id);
+    const ch = yc ? (c.current_price - yc.current_price) / yc.current_price * 100 : c.price_change_percentage_24h;
+    changes.push(`${COINS[c.id].symbol}: $${fmt.price(c.current_price)} (${ch >= 0 ? '+' : ''}${ch.toFixed(2)}%)`);
+  }
+
+  const btcDomChange = y.btcDominance ? (t.btcDominance - y.btcDominance).toFixed(1) : '0';
+  const fngChange = y.fearGreed ? (t.fearGreed - y.fearGreed) : 0;
+
+  return `You are "TradeAgent IV", a professional Persian-speaking crypto market intelligence analyst.
+
+Analyze ONLY the provided data. Do NOT use external information. Do NOT invent support/resistance/price targets.
+
+RULES:
+- Write in Persian (Farsi)
+- Maximum 200 words
+- Output valid Telegram HTML tags: <b>, <i>, <blockquote>
+- Mention both bullish and bearish scenarios
+- Mention risks clearly
+- Compare today vs yesterday when data exists
+- Professional, confident tone
+- End with: "⚠️ این تحلیل صرفاً اطلاع‌رسانی است و توصیه مالی نیست."
+- Do NOT use markdown (*, _, #)
+- Do NOT use emojis in HTML tags
+
+TODAY'S DATA:
+- Date: ${t.date}
+- Market Cap: ${fmt.cap(t.totalMarketCap)}
+- Volume 24H: ${fmt.vol(t.totalVolume)}
+- BTC Dominance: ${t.btcDominance}%
+- Fear & Greed: ${t.fearGreed}/100 (${t.fearClassification})
+- Coins: ${changes.join(', ')}
+- Trending: ${t.trending.map(x => x.item.symbol).join(', ')}
+
+YESTERDAY'S DATA:
+${y.date ? `- Date: ${y.date}` : '- No historical data'}
+${y.btcDominance ? `- BTC Dominance: ${y.btcDominance}% (change: ${btcDomChange >= 0 ? '+' : ''}${btcDomChange}%)` : ''}
+${y.fearGreed ? `- Fear & Greed: ${y.fearGreed}/100 (change: ${fngChange >= 0 ? '+' : ''}${fngChange})` : ''}
+
+Write the analysis now.`;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 11. SNAPSHOT KV (Yesterday Data)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+async function storeSnapshot(env, data) {
+  if (!env.ALERTS_KV) return;
+  await env.ALERTS_KV.put('snapshot:yesterday', JSON.stringify(data));
+}
+
+async function getSnapshot(env) {
+  if (!env.ALERTS_KV) return null;
+  const raw = await env.ALERTS_KV.get('snapshot:yesterday');
+  return raw ? JSON.parse(raw) : null;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 12. TELEGRAM API
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function tgMethod(token, method, body) {
@@ -393,7 +495,7 @@ async function editMessage(env, chatId, messageId, text, markup = null) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 11. KEYBOARDS
+// 13. KEYBOARDS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function mainKeyboard(isAdmin) {
@@ -409,7 +511,7 @@ function mainKeyboard(isAdmin) {
 const adminInline = {
   inline_keyboard: [
     [{ text: '📣 Send Prices', callback_data: 'send_price' }, { text: '📣 Send Volume', callback_data: 'send_volume' }],
-    [{ text: '📣 Send Daily', callback_data: 'send_daily' }, { text: '📣 Send Trending', callback_data: 'send_trending' }],
+    [{ text: '📣 Send AI Daily', callback_data: 'send_ai' }, { text: '📣 Send Trending', callback_data: 'send_trending' }],
     [{ text: '📣 Send F&G', callback_data: 'send_fng' }, { text: '📣 Send All', callback_data: 'send_all' }],
     [{ text: '🔙 Back', callback_data: 'back_main' }],
   ],
@@ -434,7 +536,7 @@ function alertsInline(states) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 12. MESSAGE BUILDERS — HTML EDITION
+// 14. MESSAGE BUILDERS — HTML EDITION
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function buildPrice(coins, source = '') {
@@ -551,8 +653,28 @@ async function buildFng(fear) {
   const f = fear.data[0];
   const v = parseInt(f.value);
   let m = `🧠 <b>MARKET SENTIMENT</b>\n\n`;
-  m += `<b>${v}/100</b>\n`;
+  m += `${progressBar(v)} <b>${v}/100</b>\n`;
   m += `${getBias(v)}\n\n`;
+  m += `${FOOTER}`;
+  return m;
+}
+
+async function buildAIAnalysis(aiText, todayData) {
+  const t = todayData;
+  let m = `🧠 <b>AI MARKET INTELLIGENCE</b>\n`;
+  m += `<i>${t.date} • TradeAgent IV</i>\n\n`;
+
+  m += `<blockquote>\n${aiText}\n</blockquote>\n\n`;
+
+  m += `<pre>`;
+  m += `BTC  $${fmt.price(t.btcPrice)}  ${t.btcChange >= 0 ? '🟢' : '🔴'}${t.btcChange >= 0 ? '+' : ''}${t.btcChange.toFixed(2)}%\n`;
+  m += `ETH  $${fmt.price(t.ethPrice)}  ${t.ethChange >= 0 ? '🟢' : '🔴'}${t.ethChange >= 0 ? '+' : ''}${t.ethChange.toFixed(2)}%\n`;
+  m += `SOL  $${fmt.price(t.solPrice)}  ${t.solChange >= 0 ? '🟢' : '🔴'}${t.solChange >= 0 ? '+' : ''}${t.solChange.toFixed(2)}%\n`;
+  m += `</pre>\n\n`;
+
+  m += `🌍 Cap: ${fmt.cap(t.totalMarketCap)} | Vol: ${fmt.vol(t.totalVolume)}\n`;
+  m += `₿ Dom: ${t.btcDominance}% | 🧠 F&G: ${t.fearGreed}/100\n\n`;
+
   m += `${FOOTER}`;
   return m;
 }
@@ -564,7 +686,7 @@ function buildAlert(coinId, price, type) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 13. KV HELPERS — OPTIMIZED (Parallel Reads)
+// 15. KV HELPERS — OPTIMIZED
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function getAlertState(env, key) {
@@ -616,7 +738,7 @@ async function getAllAlertStates(env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 14. CORE LOGIC — ALERTS (Optimized with Cached States)
+// 16. CORE LOGIC — ALERTS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function checkAlerts(env, coins) {
@@ -651,7 +773,44 @@ async function checkAlerts(env, coins) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 15. CHANNEL SENDERS
+// 17. DATA COLLECTOR (for AI + Snapshot)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+async function collectMarketData(env) {
+  const [{ source, data }, globalData, trending, fear] = await Promise.all([
+    getCoins(env), getGlobal(env), getTrending(env), getFearGreed(),
+  ]);
+
+  const btc = data.find(c => c.id === 'bitcoin');
+  const eth = data.find(c => c.id === 'ethereum');
+  const sol = data.find(c => c.id === 'solana');
+
+  const g = globalData?.data || {};
+  const f = fear?.data?.[0] || {};
+  const fv = parseInt(f.value) || 50;
+
+  return {
+    date: fmt.date(),
+    time: fmt.time(),
+    source,
+    coins: data,
+    totalMarketCap: g.total_market_cap?.usd || 0,
+    totalVolume: g.total_volume?.usd || 0,
+    btcDominance: g.market_cap_percentage?.btc || 0,
+    fearGreed: fv,
+    fearClassification: f.value_classification || 'Neutral',
+    trending: trending?.coins || [],
+    btcPrice: btc?.current_price || 0,
+    btcChange: btc?.price_change_percentage_24h || 0,
+    ethPrice: eth?.current_price || 0,
+    ethChange: eth?.price_change_percentage_24h || 0,
+    solPrice: sol?.current_price || 0,
+    solChange: sol?.price_change_percentage_24h || 0,
+  };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 18. CHANNEL SENDERS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function ensureChannel(env) {
@@ -702,7 +861,7 @@ async function sendChannelTrending(env) {
     ensureChannel(env);
     const trending = await getTrending(env);
     if (!trending) {
-      await sendMessage(env, env.TELEGRAM_CHANNEL_ID, `🔥 <b>TRENDING COINS</b>\n\nTrending data unavailable. No API key configured or all sources failed.\n\n${FOOTER}`);
+      await sendMessage(env, env.TELEGRAM_CHANNEL_ID, `🔥 <b>TRENDING COINS</b>\n\nTrending data unavailable.\n\n${FOOTER}`);
       return;
     }
     await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildTrending(trending));
@@ -725,12 +884,42 @@ async function sendChannelFng(env) {
   }
 }
 
+async function sendChannelAI(env) {
+  try {
+    ensureChannel(env);
+    if (!env.GEMINI_API_KEY) {
+      console.log('[AI] No GEMINI_API_KEY, falling back to standard daily report');
+      await sendChannelDaily(env);
+      return;
+    }
+
+    const today = await collectMarketData(env);
+    const yesterday = await getSnapshot(env);
+
+    const aiText = await getGeminiAnalysis(env, today, yesterday);
+    if (!aiText) {
+      console.log('[AI] Gemini returned empty, falling back to standard daily');
+      await sendChannelDaily(env);
+      return;
+    }
+
+    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildAIAnalysis(aiText, today));
+    console.log('[SEND] AI Analysis OK');
+
+    // Store today's data as yesterday for next run
+    await storeSnapshot(env, today);
+  } catch (e) {
+    console.error('[SEND] AI FAILED:', e.message);
+    throw e;
+  }
+}
+
 async function sendChannelAll(env) {
   const results = [];
   const senders = [
     { name: 'Price',    fn: sendChannelPrice },
     { name: 'Volume',   fn: sendChannelVolume },
-    { name: 'Daily',    fn: sendChannelDaily },
+    { name: 'AI Daily', fn: sendChannelAI },
     { name: 'Trending', fn: sendChannelTrending },
     { name: 'F&G',      fn: sendChannelFng },
   ];
@@ -749,14 +938,14 @@ async function sendChannelAll(env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 16. BOT HANDLERS
+// 19. BOT HANDLERS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleStart(chatId, userId, env) {
   const admin = isAdmin(userId, env);
   const text = admin
     ? `👋 <b>Welcome Admin!</b>\n\nTradeAgent IV Control Panel.\nSelect an option:`
-    : `👋 <b>Welcome to TradeAgent IV!</b>\n\nCrypto Intelligence Dashboard.\nSelect an option:`;
+    : `👋 <b>Welcome to TradeAgent IV!</b>\n\nAI Crypto Intelligence Dashboard.\nSelect an option:`;
   await sendMessage(env, chatId, text, mainKeyboard(admin));
 }
 
@@ -780,7 +969,7 @@ async function handleDaily(chatId, env) {
 async function handleTrending(chatId, env) {
   const trending = await getTrending(env);
   if (!trending) {
-    await sendMessage(env, chatId, `🔥 <b>TRENDING COINS</b>\n\nTrending data unavailable. No API key configured or all sources failed.\n\n${FOOTER}`);
+    await sendMessage(env, chatId, `🔥 <b>TRENDING COINS</b>\n\nTrending data unavailable.\n\n${FOOTER}`);
     return;
   }
   await sendMessage(env, chatId, await buildTrending(trending));
@@ -810,8 +999,9 @@ async function handleSettings(chatId, env) {
   if (env.CMC_API_KEY) sources.push('CoinMarketCap');
   sources.push('Binance');
   sources.push('CoinCap');
+  const aiStatus = env.GEMINI_API_KEY ? '✅ Active' : '⚠️ Inactive';
 
-  await sendMessage(env, chatId, `⚙️ <b>Settings</b>\n\nChannel: ${env.TELEGRAM_CHANNEL_ID || 'Not set'}\nSources: ${sources.join(', ')}\nCron: Active\n\nUse /admin for admin panel.`);
+  await sendMessage(env, chatId, `⚙️ <b>Settings</b>\n\nChannel: ${env.TELEGRAM_CHANNEL_ID || 'Not set'}\nSources: ${sources.join(', ')}\nAI Analysis: ${aiStatus}\nCron: Active\n\nUse /admin for admin panel.`);
 }
 
 async function showAdminPanel(chatId, env) {
@@ -834,6 +1024,7 @@ async function handleHelp(chatId, env, userId) {
     text += `/admin — Admin panel\n`;
     text += `/sendprice — Send price to channel\n`;
     text += `/sendvolume — Send volume to channel\n`;
+    text += `/sendai — Send AI analysis to channel\n`;
     text += `/senddaily — Send daily to channel\n`;
     text += `/sendall — Send everything to channel\n`;
   }
@@ -841,7 +1032,7 @@ async function handleHelp(chatId, env, userId) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 17. WEBHOOK PROCESSOR
+// 20. WEBHOOK PROCESSOR
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function processWebhook(update, env) {
@@ -888,6 +1079,11 @@ async function processWebhook(update, env) {
         await sendMessage(env, chatId, '⏳ Sending volume to channel...');
         await sendChannelVolume(env);
         await sendMessage(env, chatId, '✅ Volume sent to channel!');
+      } else if (text === '/sendai') {
+        if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
+        await sendMessage(env, chatId, '⏳ Generating AI analysis...');
+        await sendChannelAI(env);
+        await sendMessage(env, chatId, '✅ AI analysis sent to channel!');
       } else if (text === '/senddaily') {
         if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
         await sendMessage(env, chatId, '⏳ Sending daily to channel...');
@@ -923,6 +1119,7 @@ async function processWebhook(update, env) {
         try {
           if (data === 'send_price')    await sendChannelPrice(env);
           if (data === 'send_volume')   await sendChannelVolume(env);
+          if (data === 'send_ai')       await sendChannelAI(env);
           if (data === 'send_daily')    await sendChannelDaily(env);
           if (data === 'send_trending') await sendChannelTrending(env);
           if (data === 'send_fng')      await sendChannelFng(env);
@@ -983,15 +1180,15 @@ async function processWebhook(update, env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 18. CRON HANDLER — Flexible with Dashboard names
+// 21. CRON HANDLER — Optimized Schedule
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleCron(event, env) {
   const cron = event.cron;
   try {
     if (cron.includes('price') || cron === CRON_PRICE) await sendChannelPrice(env);
-    else if (cron.includes('volume') || cron === CRON_VOL) await sendChannelVolume(env);
-    else if (cron.includes('daily') || cron === CRON_DAILY) await sendChannelDaily(env);
+    else if (cron.includes('ai') || cron === CRON_AI) await sendChannelAI(env);
+    else if (cron.includes('fng') || cron === CRON_FNG) await sendChannelFng(env);
     else await sendChannelPrice(env);
   } catch (err) {
     console.error(`[CRON ERROR] ${cron}: ${err.message}`);
@@ -999,7 +1196,7 @@ async function handleCron(event, env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 19. HTTP ROUTER
+// 22. HTTP ROUTER
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleWebhook(request, env) {
@@ -1028,6 +1225,7 @@ async function routeAdmin(request, env) {
     if (type === 'price')    await sendChannelPrice(env);
     if (type === 'volume')   await sendChannelVolume(env);
     if (type === 'daily')    await sendChannelDaily(env);
+    if (type === 'ai')       await sendChannelAI(env);
     if (type === 'trending') await sendChannelTrending(env);
     if (type === 'fng')      await sendChannelFng(env);
     if (type === 'all')      await sendChannelAll(env);
@@ -1050,6 +1248,7 @@ async function handleDebug(env) {
     has_kv: !!env.ALERTS_KV,
     has_coingecko_key: !!env.COINGECKO_API_KEY,
     has_cmc_key: !!env.CMC_API_KEY,
+    has_gemini_key: !!env.GEMINI_API_KEY,
     token_preview: env.TELEGRAM_BOT_TOKEN ? env.TELEGRAM_BOT_TOKEN.slice(0, 10) + '...' : 'MISSING',
     channel_id: env.TELEGRAM_CHANNEL_ID || 'MISSING',
     admin_id: env.ADMIN_ID || 'MISSING',
@@ -1099,6 +1298,17 @@ async function handleDebug(env) {
     checks.coincap_status = `❌ ${e.message}`;
   }
 
+  try {
+    if (env.GEMINI_API_KEY) {
+      const test = await getGeminiAnalysis(env, { date: fmt.date(), coins: [], totalMarketCap: 0, totalVolume: 0, btcDominance: 0, fearGreed: 50, fearClassification: 'Neutral', trending: [], btcPrice: 0, btcChange: 0, ethPrice: 0, ethChange: 0, solPrice: 0, solChange: 0 }, null);
+      checks.gemini_status = test ? '✅ OK' : '⚠️ Empty response';
+    } else {
+      checks.gemini_status = '⚠️ No API Key';
+    }
+  } catch (e) {
+    checks.gemini_status = `❌ ${e.message}`;
+  }
+
   return new Response(JSON.stringify(checks, null, 2), {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
@@ -1106,7 +1316,7 @@ async function handleDebug(env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 20. MAIN ROUTER
+// 23. MAIN ROUTER
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleHttp(request, env) {
@@ -1129,7 +1339,7 @@ async function handleHttp(request, env) {
 
   if (path === '/' && request.method === 'GET') {
     return new Response(
-      `TradeAgent IV Bot — HTML Edition + Multi-API Failover\n\nRoutes:\n  POST /webhook  → Telegram webhook\n  POST|GET /admin → Manual trigger (x-admin-secret required)\n  GET  /debug    → Status check + API tests\n\nCron: ${CRON_PRICE}, ${CRON_VOL}, ${CRON_DAILY}\n`,
+      `TradeAgent IV PRO — AI-Powered Crypto Intelligence\n\nRoutes:\n  POST /webhook  → Telegram webhook\n  POST|GET /admin → Manual trigger (x-admin-secret required)\n  GET  /debug    → Status check + API tests\n\nCron: ${CRON_PRICE}, ${CRON_AI}, ${CRON_FNG}\n`,
       { status: 200 }
     );
   }
@@ -1138,7 +1348,7 @@ async function handleHttp(request, env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 21. EXPORT
+// 24. EXPORT
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 export default {
