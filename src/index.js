@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV ULTIMATE v2.2 — AI-Powered Crypto Intelligence
-//  Updates: 5 Crons, 28 Coins, Bilingual AI, Admin Panel v2, Duplicate Fix
+//  TRADEAGENT IV ULTIMATE v2.3 — AI-Powered Crypto Intelligence
+//  Fixes: Bilingual AI (exact translation), Callback timeout, KV-less graceful fallback
 //  Deploy: Cloudflare Workers (free) + GitHub
 // ═══════════════════════════════════════════════════════════════
 
@@ -211,7 +211,7 @@ async function api(url, opts = {}, retries = 3) {
     try {
       const r = await fetch(url, {
         ...opts,
-        headers: { Accept: 'application/json', 'User-Agent': 'TradeAgentIV/2.2', ...opts.headers },
+        headers: { Accept: 'application/json', 'User-Agent': 'TradeAgentIV/2.3', ...opts.headers },
       });
       if (!r.ok) {
         const txt = await r.text().catch(() => '');
@@ -397,33 +397,43 @@ function getFearGreed() {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const AI_CACHE_TTL = 3600;
-const CIRCUIT_TTL = 300; // Reduced from 1800 to 300 (5 min)
+const CIRCUIT_TTL = 300;
 
 async function getAICache(env, promptHash) {
   if (!env.ALERTS_KV) return null;
-  const cached = await env.ALERTS_KV.get(`ai:cache:${promptHash}`);
-  return cached ? JSON.parse(cached) : null;
+  try {
+    const cached = await env.ALERTS_KV.get(`ai:cache:${promptHash}`);
+    return cached ? JSON.parse(cached) : null;
+  } catch (e) { return null; }
 }
 
 async function setAICache(env, promptHash, result) {
   if (!env.ALERTS_KV) return;
-  await env.ALERTS_KV.put(`ai:cache:${promptHash}`, JSON.stringify(result), { expirationTtl: AI_CACHE_TTL });
+  try {
+    await env.ALERTS_KV.put(`ai:cache:${promptHash}`, JSON.stringify(result), { expirationTtl: AI_CACHE_TTL });
+  } catch (e) {}
 }
 
 async function isCircuitOpen(env, name) {
   if (!env.ALERTS_KV) return false;
-  const state = await env.ALERTS_KV.get(`circuit:${name}`);
-  return state === 'open';
+  try {
+    const state = await env.ALERTS_KV.get(`circuit:${name}`);
+    return state === 'open';
+  } catch (e) { return false; }
 }
 
 async function tripCircuit(env, name) {
   if (!env.ALERTS_KV) return;
-  await env.ALERTS_KV.put(`circuit:${name}`, 'open', { expirationTtl: CIRCUIT_TTL });
+  try {
+    await env.ALERTS_KV.put(`circuit:${name}`, 'open', { expirationTtl: CIRCUIT_TTL });
+  } catch (e) {}
 }
 
 async function closeCircuit(env, name) {
   if (!env.ALERTS_KV) return;
-  await env.ALERTS_KV.delete(`circuit:${name}`);
+  try {
+    await env.ALERTS_KV.delete(`circuit:${name}`);
+  } catch (e) {}
 }
 
 async function tryGemini(env, prompt, url, name) {
@@ -592,7 +602,7 @@ function buildAIPrompt(today, yesterday, mode, scenario, emotion) {
     volatile: 'High volatility expected. Emphasize risk management and wide ranges.',
   };
 
-  return `You are "TradeAgent IV", a professional bilingual crypto market intelligence analyst (English + Persian).
+  return `You are "TradeAgent IV", a professional bilingual crypto market intelligence analyst.
 
 CURRENT MODE: ${mode} — ${modeDesc[mode] || modeDesc.normal}
 CURRENT SCENARIO: ${scenario} — ${scenDesc[scenario] || scenDesc.neutral}
@@ -603,26 +613,28 @@ Analyze ONLY the provided data. Do NOT use external information. Do NOT invent s
 
 OUTPUT STRUCTURE — You must output EXACTLY in this format:
 
-1. <b>Market Overview</b> — 2-3 sentences on overall market condition (ENGLISH)
-2. <b>Bullish Factors</b> — Positive signals from data (ENGLISH)
-3. <b>Bearish Factors</b> — Negative signals from data (ENGLISH)
-4. <b>Risk Factors</b> — What could go wrong (ENGLISH)
-5. <b>Sector Rotation</b> — Which categories are strong/weak (ENGLISH)
-6. <b>Tomorrow Watchlist</b> — Key levels/events to watch (ENGLISH)
-7. <b>Conclusion</b> — 1 sentence summary (ENGLISH)
+First write the FULL ENGLISH ANALYSIS with these sections:
+1. <b>Market Overview</b> — 2-3 sentences on overall market condition
+2. <b>Bullish Factors</b> — Positive signals from data
+3. <b>Bearish Factors</b> — Negative signals from data
+4. <b>Risk Factors</b> — What could go wrong
+5. <b>Sector Rotation</b> — Which categories are strong/weak
+6. <b>Tomorrow Watchlist</b> — Key levels/events to watch
+7. <b>Conclusion</b> — 1 sentence summary
 
 Then add this EXACT separator on its own line:
 ---PERSIAN---
 
-Then output a concise Persian summary (max 150 words) inside this structure:
+Then write the EXACT PERSIAN TRANSLATION of the ENTIRE English analysis above. Do NOT change the meaning. Do NOT add new information. Do NOT remove information. Translate faithfully and accurately.
+
+The Persian section must use this structure:
 <b>خلاصه تحلیل بازار</b>
-• [1-line bullet per main coin or key insight]
-• [Market emotion in Persian]
-• [Risk warning in Persian]
+• [Persian translation of each English point, as bullet points]
+• [Keep the same tone and emotion as the English version]
 
 RULES:
-- Write English sections in English, Persian section in Persian (Farsi)
-- Maximum 600 words total
+- English sections in English, Persian section in Persian (Farsi)
+- Maximum 700 words total
 - Use valid Telegram HTML tags only: <b>, <i>, <blockquote>
 - Match tone with emotion state
 - NEVER contradict the emotion state
@@ -662,51 +674,71 @@ Write the analysis now.`;
 
 async function storeSnapshot(env, data) {
   if (!env.ALERTS_KV) return;
-  await env.ALERTS_KV.put('snapshot:yesterday', JSON.stringify(data));
+  try {
+    await env.ALERTS_KV.put('snapshot:yesterday', JSON.stringify(data));
+  } catch (e) {}
 }
 
 async function getSnapshot(env) {
   if (!env.ALERTS_KV) return null;
-  const raw = await env.ALERTS_KV.get('snapshot:yesterday');
-  return raw ? JSON.parse(raw) : null;
+  try {
+    const raw = await env.ALERTS_KV.get('snapshot:yesterday');
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 11. CONFIG KV HELPERS
+// 11. CONFIG KV HELPERS (with KV-less fallback)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function getConfig(env, key, def) {
   if (!env.ALERTS_KV) return def;
-  const v = await env.ALERTS_KV.get(`cfg:${key}`);
-  return v || def;
+  try {
+    const v = await env.ALERTS_KV.get(`cfg:${key}`);
+    return v || def;
+  } catch (e) { return def; }
 }
 
 async function setConfig(env, key, value) {
   if (!env.ALERTS_KV) return;
-  await env.ALERTS_KV.put(`cfg:${key}`, value);
+  try {
+    await env.ALERTS_KV.put(`cfg:${key}`, value);
+  } catch (e) {}
 }
 
 async function getUserState(env, userId) {
   if (!env.ALERTS_KV) return null;
-  return env.ALERTS_KV.get(`state:${userId}`);
+  try {
+    return env.ALERTS_KV.get(`state:${userId}`);
+  } catch (e) { return null; }
 }
 
 async function setUserState(env, userId, value) {
   if (!env.ALERTS_KV) return;
-  if (value) await env.ALERTS_KV.put(`state:${userId}`, value);
-  else await env.ALERTS_KV.delete(`state:${userId}`);
+  try {
+    if (value) await env.ALERTS_KV.put(`state:${userId}`, value);
+    else await env.ALERTS_KV.delete(`state:${userId}`);
+  } catch (e) {}
 }
 
 async function dedupSend(env, type, fn) {
-  if (!env.ALERTS_KV) return await fn();
-  const key = `dedup:send:${type}`;
-  const existing = await env.ALERTS_KV.get(key);
-  if (existing) {
-    console.log(`[DEDUP] Blocked duplicate ${type} send`);
-    return;
+  if (!env.ALERTS_KV) {
+    console.log(`[DEDUP] KV not available, running without dedup for ${type}`);
+    return await fn();
   }
-  await env.ALERTS_KV.put(key, Date.now().toString(), { expirationTtl: 150 });
-  return await fn();
+  const key = `dedup:send:${type}`;
+  try {
+    const existing = await env.ALERTS_KV.get(key);
+    if (existing) {
+      console.log(`[DEDUP] Blocked duplicate ${type} send`);
+      return;
+    }
+    await env.ALERTS_KV.put(key, Date.now().toString(), { expirationTtl: 180 });
+    return await fn();
+  } catch (e) {
+    console.log(`[DEDUP] KV error, running without dedup for ${type}`);
+    return await fn();
+  }
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -738,9 +770,14 @@ async function sendMessage(env, chatId, text, markup = null) {
 }
 
 async function answerCallback(env, queryId, text = null) {
-  const body = { callback_query_id: queryId };
-  if (text) body.text = text;
-  return tgMethod(env.TELEGRAM_BOT_TOKEN, 'answerCallbackQuery', body);
+  try {
+    const body = { callback_query_id: queryId };
+    if (text) body.text = text;
+    return await tgMethod(env.TELEGRAM_BOT_TOKEN, 'answerCallbackQuery', body);
+  } catch (e) {
+    console.log(`[CALLBACK] Silently ignoring error: ${e.message}`);
+    return null;
+  }
 }
 
 async function editMessage(env, chatId, messageId, text, markup = null) {
@@ -912,7 +949,6 @@ async function buildFng(fear) {
 async function buildAIAnalysis(aiResult, todayData, emotion) {
   const t = todayData, emo = emotion || { state: 'NEUTRAL', intensity: 50, emoji: '😐' };
   
-  // Split English and Persian
   let englishText = aiResult.text;
   let persianText = '';
   
@@ -1001,28 +1037,38 @@ async function buildMovers(gl) {
 
 async function getAlertState(env, key) {
   if (!env.ALERTS_KV) return false;
-  return (await env.ALERTS_KV.get(`alert:cfg:${key}`)) === '1';
+  try {
+    return (await env.ALERTS_KV.get(`alert:cfg:${key}`)) === '1';
+  } catch (e) { return false; }
 }
 
 async function setAlertState(env, key, enabled) {
   if (!env.ALERTS_KV) return;
-  if (enabled) await env.ALERTS_KV.put(`alert:cfg:${key}`, '1');
-  else await env.ALERTS_KV.delete(`alert:cfg:${key}`);
+  try {
+    if (enabled) await env.ALERTS_KV.put(`alert:cfg:${key}`, '1');
+    else await env.ALERTS_KV.delete(`alert:cfg:${key}`);
+  } catch (e) {}
 }
 
 async function getAlertLast(env, key) {
   if (!env.ALERTS_KV) return null;
-  return env.ALERTS_KV.get(`alert:last:${key}`);
+  try {
+    return env.ALERTS_KV.get(`alert:last:${key}`);
+  } catch (e) { return null; }
 }
 
 async function setAlertLast(env, key, val) {
   if (!env.ALERTS_KV) return;
-  await env.ALERTS_KV.put(`alert:last:${key}`, val);
+  try {
+    await env.ALERTS_KV.put(`alert:last:${key}`, val);
+  } catch (e) {}
 }
 
 async function clearAlertLast(env, key) {
   if (!env.ALERTS_KV) return;
-  await env.ALERTS_KV.delete(`alert:last:${key}`);
+  try {
+    await env.ALERTS_KV.delete(`alert:last:${key}`);
+  } catch (e) {}
 }
 
 async function getAllAlertStates(env) {
@@ -1203,9 +1249,11 @@ async function sendChannelAI(env, customPrompt = null) {
     }
 
     if (env.ALERTS_KV) {
-      await env.ALERTS_KV.put('last:ai_result', JSON.stringify(aiResult));
-      await env.ALERTS_KV.put('last:today', JSON.stringify(today));
-      await env.ALERTS_KV.put('last:emotion', JSON.stringify(emotion));
+      try {
+        await env.ALERTS_KV.put('last:ai_result', JSON.stringify(aiResult));
+        await env.ALERTS_KV.put('last:today', JSON.stringify(today));
+        await env.ALERTS_KV.put('last:emotion', JSON.stringify(emotion));
+      } catch (e) {}
     }
 
     await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildAIAnalysis(aiResult, today, emotion));
@@ -1725,7 +1773,7 @@ async function handleHttp(request, env) {
   if (path === '/debug' && request.method === 'GET') return handleDebug(env);
   if (path === '/' && request.method === 'GET') {
     return new Response(
-      `TradeAgent IV ULTIMATE v2.2 — AI-Powered Crypto Intelligence\n\nRoutes:\n  POST /webhook  → Telegram webhook\n  POST|GET /admin → Manual trigger (x-admin-secret required)\n  GET  /debug    → Status check + API tests\n\nCron: ${CRON_PRICE}, ${CRON_AI}, ${CRON_FNG}, ${CRON_FUTURES}, ${CRON_MOVERS}\nCoins: ${Object.keys(COINS).length} | AI: Gemini (cache+circuit) → OpenRouter (DeepSeek/Qwen)\n`,
+      `TradeAgent IV ULTIMATE v2.3 — AI-Powered Crypto Intelligence\n\nRoutes:\n  POST /webhook  → Telegram webhook\n  POST|GET /admin → Manual trigger (x-admin-secret required)\n  GET  /debug    → Status check + API tests\n\nCron: ${CRON_PRICE}, ${CRON_AI}, ${CRON_FNG}, ${CRON_FUTURES}, ${CRON_MOVERS}\nCoins: ${Object.keys(COINS).length} | AI: Gemini (cache+circuit) → OpenRouter (DeepSeek/Qwen)\n`,
       { status: 200 }
     );
   }
