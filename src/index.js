@@ -1,8 +1,7 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV ULTIMATE — AI-Powered Crypto Intelligence
-//  Routes: /webhook | /admin (GET/POST) | /debug
-//  AI: Gemini 2.0 Flash Lite + OpenRouter Failover (DeepSeek/Qwen)
-//  Emotion Engine: Panic → Fear → Neutral → Momentum → Breakout → FOMO
+//  TRADEAGENT IV ULTIMATE v2.1 — AI-Powered Crypto Intelligence
+//  Fixes: Gemini cache+circuit, 16 coins, dedup lock, slim prompt
+//  Deploy: Cloudflare Workers (free) + GitHub
 // ═══════════════════════════════════════════════════════════════
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -10,12 +9,22 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const COINS = {
-  bitcoin:           { symbol: 'BTC', emoji: '₿',   name: 'Bitcoin' },
-  ethereum:          { symbol: 'ETH', emoji: 'Ξ',   name: 'Ethereum' },
-  solana:            { symbol: 'SOL', emoji: '◎',   name: 'Solana' },
-  binancecoin:       { symbol: 'BNB', emoji: '🔶',  name: 'BNB' },
-  ripple:            { symbol: 'XRP', emoji: '✕',   name: 'XRP' },
-  'the-open-network':{ symbol: 'TON', emoji: '💎',  name: 'Toncoin' },
+  bitcoin:           { symbol: 'BTC',  emoji: '₿',   name: 'Bitcoin' },
+  ethereum:          { symbol: 'ETH',  emoji: 'Ξ',   name: 'Ethereum' },
+  solana:            { symbol: 'SOL',  emoji: '◎',   name: 'Solana' },
+  binancecoin:       { symbol: 'BNB',  emoji: '🔶',  name: 'BNB' },
+  ripple:            { symbol: 'XRP',  emoji: '✕',   name: 'XRP' },
+  'the-open-network':{ symbol: 'TON',  emoji: '💎',  name: 'Toncoin' },
+  cardano:           { symbol: 'ADA',  emoji: '🔷',  name: 'Cardano' },
+  dogecoin:          { symbol: 'DOGE', emoji: '🐕',  name: 'Dogecoin' },
+  chainlink:         { symbol: 'LINK', emoji: '🔗',  name: 'Chainlink' },
+  'avalanche-2':     { symbol: 'AVAX', emoji: '❄️',  name: 'Avalanche' },
+  polkadot:          { symbol: 'DOT',  emoji: '🔴',  name: 'Polkadot' },
+  litecoin:          { symbol: 'LTC',  emoji: 'Ł',   name: 'Litecoin' },
+  tron:              { symbol: 'TRX',  emoji: '🔺',  name: 'TRON' },
+  uniswap:           { symbol: 'UNI',  emoji: '🦄',  name: 'Uniswap' },
+  near:              { symbol: 'NEAR', emoji: '🔷',  name: 'NEAR' },
+  aptos:             { symbol: 'APT',  emoji: '🅰️',  name: 'Aptos' },
 };
 
 const COIN_IDS   = Object.keys(COINS).join(',');
@@ -31,20 +40,27 @@ const ALERT_PRESETS = {
 
 const COINGECKO_BASE = 'https://api.coingecko.com/api/v3';
 const CMC_BASE = 'https://pro-api.coinmarketcap.com/v1';
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent';
+const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+const GEMINI_FALLBACK_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
 const BINANCE_MAP = {
   bitcoin: 'BTCUSDT', ethereum: 'ETHUSDT', solana: 'SOLUSDT',
   binancecoin: 'BNBUSDT', ripple: 'XRPUSDT', 'the-open-network': 'TONUSDT',
+  cardano: 'ADAUSDT', dogecoin: 'DOGEUSDT', chainlink: 'LINKUSDT',
+  'avalanche-2': 'AVAXUSDT', polkadot: 'DOTUSDT', litecoin: 'LTCUSDT',
+  tron: 'TRXUSDT', uniswap: 'UNIUSDT', near: 'NEARUSDT', aptos: 'APTUSDT',
 };
 
 const SYMBOL_TO_ID = {
   BTC: 'bitcoin', ETH: 'ethereum', SOL: 'solana',
   BNB: 'binancecoin', XRP: 'ripple', TON: 'the-open-network',
+  ADA: 'cardano', DOGE: 'dogecoin', LINK: 'chainlink',
+  AVAX: 'avalanche-2', DOT: 'polkadot', LTC: 'litecoin',
+  TRX: 'tron', UNI: 'uniswap', NEAR: 'near', APT: 'aptos',
 };
 
-const CMC_SYMBOLS = 'BTC,ETH,SOL,BNB,XRP,TON';
+const CMC_SYMBOLS = 'BTC,ETH,SOL,BNB,XRP,TON,ADA,DOGE,LINK,AVAX,DOT,LTC,TRX,UNI,NEAR,APT';
 const FOOTER = `<blockquote>📡 <b>TradeAgent IV</b>\n<i>AI Crypto Intelligence</i>\n@TradeAgentIV</blockquote>`;
 
 const AI_MODES = { normal: 'Normal', deep: 'Deep', short: 'Short', emotion: 'Emotion' };
@@ -84,7 +100,8 @@ const fmt = {
     if (!n) return '$0.00';
     if (n >= 1000) return n.toLocaleString('en-US', { maximumFractionDigits: 0 });
     if (n >= 1)    return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    return n.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 6 });
+    if (n >= 0.01) return n.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+    return n.toLocaleString('en-US', { minimumFractionDigits: 6, maximumFractionDigits: 8 });
   },
   vol: (n) => {
     if (!n) return '$0';
@@ -130,6 +147,14 @@ function getShortModelName(fullName) {
   return fullName;
 }
 
+async function hashPrompt(prompt) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(prompt);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 4. EMOTION ENGINE
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -163,7 +188,7 @@ async function api(url, opts = {}, retries = 3) {
     try {
       const r = await fetch(url, {
         ...opts,
-        headers: { Accept: 'application/json', 'User-Agent': 'TradeAgentIV/2.0', ...opts.headers },
+        headers: { Accept: 'application/json', 'User-Agent': 'TradeAgentIV/2.1', ...opts.headers },
       });
       if (!r.ok) {
         const txt = await r.text().catch(() => '');
@@ -345,19 +370,92 @@ function getFearGreed() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 9. AI LAYER — GEMINI + OPENROUTER FAILOVER
+// 9. AI LAYER — GEMINI (cache+circuit) + OPENROUTER FAILOVER
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-async function getAIAnalysis(env, prompt) {
-  if (env.GEMINI_API_KEY) {
+const AI_CACHE_TTL = 3600;
+const CIRCUIT_TTL = 1800;
+
+async function getAICache(env, promptHash) {
+  if (!env.ALERTS_KV) return null;
+  const cached = await env.ALERTS_KV.get(`ai:cache:${promptHash}`);
+  return cached ? JSON.parse(cached) : null;
+}
+
+async function setAICache(env, promptHash, result) {
+  if (!env.ALERTS_KV) return;
+  await env.ALERTS_KV.put(`ai:cache:${promptHash}`, JSON.stringify(result), { expirationTtl: AI_CACHE_TTL });
+}
+
+async function isCircuitOpen(env, name) {
+  if (!env.ALERTS_KV) return false;
+  const state = await env.ALERTS_KV.get(`circuit:${name}`);
+  return state === 'open';
+}
+
+async function tripCircuit(env, name) {
+  if (!env.ALERTS_KV) return;
+  await env.ALERTS_KV.put(`circuit:${name}`, 'open', { expirationTtl: CIRCUIT_TTL });
+}
+
+async function closeCircuit(env, name) {
+  if (!env.ALERTS_KV) return;
+  await env.ALERTS_KV.delete(`circuit:${name}`);
+}
+
+async function tryGemini(env, prompt, url, name) {
+  if (await isCircuitOpen(env, name)) {
+    console.log(`[AI] ${name} circuit OPEN, skipping`);
+    return null;
+  }
+  try {
+    console.log(`[AI] Trying ${name}...`);
+    const res = await api(`${url}?key=${env.GEMINI_API_KEY}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.3, maxOutputTokens: 600 } }),
+    });
+    console.log(`[AI] ${name} raw:`, JSON.stringify(res).slice(0, 250));
+    
+    let text = null;
     try {
-      const res = await api(`${GEMINI_URL}?key=${env.GEMINI_API_KEY}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.3, maxOutputTokens: 800 } }),
-      });
-      const text = res.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (text) return { text: text.trim(), source: 'Gemini' };
-    } catch (e) { console.error('[AI] Gemini fail:', e.message); }
+      text = res?.candidates?.[0]?.content?.parts?.[0]?.text;
+    } catch (e) {}
+    
+    if (text && text.length > 30) {
+      console.log(`[AI] ${name} SUCCESS, length:`, text.length);
+      return text.trim();
+    }
+    console.log(`[AI] ${name} returned empty/short text`);
+    return null;
+  } catch (e) {
+    console.error(`[AI] ${name} fail:`, e.message);
+    if (e.message.includes('429')) {
+      console.log(`[AI] ${name} 429 → tripping circuit`);
+      await tripCircuit(env, name);
+    }
+    return null;
+  }
+}
+
+async function getAIAnalysis(env, prompt) {
+  const promptHash = await hashPrompt(prompt);
+  
+  const cached = await getAICache(env, promptHash);
+  if (cached) {
+    console.log('[AI] Cache hit for hash:', promptHash);
+    return cached;
+  }
+
+  if (env.GEMINI_API_KEY) {
+    let text = await tryGemini(env, prompt, GEMINI_URL, 'gemini-2.0-flash');
+    if (!text) {
+      text = await tryGemini(env, prompt, GEMINI_FALLBACK_URL, 'gemini-1.5-flash');
+    }
+    if (text) {
+      const result = { text, source: 'Gemini' };
+      await setAICache(env, promptHash, result);
+      return result;
+    }
   }
 
   if (!env.OPENROUTER_API_KEY) return null;
@@ -378,11 +476,15 @@ async function getAIAnalysis(env, prompt) {
           'HTTP-Referer': 'https://tradeagent.iv',
           'X-Title': 'TradeAgent IV',
         },
-        body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }], max_tokens: 800, temperature: 0.3 }),
+        body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }], max_tokens: 600, temperature: 0.3 }),
       });
       const data = await res.json();
       const text = data.choices?.[0]?.message?.content;
-      if (text) return { text: text.trim(), source: getShortModelName(model) };
+      if (text) {
+        const result = { text: text.trim(), source: getShortModelName(model) };
+        await setAICache(env, promptHash, result);
+        return result;
+      }
     } catch (e) { console.error(`[AI] ${model} fail:`, e.message); }
   }
 
@@ -403,7 +505,7 @@ async function testGeminiConnection(env) {
     if (res.status === 429) return { ok: false, error: 'Rate limited (429) — quota exceeded', source: 'Gemini' };
     if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
     const data = await res.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (text && text.toLowerCase().includes('ok')) return { ok: true, source: 'Gemini' };
     return { ok: false, error: 'Unexpected response' };
   } catch (e) {
@@ -416,8 +518,10 @@ function buildAIPrompt(today, yesterday, mode, scenario, emotion) {
   const emo = emotion || { state: 'NEUTRAL', intensity: 50, tone: 'Neutral, factual.' };
 
   const coinChanges = [];
-  for (const c of t.coins) {
-    const yc = y.coins?.find(x => x.id === c.id);
+  const mainCoins = t.coins.filter(c => ['bitcoin', 'ethereum', 'solana'].includes(c.id));
+  const otherCoins = t.coins.filter(c => !['bitcoin', 'ethereum', 'solana'].includes(c.id));
+
+  for (const c of mainCoins) {
     const ch24 = c.price_change_percentage_24h || 0;
     const ch7d = t.changes7d?.[c.id] || 0;
     const ch30d = t.changes30d?.[c.id] || 0;
@@ -425,27 +529,23 @@ function buildAIPrompt(today, yesterday, mode, scenario, emotion) {
     coinChanges.push(`${info.symbol}: $${fmt.price(c.current_price)} | 24h: ${fmt.pct(ch24)} | 7d: ${fmt.pct(ch7d)} | 30d: ${fmt.pct(ch30d)} | Vol: ${fmt.vol(c.total_volume)}`);
   }
 
+  if (otherCoins.length) {
+    coinChanges.push(`Others: ${otherCoins.map(c => `${COINS[c.id].symbol} ${fmt.pct(c.price_change_percentage_24h)}`).join(', ')}`);
+  }
+
   let futuresText = '';
-  if (t.futures) {
-    for (const [sym, f] of Object.entries(t.futures)) {
-      if (f.fundingRate != null || f.openInterest != null) {
-        futuresText += `\n${sym}: Funding: ${f.fundingRate !== null ? f.fundingRate.toFixed(4) + '%' : 'N/A'} | OI: ${f.openInterest !== null ? fmt.vol(f.openInterest) : 'N/A'} | L/S: ${f.longShortRatio !== null ? f.longShortRatio.toFixed(2) : 'N/A'}`;
-      }
-    }
+  if (t.futures?.BTCUSDT) {
+    const f = t.futures.BTCUSDT;
+    futuresText = `\nBTC Futures: Funding: ${f.fundingRate !== null ? f.fundingRate.toFixed(4) + '%' : 'N/A'} | OI: ${f.openInterest !== null ? fmt.vol(f.openInterest) : 'N/A'} | L/S: ${f.longShortRatio !== null ? f.longShortRatio.toFixed(2) : 'N/A'}`;
   }
 
   let gainersText = '';
   if (t.gainersLosers?.gainers?.length) {
-    gainersText = '\nTop Gainers: ' + t.gainersLosers.gainers.slice(0, 3).map(g => `${g.symbol} ${fmt.pct(g.price_change_percentage_24h)}`).join(', ');
+    gainersText = '\nTop Gainers: ' + t.gainersLosers.gainers.slice(0, 2).map(g => `${g.symbol} ${fmt.pct(g.price_change_percentage_24h)}`).join(', ');
   }
   let losersText = '';
   if (t.gainersLosers?.losers?.length) {
-    losersText = '\nTop Losers: ' + t.gainersLosers.losers.slice(0, 3).map(g => `${g.symbol} ${fmt.pct(g.price_change_percentage_24h)}`).join(', ');
-  }
-
-  let catText = '';
-  if (t.categories?.length) {
-    catText = '\nCategory Performance:\n' + t.categories.map(c => `  ${c.name}: ${fmt.pct(c.change)}`).join('\n');
+    losersText = '\nTop Losers: ' + t.gainersLosers.losers.slice(0, 2).map(g => `${g.symbol} ${fmt.pct(g.price_change_percentage_24h)}`).join(', ');
   }
 
   const btcDomChange = y.btcDominance ? (t.btcDominance - y.btcDominance).toFixed(1) : '0';
@@ -511,8 +611,6 @@ ${losersText}
 
 Trending: ${t.trending.map(x => x.item.symbol).join(', ')}
 
-${catText}
-
 YESTERDAY'S DATA:
 ${y.date ? `Date: ${y.date}` : 'No historical data'}
 ${y.btcDominance ? `BTC Dominance: ${y.btcDominance}%` : ''}
@@ -560,6 +658,18 @@ async function setUserState(env, userId, value) {
   if (!env.ALERTS_KV) return;
   if (value) await env.ALERTS_KV.put(`state:${userId}`, value);
   else await env.ALERTS_KV.delete(`state:${userId}`);
+}
+
+async function dedupSend(env, type, fn) {
+  if (!env.ALERTS_KV) return await fn();
+  const key = `dedup:send:${type}`;
+  const existing = await env.ALERTS_KV.get(key);
+  if (existing) {
+    console.log(`[DEDUP] Blocked duplicate ${type} send`);
+    return;
+  }
+  await env.ALERTS_KV.put(key, Date.now().toString(), { expirationTtl: 90 });
+  return await fn();
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -673,9 +783,9 @@ async function buildPrice(coins, source = '') {
   for (const c of coins) {
     const i = COINS[c.id]; if (!i) continue;
     const ch = c.price_change_percentage_24h || 0;
-    const sym = i.symbol.padEnd(4, ' ');
-    const pr = ('$' + fmt.price(c.current_price)).padStart(10, ' ');
-    const chStr = ((ch >= 0 ? '🟢' : '🔴') + (ch >= 0 ? '+' : '') + ch.toFixed(2) + '%').padStart(8, ' ');
+    const sym = i.symbol.padEnd(5, ' ');
+    const pr = ('$' + fmt.price(c.current_price)).padStart(12, ' ');
+    const chStr = ((ch >= 0 ? '🟢' : '🔴') + (ch >= 0 ? '+' : '') + ch.toFixed(2) + '%').padStart(10, ' ');
     m += `${sym} ${pr}  ${chStr}\n`;
   }
   m += `</pre>\n\n${FOOTER}`;
@@ -686,9 +796,9 @@ async function buildVolume(coins, source = '') {
   let m = `📈 <b>VOLUME REPORT</b>${source ? ` <i>via ${esc(source)}</i>` : ''}\n\n<pre>`;
   for (const c of coins) {
     const i = COINS[c.id]; if (!i) continue;
-    const sym = i.symbol.padEnd(4, ' ');
-    const pr = ('$' + fmt.price(c.current_price)).padStart(10, ' ');
-    const vol = fmt.vol(c.total_volume).padStart(10, ' ');
+    const sym = i.symbol.padEnd(5, ' ');
+    const pr = ('$' + fmt.price(c.current_price)).padStart(12, ' ');
+    const vol = fmt.vol(c.total_volume).padStart(12, ' ');
     let line = `${sym} ${pr}  Vol:${vol}`;
     if (c.market_cap) line += `  Cap:${fmt.cap(c.market_cap)}`;
     m += line + '\n';
@@ -714,9 +824,9 @@ async function buildDaily(coins, globalData, trending, fear, source = '') {
   for (const c of sorted) {
     const i = COINS[c.id]; if (!i) continue;
     const ch = c.price_change_percentage_24h || 0;
-    const sym = i.symbol.padEnd(4, ' ');
-    const pr = ('$' + fmt.price(c.current_price)).padStart(10, ' ');
-    const chStr = ((ch >= 0 ? '🟢' : '🔴') + (ch >= 0 ? '+' : '') + ch.toFixed(2) + '%').padStart(8, ' ');
+    const sym = i.symbol.padEnd(5, ' ');
+    const pr = ('$' + fmt.price(c.current_price)).padStart(12, ' ');
+    const chStr = ((ch >= 0 ? '🟢' : '🔴') + (ch >= 0 ? '+' : '') + ch.toFixed(2) + '%').padStart(10, ' ');
     let line = `${sym} ${pr}  ${chStr}`;
     if (c.market_cap) line += `  ${fmt.cap(c.market_cap)}`;
     m += line + '\n';
@@ -915,7 +1025,7 @@ async function collectMarketData(env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 18. CHANNEL SENDERS
+// 18. CHANNEL SENDERS (with dedup lock)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function ensureChannel(env) {
@@ -924,78 +1034,90 @@ function ensureChannel(env) {
 
 async function sendChannelPrice(env) {
   ensureChannel(env);
-  const { source, data } = await getCoins(env);
-  await checkAlerts(env, data);
-  await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildPrice(data, source));
+  await dedupSend(env, 'price', async () => {
+    const { source, data } = await getCoins(env);
+    await checkAlerts(env, data);
+    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildPrice(data, source));
+  });
 }
 
 async function sendChannelVolume(env) {
   ensureChannel(env);
-  const { source, data } = await getCoins(env);
-  await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildVolume(data, source));
+  await dedupSend(env, 'volume', async () => {
+    const { source, data } = await getCoins(env);
+    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildVolume(data, source));
+  });
 }
 
 async function sendChannelDaily(env) {
   ensureChannel(env);
-  const [{ source, data }, globalData, trending, fear] = await Promise.all([
-    getCoins(env), getGlobal(env), getTrending(env), getFearGreed(),
-  ]);
-  await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildDaily(data, globalData, trending, fear, source));
+  await dedupSend(env, 'daily', async () => {
+    const [{ source, data }, globalData, trending, fear] = await Promise.all([
+      getCoins(env), getGlobal(env), getTrending(env), getFearGreed(),
+    ]);
+    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildDaily(data, globalData, trending, fear, source));
+  });
 }
 
 async function sendChannelTrending(env) {
   ensureChannel(env);
-  const trending = await getTrending(env);
-  if (!trending) {
-    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, `🔥 <b>TRENDING COINS</b>\n\nTrending data unavailable.\n\n${FOOTER}`);
-    return;
-  }
-  await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildTrending(trending));
+  await dedupSend(env, 'trending', async () => {
+    const trending = await getTrending(env);
+    if (!trending) {
+      await sendMessage(env, env.TELEGRAM_CHANNEL_ID, `🔥 <b>TRENDING COINS</b>\n\nTrending data unavailable.\n\n${FOOTER}`);
+      return;
+    }
+    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildTrending(trending));
+  });
 }
 
 async function sendChannelFng(env) {
   ensureChannel(env);
-  const fear = await getFearGreed();
-  await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildFng(fear));
+  await dedupSend(env, 'fng', async () => {
+    const fear = await getFearGreed();
+    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildFng(fear));
+  });
 }
 
 async function sendChannelAI(env, customPrompt = null) {
   ensureChannel(env);
-  const mode = await getConfig(env, 'ai_mode', 'normal');
-  const scenario = await getConfig(env, 'scenario', 'neutral');
+  await dedupSend(env, 'ai', async () => {
+    const mode = await getConfig(env, 'ai_mode', 'normal');
+    const scenario = await getConfig(env, 'scenario', 'neutral');
 
-  const today = await collectMarketData(env);
-  const yesterday = await getSnapshot(env);
+    const today = await collectMarketData(env);
+    const yesterday = await getSnapshot(env);
 
-  const yesterdayMarketCap = yesterday?.totalMarketCap || today.totalMarketCap;
-  today.yesterdayMarketCap = yesterdayMarketCap;
-  today.btcDominanceChange = today.btcDominance - (yesterday?.btcDominance || today.btcDominance);
-  const emotion = calculateEmotionState(today);
-  today.mode = mode;
+    const yesterdayMarketCap = yesterday?.totalMarketCap || today.totalMarketCap;
+    today.yesterdayMarketCap = yesterdayMarketCap;
+    today.btcDominanceChange = today.btcDominance - (yesterday?.btcDominance || today.btcDominance);
+    const emotion = calculateEmotionState(today);
+    today.mode = mode;
 
-  let aiResult;
-  if (customPrompt) {
-    const fullPrompt = `${customPrompt}\n\nDATA:\n${JSON.stringify(today, null, 2)}`;
-    aiResult = await getAIAnalysis(env, fullPrompt);
-  } else {
-    const prompt = buildAIPrompt(today, yesterday, mode, scenario, emotion);
-    aiResult = await getAIAnalysis(env, prompt);
-  }
+    let aiResult;
+    if (customPrompt) {
+      const fullPrompt = `${customPrompt}\n\nDATA:\n${JSON.stringify(today, null, 2)}`;
+      aiResult = await getAIAnalysis(env, fullPrompt);
+    } else {
+      const prompt = buildAIPrompt(today, yesterday, mode, scenario, emotion);
+      aiResult = await getAIAnalysis(env, prompt);
+    }
 
-  if (!aiResult) {
-    console.log('[AI] All AI sources failed, falling back to daily');
-    await sendChannelDaily(env);
-    return;
-  }
+    if (!aiResult) {
+      console.log('[AI] All AI sources failed, falling back to daily');
+      await sendChannelDaily(env);
+      return;
+    }
 
-  if (env.ALERTS_KV) {
-    await env.ALERTS_KV.put('last:ai_result', JSON.stringify(aiResult));
-    await env.ALERTS_KV.put('last:today', JSON.stringify(today));
-    await env.ALERTS_KV.put('last:emotion', JSON.stringify(emotion));
-  }
+    if (env.ALERTS_KV) {
+      await env.ALERTS_KV.put('last:ai_result', JSON.stringify(aiResult));
+      await env.ALERTS_KV.put('last:today', JSON.stringify(today));
+      await env.ALERTS_KV.put('last:emotion', JSON.stringify(emotion));
+    }
 
-  await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildAIAnalysis(aiResult, today, emotion));
-  await storeSnapshot(env, today);
+    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildAIAnalysis(aiResult, today, emotion));
+    await storeSnapshot(env, today);
+  });
 }
 
 async function sendChannelAll(env) {
@@ -1077,7 +1199,7 @@ async function handleSettings(chatId, env) {
   const mode = await getConfig(env, 'ai_mode', 'normal');
   const scenario = await getConfig(env, 'scenario', 'neutral');
 
-  await sendMessage(env, chatId, `⚙️ <b>Settings</b>\n\nChannel: ${env.TELEGRAM_CHANNEL_ID || 'Not set'}\nSources: ${sources.join(', ')}\nAI: ${aiStatus} | ${orStatus}\nMode: ${AI_MODES[mode]}\nScenario: ${SCENARIOS[scenario]}\n\nUse /admin for admin panel.`);
+  await sendMessage(env, chatId, `⚙️ <b>Settings</b>\n\nChannel: ${env.TELEGRAM_CHANNEL_ID || 'Not set'}\nCoins: 16 | Sources: ${sources.join(', ')}\nAI: ${aiStatus} | ${orStatus}\nMode: ${AI_MODES[mode]}\nScenario: ${SCENARIOS[scenario]}\n\nUse /admin for admin panel.`);
 }
 
 async function showAdminPanel(chatId, env) {
@@ -1360,6 +1482,7 @@ async function handleDebug(env) {
     token_preview: env.TELEGRAM_BOT_TOKEN ? env.TELEGRAM_BOT_TOKEN.slice(0, 10) + '...' : 'MISSING',
     channel_id: env.TELEGRAM_CHANNEL_ID || 'MISSING',
     admin_id: env.ADMIN_ID || 'MISSING',
+    coin_count: Object.keys(COINS).length,
   };
 
   if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHANNEL_ID) {
@@ -1402,7 +1525,7 @@ async function handleHttp(request, env) {
   if (path === '/debug' && request.method === 'GET') return handleDebug(env);
   if (path === '/' && request.method === 'GET') {
     return new Response(
-      `TradeAgent IV ULTIMATE — AI-Powered Crypto Intelligence\n\nRoutes:\n  POST /webhook  → Telegram webhook\n  POST|GET /admin → Manual trigger (x-admin-secret required)\n  GET  /debug    → Status check + API tests\n\nCron: ${CRON_PRICE}, ${CRON_AI}, ${CRON_FNG}\nAI Failover: Gemini → OpenRouter (Gemini/DeepSeek/Qwen)\n`,
+      `TradeAgent IV ULTIMATE v2.1 — AI-Powered Crypto Intelligence\n\nRoutes:\n  POST /webhook  → Telegram webhook\n  POST|GET /admin → Manual trigger (x-admin-secret required)\n  GET  /debug    → Status check + API tests\n\nCron: ${CRON_PRICE}, ${CRON_AI}, ${CRON_FNG}\nCoins: 16 | AI: Gemini (cache+circuit) → OpenRouter (DeepSeek/Qwen)\n`,
       { status: 200 }
     );
   }
