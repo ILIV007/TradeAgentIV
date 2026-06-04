@@ -1636,11 +1636,17 @@ async function processWebhook(update, env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 21. CRON HANDLER
+// 21. CRON HANDLER — FREE PLAN: 3 CRONS ONLY
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const CRON_PRICE = '*/30 * * * *';
+const CRON_AI = '0 */4 * * *';
+const CRON_BUNDLE = '0 */6 * * *'; // F&G + Futures + Movers
 
 async function handleCron(event, env) {
   const cron = event.cron;
+  console.log(`[CRON] Triggered: ${cron}`);
+  
   try {
     const autoPosts = await getConfig(env, 'auto_posts', 'true');
     if (autoPosts !== 'true') {
@@ -1648,29 +1654,28 @@ async function handleCron(event, env) {
       return;
     }
     
-    switch (cron) {
-      case CRON_PRICE:
-        await sendChannelPrice(env);
-        break;
-      case CRON_AI:
-        await sendChannelAI(env);
-        break;
-      case CRON_FNG:
-        await sendChannelFng(env);
-        break;
-      case CRON_FUTURES:
-        await sendChannelFutures(env);
-        break;
-      case CRON_MOVERS:
-        await sendChannelMovers(env);
-        break;
-      default:
-        console.log(`[CRON] Unknown cron: ${cron}`);
+    if (cron === CRON_PRICE) {
+      console.log('[CRON] Sending Price + Alerts');
+      await sendChannelPrice(env);
+    }
+    else if (cron === CRON_AI) {
+      console.log('[CRON] Sending AI Analysis');
+      await sendChannelAI(env);
+    }
+    else if (cron === CRON_BUNDLE) {
+      console.log('[CRON] Sending Bundle: F&G + Futures + Movers');
+      await sendChannelFng(env);
+      await sendChannelFutures(env);
+      await sendChannelMovers(env);
+    }
+    else {
+      console.log(`[CRON] Unknown cron pattern: ${cron}`);
     }
   } catch (err) {
     console.error(`[CRON ERROR] ${cron}: ${err.message}`);
   }
 }
+
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 22. HTTP ROUTER
