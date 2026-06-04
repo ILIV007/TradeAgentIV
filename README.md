@@ -1,4 +1,4 @@
-- @TradeAgentIV
+- https://t.me/TradeAgentIV
 
 # 🚀 TradeAgent IV — AI-Powered Crypto Intelligence
 
