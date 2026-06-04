@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV ULTIMATE v2.1 — AI-Powered Crypto Intelligence
-//  Fixes: Gemini cache+circuit, 16 coins, dedup lock, slim prompt
+//  TRADEAGENT IV ULTIMATE v2.2 — AI-Powered Crypto Intelligence
+//  Updates: 5 Crons, 28 Coins, Bilingual AI, Admin Panel v2, Duplicate Fix
 //  Deploy: Cloudflare Workers (free) + GitHub
 // ═══════════════════════════════════════════════════════════════
 
@@ -9,28 +9,43 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const COINS = {
-  bitcoin:           { symbol: 'BTC',  emoji: '₿',   name: 'Bitcoin' },
-  ethereum:          { symbol: 'ETH',  emoji: 'Ξ',   name: 'Ethereum' },
-  solana:            { symbol: 'SOL',  emoji: '◎',   name: 'Solana' },
-  binancecoin:       { symbol: 'BNB',  emoji: '🔶',  name: 'BNB' },
-  ripple:            { symbol: 'XRP',  emoji: '✕',   name: 'XRP' },
-  'the-open-network':{ symbol: 'TON',  emoji: '💎',  name: 'Toncoin' },
-  cardano:           { symbol: 'ADA',  emoji: '🔷',  name: 'Cardano' },
-  dogecoin:          { symbol: 'DOGE', emoji: '🐕',  name: 'Dogecoin' },
-  chainlink:         { symbol: 'LINK', emoji: '🔗',  name: 'Chainlink' },
-  'avalanche-2':     { symbol: 'AVAX', emoji: '❄️',  name: 'Avalanche' },
-  polkadot:          { symbol: 'DOT',  emoji: '🔴',  name: 'Polkadot' },
-  litecoin:          { symbol: 'LTC',  emoji: 'Ł',   name: 'Litecoin' },
-  tron:              { symbol: 'TRX',  emoji: '🔺',  name: 'TRON' },
-  uniswap:           { symbol: 'UNI',  emoji: '🦄',  name: 'Uniswap' },
-  near:              { symbol: 'NEAR', emoji: '🔷',  name: 'NEAR' },
-  aptos:             { symbol: 'APT',  emoji: '🅰️',  name: 'Aptos' },
+  bitcoin:           { symbol: 'BTC',    emoji: '₿',    name: 'Bitcoin' },
+  ethereum:          { symbol: 'ETH',    emoji: 'Ξ',    name: 'Ethereum' },
+  solana:            { symbol: 'SOL',    emoji: '◎',    name: 'Solana' },
+  binancecoin:       { symbol: 'BNB',    emoji: '🔶',   name: 'BNB' },
+  ripple:            { symbol: 'XRP',    emoji: '✕',    name: 'XRP' },
+  'the-open-network':{ symbol: 'TON',    emoji: '💎',   name: 'Toncoin' },
+  cardano:           { symbol: 'ADA',    emoji: '🔷',   name: 'Cardano' },
+  dogecoin:          { symbol: 'DOGE',   emoji: '🐕',   name: 'Dogecoin' },
+  chainlink:         { symbol: 'LINK',   emoji: '🔗',   name: 'Chainlink' },
+  'avalanche-2':     { symbol: 'AVAX',   emoji: '❄️',   name: 'Avalanche' },
+  polkadot:          { symbol: 'DOT',    emoji: '🔴',   name: 'Polkadot' },
+  litecoin:          { symbol: 'LTC',    emoji: 'Ł',    name: 'Litecoin' },
+  tron:              { symbol: 'TRX',    emoji: '🔺',   name: 'TRON' },
+  uniswap:           { symbol: 'UNI',    emoji: '🦄',   name: 'Uniswap' },
+  near:              { symbol: 'NEAR',   emoji: '🔷',   name: 'NEAR' },
+  aptos:             { symbol: 'APT',    emoji: '🅰️',   name: 'Aptos' },
+  'tether-gold':     { symbol: 'XAUT',   emoji: '🥇',   name: 'Tether Gold' },
+  'shiba-inu':       { symbol: 'SHIB',   emoji: '🐕‍🦺', name: 'Shiba Inu' },
+  polygon:           { symbol: 'POL',    emoji: '💜',   name: 'Polygon' },
+  sui:               { symbol: 'SUI',    emoji: '💧',   name: 'Sui' },
+  pepe:              { symbol: 'PEPE',   emoji: '🐸',   name: 'Pepe' },
+  arbitrum:          { symbol: 'ARB',    emoji: '🔷',   name: 'Arbitrum' },
+  optimism:          { symbol: 'OP',     emoji: '🔴',   name: 'Optimism' },
+  injective:         { symbol: 'INJ',    emoji: '💉',   name: 'Injective' },
+  bittensor:         { symbol: 'TAO',    emoji: '🔯',   name: 'Bittensor' },
+  'fetch-ai':        { symbol: 'FET',    emoji: '🤖',   name: 'Fetch.ai' },
+  'render-token':    { symbol: 'RENDER', emoji: '🎨',   name: 'Render' },
+  bonk:              { symbol: 'BONK',   emoji: '🔨',   name: 'Bonk' },
+  dogwifhat:         { symbol: 'WIF',    emoji: '🧢',   name: 'dogwifhat' },
 };
 
 const COIN_IDS   = Object.keys(COINS).join(',');
 const CRON_PRICE = '*/30 * * * *';
-const CRON_AI    = '0 15 * * *';
-const CRON_FNG   = '0 21 * * *';
+const CRON_AI    = '0 */4 * * *';
+const CRON_FNG   = '0 */6 * * *';
+const CRON_FUTURES = '0 */8 * * *';
+const CRON_MOVERS  = '0 */12 * * *';
 
 const ALERT_PRESETS = {
   bitcoin:  { above: 110000, below: 95000 },
@@ -50,6 +65,10 @@ const BINANCE_MAP = {
   cardano: 'ADAUSDT', dogecoin: 'DOGEUSDT', chainlink: 'LINKUSDT',
   'avalanche-2': 'AVAXUSDT', polkadot: 'DOTUSDT', litecoin: 'LTCUSDT',
   tron: 'TRXUSDT', uniswap: 'UNIUSDT', near: 'NEARUSDT', aptos: 'APTUSDT',
+  'tether-gold': 'XAUTUSDT', 'shiba-inu': 'SHIBUSDT', polygon: 'POLUSDT',
+  sui: 'SUIUSDT', pepe: 'PEPEUSDT', arbitrum: 'ARBUSDT', optimism: 'OPUSDT',
+  injective: 'INJUSDT', bittensor: 'TAOUSDT', 'fetch-ai': 'FETUSDT',
+  'render-token': 'RENDERUSDT', bonk: 'BONKUSDT', dogwifhat: 'WIFUSDT',
 };
 
 const SYMBOL_TO_ID = {
@@ -58,9 +77,13 @@ const SYMBOL_TO_ID = {
   ADA: 'cardano', DOGE: 'dogecoin', LINK: 'chainlink',
   AVAX: 'avalanche-2', DOT: 'polkadot', LTC: 'litecoin',
   TRX: 'tron', UNI: 'uniswap', NEAR: 'near', APT: 'aptos',
+  XAUT: 'tether-gold', SHIB: 'shiba-inu', POL: 'polygon',
+  SUI: 'sui', PEPE: 'pepe', ARB: 'arbitrum', OP: 'optimism',
+  INJ: 'injective', TAO: 'bittensor', FET: 'fetch-ai',
+  RENDER: 'render-token', BONK: 'bonk', WIF: 'dogwifhat',
 };
 
-const CMC_SYMBOLS = 'BTC,ETH,SOL,BNB,XRP,TON,ADA,DOGE,LINK,AVAX,DOT,LTC,TRX,UNI,NEAR,APT';
+const CMC_SYMBOLS = 'BTC,ETH,SOL,BNB,XRP,TON,ADA,DOGE,LINK,AVAX,DOT,LTC,TRX,UNI,NEAR,APT,XAUT,SHIB,POL,SUI,PEPE,ARB,OP,INJ,TAO,FET,RENDER,BONK,WIF';
 const FOOTER = `<blockquote>📡 <b>TradeAgent IV</b>\n<i>AI Crypto Intelligence</i>\n@TradeAgentIV</blockquote>`;
 
 const AI_MODES = { normal: 'Normal', deep: 'Deep', short: 'Short', emotion: 'Emotion' };
@@ -188,7 +211,7 @@ async function api(url, opts = {}, retries = 3) {
     try {
       const r = await fetch(url, {
         ...opts,
-        headers: { Accept: 'application/json', 'User-Agent': 'TradeAgentIV/2.1', ...opts.headers },
+        headers: { Accept: 'application/json', 'User-Agent': 'TradeAgentIV/2.2', ...opts.headers },
       });
       if (!r.ok) {
         const txt = await r.text().catch(() => '');
@@ -374,7 +397,7 @@ function getFearGreed() {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const AI_CACHE_TTL = 3600;
-const CIRCUIT_TTL = 1800;
+const CIRCUIT_TTL = 300; // Reduced from 1800 to 300 (5 min)
 
 async function getAICache(env, promptHash) {
   if (!env.ALERTS_KV) return null;
@@ -412,7 +435,7 @@ async function tryGemini(env, prompt, url, name) {
     console.log(`[AI] Trying ${name}...`);
     const res = await api(`${url}?key=${env.GEMINI_API_KEY}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.3, maxOutputTokens: 600 } }),
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.3, maxOutputTokens: 900 } }),
     });
     console.log(`[AI] ${name} raw:`, JSON.stringify(res).slice(0, 250));
     
@@ -454,6 +477,8 @@ async function getAIAnalysis(env, prompt) {
     if (text) {
       const result = { text, source: 'Gemini' };
       await setAICache(env, promptHash, result);
+      await setConfig(env, 'last_ai_provider', 'Gemini');
+      await setConfig(env, 'last_ai_time', fmt.time());
       return result;
     }
   }
@@ -476,13 +501,15 @@ async function getAIAnalysis(env, prompt) {
           'HTTP-Referer': 'https://tradeagent.iv',
           'X-Title': 'TradeAgent IV',
         },
-        body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }], max_tokens: 600, temperature: 0.3 }),
+        body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }], max_tokens: 900, temperature: 0.3 }),
       });
       const data = await res.json();
       const text = data.choices?.[0]?.message?.content;
       if (text) {
         const result = { text: text.trim(), source: getShortModelName(model) };
         await setAICache(env, promptHash, result);
+        await setConfig(env, 'last_ai_provider', getShortModelName(model));
+        await setConfig(env, 'last_ai_time', fmt.time());
         return result;
       }
     } catch (e) { console.error(`[AI] ${model} fail:`, e.message); }
@@ -565,7 +592,7 @@ function buildAIPrompt(today, yesterday, mode, scenario, emotion) {
     volatile: 'High volatility expected. Emphasize risk management and wide ranges.',
   };
 
-  return `You are "TradeAgent IV", a professional English-speaking crypto market intelligence analyst.
+  return `You are "TradeAgent IV", a professional bilingual crypto market intelligence analyst (English + Persian).
 
 CURRENT MODE: ${mode} — ${modeDesc[mode] || modeDesc.normal}
 CURRENT SCENARIO: ${scenario} — ${scenDesc[scenario] || scenDesc.neutral}
@@ -574,18 +601,28 @@ REQUIRED TONE: ${emo.tone}
 
 Analyze ONLY the provided data. Do NOT use external information. Do NOT invent support/resistance/price targets. Do NOT use markdown (*, _, #).
 
-OUTPUT STRUCTURE:
-1. <b>Market Overview</b> — 2-3 sentences on overall market condition
-2. <b>Bullish Factors</b> — Positive signals from data
-3. <b>Bearish Factors</b> — Negative signals from data
-4. <b>Risk Factors</b> — What could go wrong
-5. <b>Sector Rotation</b> — Which categories are strong/weak
-6. <b>Tomorrow Watchlist</b> — Key levels/events to watch
-7. <b>Conclusion</b> — 1 sentence summary
+OUTPUT STRUCTURE — You must output EXACTLY in this format:
+
+1. <b>Market Overview</b> — 2-3 sentences on overall market condition (ENGLISH)
+2. <b>Bullish Factors</b> — Positive signals from data (ENGLISH)
+3. <b>Bearish Factors</b> — Negative signals from data (ENGLISH)
+4. <b>Risk Factors</b> — What could go wrong (ENGLISH)
+5. <b>Sector Rotation</b> — Which categories are strong/weak (ENGLISH)
+6. <b>Tomorrow Watchlist</b> — Key levels/events to watch (ENGLISH)
+7. <b>Conclusion</b> — 1 sentence summary (ENGLISH)
+
+Then add this EXACT separator on its own line:
+---PERSIAN---
+
+Then output a concise Persian summary (max 150 words) inside this structure:
+<b>خلاصه تحلیل بازار</b>
+• [1-line bullet per main coin or key insight]
+• [Market emotion in Persian]
+• [Risk warning in Persian]
 
 RULES:
-- Write in English
-- Maximum 500 words
+- Write English sections in English, Persian section in Persian (Farsi)
+- Maximum 600 words total
 - Use valid Telegram HTML tags only: <b>, <i>, <blockquote>
 - Match tone with emotion state
 - NEVER contradict the emotion state
@@ -668,7 +705,7 @@ async function dedupSend(env, type, fn) {
     console.log(`[DEDUP] Blocked duplicate ${type} send`);
     return;
   }
-  await env.ALERTS_KV.put(key, Date.now().toString(), { expirationTtl: 90 });
+  await env.ALERTS_KV.put(key, Date.now().toString(), { expirationTtl: 150 });
   return await fn();
 }
 
@@ -734,10 +771,15 @@ function getAdminInline(mode, scenario) {
       [{ text: '📈 Send Price', callback_data: 'send_price' }, { text: '📉 Send Volume', callback_data: 'send_volume' }],
       [{ text: '🧠 Send AI', callback_data: 'send_ai' }, { text: '🔥 Send Trending', callback_data: 'send_trending' }],
       [{ text: '🧠 Send F&G', callback_data: 'send_fng' }, { text: '📊 Send All', callback_data: 'send_all' }],
+      [{ text: '📈 Send Futures', callback_data: 'send_futures' }, { text: '🚀 Send Movers', callback_data: 'send_movers' }],
       [{ text: '──── AI Config ────', callback_data: 'noop' }],
       [{ text: `🤖 Mode: ${m}`, callback_data: 'admin:ai_mode' }],
       [{ text: `🎛 Scenario: ${s}`, callback_data: 'admin:scenario' }],
       [{ text: '🧪 Custom Prompt', callback_data: 'admin:custom' }, { text: '📤 Resend Last', callback_data: 'admin:resend' }],
+      [{ text: '──── System ────', callback_data: 'noop' }],
+      [{ text: '🤖 AI Status', callback_data: 'admin:ai_status' }],
+      [{ text: '📊 API Status', callback_data: 'admin:api_status' }],
+      [{ text: '⏸ Auto Posts', callback_data: 'admin:auto_posts' }],
       [{ text: '🔙 Back', callback_data: 'back_main' }],
     ],
   };
@@ -783,7 +825,7 @@ async function buildPrice(coins, source = '') {
   for (const c of coins) {
     const i = COINS[c.id]; if (!i) continue;
     const ch = c.price_change_percentage_24h || 0;
-    const sym = i.symbol.padEnd(5, ' ');
+    const sym = i.symbol.padEnd(6, ' ');
     const pr = ('$' + fmt.price(c.current_price)).padStart(12, ' ');
     const chStr = ((ch >= 0 ? '🟢' : '🔴') + (ch >= 0 ? '+' : '') + ch.toFixed(2) + '%').padStart(10, ' ');
     m += `${sym} ${pr}  ${chStr}\n`;
@@ -796,7 +838,7 @@ async function buildVolume(coins, source = '') {
   let m = `📈 <b>VOLUME REPORT</b>${source ? ` <i>via ${esc(source)}</i>` : ''}\n\n<pre>`;
   for (const c of coins) {
     const i = COINS[c.id]; if (!i) continue;
-    const sym = i.symbol.padEnd(5, ' ');
+    const sym = i.symbol.padEnd(6, ' ');
     const pr = ('$' + fmt.price(c.current_price)).padStart(12, ' ');
     const vol = fmt.vol(c.total_volume).padStart(12, ' ');
     let line = `${sym} ${pr}  Vol:${vol}`;
@@ -824,7 +866,7 @@ async function buildDaily(coins, globalData, trending, fear, source = '') {
   for (const c of sorted) {
     const i = COINS[c.id]; if (!i) continue;
     const ch = c.price_change_percentage_24h || 0;
-    const sym = i.symbol.padEnd(5, ' ');
+    const sym = i.symbol.padEnd(6, ' ');
     const pr = ('$' + fmt.price(c.current_price)).padStart(12, ' ');
     const chStr = ((ch >= 0 ? '🟢' : '🔴') + (ch >= 0 ? '+' : '') + ch.toFixed(2) + '%').padStart(10, ' ');
     let line = `${sym} ${pr}  ${chStr}`;
@@ -869,10 +911,25 @@ async function buildFng(fear) {
 
 async function buildAIAnalysis(aiResult, todayData, emotion) {
   const t = todayData, emo = emotion || { state: 'NEUTRAL', intensity: 50, emoji: '😐' };
+  
+  // Split English and Persian
+  let englishText = aiResult.text;
+  let persianText = '';
+  
+  const separatorIndex = aiResult.text.indexOf('---PERSIAN---');
+  if (separatorIndex !== -1) {
+    englishText = aiResult.text.substring(0, separatorIndex).trim();
+    persianText = aiResult.text.substring(separatorIndex + 14).trim();
+  }
+  
   let m = `${emo.emoji} <b>MARKET STATE: ${emo.state}</b> | Intensity: ${emo.intensity}/100\n\n`;
   m += `🧠 <b>AI MARKET INTELLIGENCE</b>\n`;
   m += `<i>${t.date} • ${aiResult.source || 'AI'} • ${t.mode || 'Normal'} Mode</i>\n\n`;
-  m += `<blockquote>\n${aiResult.text}\n</blockquote>\n\n`;
+  m += `<blockquote>\n${englishText}\n</blockquote>\n\n`;
+
+  if (persianText) {
+    m += `<blockquote expandable>\n🇮🇷 <b>تحلیل فارسی</b>\n\n${persianText}\n</blockquote>\n\n`;
+  }
 
   m += `<pre>`;
   m += `BTC  $${fmt.price(t.btcPrice)}  ${fmt.change(t.btcChange)}\n`;
@@ -900,6 +957,42 @@ function buildAlert(coinId, price, type) {
   const i = COINS[coinId];
   const t = type === 'above' ? '🚀 ABOVE' : '📉 BELOW';
   return `🚨 <b>${esc(i.symbol)} ALERT</b>\n\n${i.emoji} ${esc(i.name)}\n<b>${t}</b> target!\n\nCurrent: $${fmt.price(price)}\n\n${FOOTER}`;
+}
+
+async function buildFutures(futures) {
+  let m = `📈 <b>FUTURES REPORT</b>\n\n<pre>`;
+  for (const [sym, f] of Object.entries(futures)) {
+    const coinId = Object.keys(BINANCE_MAP).find(k => BINANCE_MAP[k] === sym);
+    const info = coinId ? COINS[coinId] : { symbol: sym.replace('USDT', ''), emoji: '•' };
+    const line = `${info.emoji} ${info.symbol.padEnd(6)} Funding: ${f.fundingRate !== null ? f.fundingRate.toFixed(4) + '%' : 'N/A'} | OI: ${f.openInterest !== null ? fmt.vol(f.openInterest) : 'N/A'} | L/S: ${f.longShortRatio !== null ? f.longShortRatio.toFixed(2) : 'N/A'}`;
+    m += line + '\n';
+  }
+  m += `</pre>\n\n${FOOTER}`;
+  return m;
+}
+
+async function buildMovers(gl) {
+  let m = `🚀 <b>TOP MOVERS (24H)</b>\n\n`;
+  if (gl.gainers?.length) {
+    m += `🔥 <b>Gainers</b>\n<pre>`;
+    for (const g of gl.gainers.slice(0, 5)) {
+      const sym = (g.symbol || '?').toUpperCase().padEnd(6);
+      const ch = ((g.price_change_percentage_24h >= 0 ? '+' : '') + (g.price_change_percentage_24h || 0).toFixed(2) + '%').padStart(10);
+      m += `${sym} ${ch}  $${fmt.price(g.current_price || 0)}\n`;
+    }
+    m += `</pre>\n\n`;
+  }
+  if (gl.losers?.length) {
+    m += `❄️ <b>Losers</b>\n<pre>`;
+    for (const l of gl.losers.slice(0, 5)) {
+      const sym = (l.symbol || '?').toUpperCase().padEnd(6);
+      const ch = ((l.price_change_percentage_24h >= 0 ? '+' : '') + (l.price_change_percentage_24h || 0).toFixed(2) + '%').padStart(10);
+      m += `${sym} ${ch}  $${fmt.price(l.current_price || 0)}\n`;
+    }
+    m += `</pre>\n\n`;
+  }
+  m += `${FOOTER}`;
+  return m;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -997,7 +1090,7 @@ async function collectMarketData(env) {
 
   const futures = {};
   if (env.ENABLE_FUTURES !== 'false') {
-    for (const [id, sym] of Object.entries({ bitcoin: 'BTCUSDT', ethereum: 'ETHUSDT' })) {
+    for (const [id, sym] of Object.entries({ bitcoin: 'BTCUSDT', ethereum: 'ETHUSDT', solana: 'SOLUSDT' })) {
       futures[sym] = await getBinanceFutures(sym);
     }
   }
@@ -1120,12 +1213,37 @@ async function sendChannelAI(env, customPrompt = null) {
   });
 }
 
+async function sendChannelFutures(env) {
+  ensureChannel(env);
+  await dedupSend(env, 'futures', async () => {
+    const symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
+    const futures = {};
+    for (const sym of symbols) {
+      futures[sym] = await getBinanceFutures(sym);
+    }
+    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildFutures(futures));
+  });
+}
+
+async function sendChannelMovers(env) {
+  ensureChannel(env);
+  await dedupSend(env, 'movers', async () => {
+    const gl = await getTopGainersLosers(env);
+    if (!gl) {
+      await sendMessage(env, env.TELEGRAM_CHANNEL_ID, `🚀 <b>TOP MOVERS</b>\n\nData unavailable.\n\n${FOOTER}`);
+      return;
+    }
+    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildMovers(gl));
+  });
+}
+
 async function sendChannelAll(env) {
   const results = [];
   const senders = [
     { name: 'Price', fn: sendChannelPrice }, { name: 'Volume', fn: sendChannelVolume },
     { name: 'AI Daily', fn: sendChannelAI }, { name: 'Trending', fn: sendChannelTrending },
-    { name: 'F&G', fn: sendChannelFng },
+    { name: 'F&G', fn: sendChannelFng }, { name: 'Futures', fn: sendChannelFutures },
+    { name: 'Movers', fn: sendChannelMovers },
   ];
   for (const s of senders) {
     try { await s.fn(env); results.push(`✅ ${s.name}`); }
@@ -1199,7 +1317,7 @@ async function handleSettings(chatId, env) {
   const mode = await getConfig(env, 'ai_mode', 'normal');
   const scenario = await getConfig(env, 'scenario', 'neutral');
 
-  await sendMessage(env, chatId, `⚙️ <b>Settings</b>\n\nChannel: ${env.TELEGRAM_CHANNEL_ID || 'Not set'}\nCoins: 16 | Sources: ${sources.join(', ')}\nAI: ${aiStatus} | ${orStatus}\nMode: ${AI_MODES[mode]}\nScenario: ${SCENARIOS[scenario]}\n\nUse /admin for admin panel.`);
+  await sendMessage(env, chatId, `⚙️ <b>Settings</b>\n\nChannel: ${env.TELEGRAM_CHANNEL_ID || 'Not set'}\nCoins: ${Object.keys(COINS).length} | Sources: ${sources.join(', ')}\nAI: ${aiStatus} | ${orStatus}\nMode: ${AI_MODES[mode]}\nScenario: ${SCENARIOS[scenario]}\n\nUse /admin for admin panel.`);
 }
 
 async function showAdminPanel(chatId, env) {
@@ -1212,9 +1330,40 @@ async function handleHelp(chatId, env, userId) {
   const admin = isAdmin(userId, env);
   let text = `📖 <b>Commands</b>\n\n/start — Main menu\n/price — Live prices\n/volume — Volume report\n/daily — Daily report\n/trending — Trending coins\n/fng — Market Sentiment\n/alerts — Alert settings\n/settings — Bot settings\n/aiprompt — Custom AI prompt (admin)\n`;
   if (admin) {
-    text += `\n<b>Admin Commands:</b>\n/admin — Admin panel\n/sendprice — Send price to channel\n/sendvolume — Send volume to channel\n/sendai — Send AI analysis to channel\n/senddaily — Send daily to channel\n/sendall — Send everything to channel\n/aiprompt — Custom AI prompt\n`;
+    text += `\n<b>Admin Commands:</b>\n/admin — Admin panel\n/sendprice — Send price to channel\n/sendvolume — Send volume to channel\n/sendai — Send AI analysis to channel\n/senddaily — Send daily to channel\n/sendfutures — Send futures to channel\n/sendmovers — Send top movers to channel\n/sendall — Send everything to channel\n/aiprompt — Custom AI prompt\n`;
   }
   await sendMessage(env, chatId, text);
+}
+
+async function handleAIStatus(chatId, env) {
+  const geminiTest = await testGeminiConnection(env);
+  const lastProvider = await getConfig(env, 'last_ai_provider', 'Unknown');
+  const lastTime = await getConfig(env, 'last_ai_time', 'Never');
+  
+  let text = `🤖 <b>AI Status</b>\n\n`;
+  text += `<b>Gemini:</b> ${geminiTest.ok ? '✅ Active' : `⚠️ ${geminiTest.error}`}\n`;
+  text += `<b>OpenRouter:</b> ${env.OPENROUTER_API_KEY ? '✅ Configured' : '⚠️ No Key'}\n`;
+  text += `<b>Last Provider:</b> ${lastProvider}\n`;
+  text += `<b>Last Analysis:</b> ${lastTime}\n`;
+  text += `\nUse /debug for full API test.`;
+  await sendMessage(env, chatId, text);
+}
+
+async function handleAPIStatus(chatId, env) {
+  const checks = [];
+  try { const cg = await getCoinsCG(env); checks.push(`CoinGecko: ${cg ? '✅' : '⚠️'}`); } catch(e) { checks.push(`CoinGecko: ❌`); }
+  try { const bin = await getCoinsBinance(); checks.push(`Binance: ${bin ? '✅' : '⚠️'}`); } catch(e) { checks.push(`Binance: ❌`); }
+  try { const f = await getBinanceFutures('BTCUSDT'); checks.push(`Futures: ${f.fundingRate != null ? '✅' : '⚠️'}`); } catch(e) { checks.push(`Futures: ❌`); }
+  
+  let text = `📊 <b>API Status</b>\n\n${checks.join('\n')}\n\nUse /debug for detailed report.`;
+  await sendMessage(env, chatId, text);
+}
+
+async function handleAutoPosts(chatId, env) {
+  const current = await getConfig(env, 'auto_posts', 'true');
+  const newVal = current === 'true' ? 'false' : 'true';
+  await setConfig(env, 'auto_posts', newVal);
+  await sendMessage(env, chatId, `⏸ <b>Auto Posts</b>\n\nStatus: ${newVal === 'true' ? '✅ Enabled' : '⏸ Disabled'}`);
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1278,6 +1427,14 @@ async function processWebhook(update, env) {
         if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
         await sendMessage(env, chatId, '⏳ Sending...'); await sendChannelDaily(env); await sendMessage(env, chatId, '✅ Done!');
       }
+      else if (text === '/sendfutures') {
+        if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
+        await sendMessage(env, chatId, '⏳ Sending...'); await sendChannelFutures(env); await sendMessage(env, chatId, '✅ Done!');
+      }
+      else if (text === '/sendmovers') {
+        if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
+        await sendMessage(env, chatId, '⏳ Sending...'); await sendChannelMovers(env); await sendMessage(env, chatId, '✅ Done!');
+      }
       else if (text === '/sendall') {
         if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
         await sendMessage(env, chatId, '⏳ Sending all...'); await sendChannelAll(env); await sendMessage(env, chatId, '✅ Done!');
@@ -1320,6 +1477,8 @@ async function processWebhook(update, env) {
           if (data === 'send_trending') await sendChannelTrending(env);
           if (data === 'send_fng') await sendChannelFng(env);
           if (data === 'send_all') await sendChannelAll(env);
+          if (data === 'send_futures') await sendChannelFutures(env);
+          if (data === 'send_movers') await sendChannelMovers(env);
           await editMessage(env, chatId, msgId, `✅ <b>Sent!</b>\n🕒 ${fmt.time()}`, getAdminInline(await getConfig(env, 'ai_mode', 'normal'), await getConfig(env, 'scenario', 'neutral')));
         } catch (e) {
           await editMessage(env, chatId, msgId, `❌ <b>Error:</b> ${esc(e.message)}`, getAdminInline(await getConfig(env, 'ai_mode', 'normal'), await getConfig(env, 'scenario', 'neutral')));
@@ -1381,6 +1540,24 @@ async function processWebhook(update, env) {
         return;
       }
 
+      if (data === 'admin:ai_status') {
+        if (!isAdmin(userId, env)) return;
+        await handleAIStatus(chatId, env);
+        return;
+      }
+
+      if (data === 'admin:api_status') {
+        if (!isAdmin(userId, env)) return;
+        await handleAPIStatus(chatId, env);
+        return;
+      }
+
+      if (data === 'admin:auto_posts') {
+        if (!isAdmin(userId, env)) return;
+        await handleAutoPosts(chatId, env);
+        return;
+      }
+
       if (data === 'admin:page:main') {
         if (!isAdmin(userId, env)) return;
         await editMessage(env, chatId, msgId, `📣 <b>Admin Panel</b>\n\nChoose action:`, getAdminInline(await getConfig(env, 'ai_mode', 'normal'), await getConfig(env, 'scenario', 'neutral')));
@@ -1417,10 +1594,31 @@ async function processWebhook(update, env) {
 async function handleCron(event, env) {
   const cron = event.cron;
   try {
-    if (cron.includes('price') || cron === CRON_PRICE) await sendChannelPrice(env);
-    else if (cron.includes('ai') || cron === CRON_AI) await sendChannelAI(env);
-    else if (cron.includes('fng') || cron === CRON_FNG) await sendChannelFng(env);
-    else await sendChannelPrice(env);
+    const autoPosts = await getConfig(env, 'auto_posts', 'true');
+    if (autoPosts !== 'true') {
+      console.log(`[CRON] Auto-posts disabled, skipping ${cron}`);
+      return;
+    }
+    
+    switch (cron) {
+      case CRON_PRICE:
+        await sendChannelPrice(env);
+        break;
+      case CRON_AI:
+        await sendChannelAI(env);
+        break;
+      case CRON_FNG:
+        await sendChannelFng(env);
+        break;
+      case CRON_FUTURES:
+        await sendChannelFutures(env);
+        break;
+      case CRON_MOVERS:
+        await sendChannelMovers(env);
+        break;
+      default:
+        console.log(`[CRON] Unknown cron: ${cron}`);
+    }
   } catch (err) {
     console.error(`[CRON ERROR] ${cron}: ${err.message}`);
   }
@@ -1457,6 +1655,8 @@ async function routeAdmin(request, env) {
     if (type === 'ai') await sendChannelAI(env);
     if (type === 'trending') await sendChannelTrending(env);
     if (type === 'fng') await sendChannelFng(env);
+    if (type === 'futures') await sendChannelFutures(env);
+    if (type === 'movers') await sendChannelMovers(env);
     if (type === 'all') await sendChannelAll(env);
     if (type === 'alert') {
       const { data } = await getCoins(env);
@@ -1525,7 +1725,7 @@ async function handleHttp(request, env) {
   if (path === '/debug' && request.method === 'GET') return handleDebug(env);
   if (path === '/' && request.method === 'GET') {
     return new Response(
-      `TradeAgent IV ULTIMATE v2.1 — AI-Powered Crypto Intelligence\n\nRoutes:\n  POST /webhook  → Telegram webhook\n  POST|GET /admin → Manual trigger (x-admin-secret required)\n  GET  /debug    → Status check + API tests\n\nCron: ${CRON_PRICE}, ${CRON_AI}, ${CRON_FNG}\nCoins: 16 | AI: Gemini (cache+circuit) → OpenRouter (DeepSeek/Qwen)\n`,
+      `TradeAgent IV ULTIMATE v2.2 — AI-Powered Crypto Intelligence\n\nRoutes:\n  POST /webhook  → Telegram webhook\n  POST|GET /admin → Manual trigger (x-admin-secret required)\n  GET  /debug    → Status check + API tests\n\nCron: ${CRON_PRICE}, ${CRON_AI}, ${CRON_FNG}, ${CRON_FUTURES}, ${CRON_MOVERS}\nCoins: ${Object.keys(COINS).length} | AI: Gemini (cache+circuit) → OpenRouter (DeepSeek/Qwen)\n`,
       { status: 200 }
     );
   }
