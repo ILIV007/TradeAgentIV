@@ -551,64 +551,65 @@ async function getAIAnalysis(env, prompt) {
     return result;
   }
 
-// PRIORITY 3: OpenRouter FREE models (only if Gemini completely fails)
-console.log('[AI] Gemini family failed, trying OpenRouter FREE models...');
-if (!env.OPENROUTER_API_KEY) {
-  console.log('[AI] No OpenRouter key, giving up');
-  return null;
-}
-
-// 🆓 ONLY FREE MODELS — no paid models allowed!
-const models = [
-  'meta-llama/llama-3.3-70b-instruct:free', // Strong general purpose
-  'deepseek/deepseek-chat-v3-0324:free',   // ⭐ Best free model
-  'deepseek/deepseek-r1:free',              // Reasoning specialist
-  'qwen/qwen3-235b-a22b:free',              // Large context
-  'google/gemma-4-31b-it:free',              // Google, 262K context
-  'moonshotai/kimi-k2.6:free',              // Kimi, vision + tools
-];
-
-for (const model of models) {
-  try {
-    console.log(`[AI] Trying OpenRouter free model: ${model}...`);
-    const res = await fetch(OPENROUTER_URL, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${env.OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://tradeagent.iv',
-        'X-Title': 'TradeAgent IV',
-      },
-      body: JSON.stringify({
-        model,
-        messages: [{ role: 'user', content: prompt }],
-        max_tokens: 900,
-        temperature: 0.3
-      }),
-    });
-    
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      console.log(`[AI] ${model} HTTP ${res.status}: ${errText.slice(0, 100)}`);
-      continue; // Try next model
-    }
-    
-    const data = await res.json();
-    const text = data.choices?.[0]?.message?.content;
-    if (text) {
-      const result = { text: cleanMarkdown(text.trim()), source: getShortModelName(model) };
-      await setAICache(env, promptHash, result);
-      await setConfig(env, 'last_ai_provider', getShortModelName(model));
-      await setConfig(env, 'last_ai_time', fmt.time());
-      console.log(`[AI] ✅ ${model} SUCCESS`);
-      return result;
-    }
-  } catch (e) { 
-    console.error(`[AI] ${model} fail:`, e.message); 
+  // PRIORITY 3: OpenRouter FREE models (only if Gemini completely fails)
+  console.log('[AI] Gemini family failed, trying OpenRouter FREE models...');
+  if (!env.OPENROUTER_API_KEY) {
+    console.log('[AI] No OpenRouter key, giving up');
+    return null;
   }
-}
 
-return null;
+  // 🆓 ONLY FREE MODELS — no paid models allowed!
+  const models = [
+    'deepseek/deepseek-chat-v3-0324:free',    // ⭐ Best free model
+    'meta-llama/llama-3.3-70b-instruct:free', // Strong general purpose
+    'deepseek/deepseek-r1:free',              // Reasoning specialist
+    'qwen/qwen3-235b-a22b:free',              // Large context
+    'google/gemma-4-31b-it:free',             // Google, 262K context
+    'moonshotai/kimi-k2.6:free',              // Kimi, vision + tools
+  ];
+
+  for (const model of models) {
+    try {
+      console.log(`[AI] Trying OpenRouter free model: ${model}...`);
+      const res = await fetch(OPENROUTER_URL, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${env.OPENROUTER_API_KEY}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://tradeagent.iv',
+          'X-Title': 'TradeAgent IV',
+        },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'user', content: prompt }],
+          max_tokens: 900,
+          temperature: 0.3
+        }),
+      });
+      
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        console.log(`[AI] ${model} HTTP ${res.status}: ${errText.slice(0, 100)}`);
+        continue; // Try next model
+      }
+      
+      const data = await res.json();
+      const text = data.choices?.[0]?.message?.content;
+      if (text) {
+        const result = { text: cleanMarkdown(text.trim()), source: getShortModelName(model) };
+        await setAICache(env, promptHash, result);
+        await setConfig(env, 'last_ai_provider', getShortModelName(model));
+        await setConfig(env, 'last_ai_time', fmt.time());
+        console.log(`[AI] ✅ ${model} SUCCESS`);
+        return result;
+      }
+    } catch (e) { 
+      console.error(`[AI] ${model} fail:`, e.message); 
+    }
+  }
+
+  console.log('[AI] All OpenRouter free models failed');
+  return null;
 }
 
 async function testGeminiConnection(env) {
