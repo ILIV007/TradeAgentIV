@@ -1,11 +1,10 @@
 name = "tradeagentiv"
 main = "src/index.js"
-compatibility_date = "2026-02-06"
+compatibility_date = "2025-06-01"
 
-#time
 [triggers]
 crons = [
-  "*/30 * * * *",    # Price + Alerts
-  "0 */4 * * *",     # Bundle: AI + F&G + Futures
-  "0 9,15 * * *"     # Movers: 09:00 & 15:00 UTC
+  "*/30 * * * *",
+  "0 */8 * * *",
+  "0 9,15,21 * * *"
 ]
