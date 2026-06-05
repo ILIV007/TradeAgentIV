@@ -1,49 +1,65 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV ULTIMATE v2.3.3 — AI-Powered Crypto Intelligence
-//  Fixes: Cron deploy, KV-less wrangler, Movers schedule, CoinCap removal
-//  Deploy: Cloudflare Workers (free) + GitHub
+//  TRADEAGENT IV ULTIMATE v2.4 — AI-Powered Crypto Intelligence
+//  Fixes: Cron deploy, KV-less wrangler, Gemini priority, Dedup
+//  New: 3-Tier coins, Enhanced UI, F&G daily, Funding 8h, Movers 3x
+//  Deploy: Cloudflare Workers + GitHub
 // ═══════════════════════════════════════════════════════════════
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 1. CONFIG
+// 1. CONFIG — 3-TIER COIN SYSTEM
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-const COINS = {
-  bitcoin:           { symbol: 'BTC',    emoji: '₿',    name: 'Bitcoin' },
-  ethereum:          { symbol: 'ETH',    emoji: 'Ξ',    name: 'Ethereum' },
-  solana:            { symbol: 'SOL',    emoji: '◎',    name: 'Solana' },
-  binancecoin:       { symbol: 'BNB',    emoji: '🔶',   name: 'BNB' },
-  ripple:            { symbol: 'XRP',    emoji: '✕',    name: 'XRP' },
-  'the-open-network':{ symbol: 'TON',    emoji: '💎',   name: 'Toncoin' },
-  cardano:           { symbol: 'ADA',    emoji: '🔷',   name: 'Cardano' },
-  dogecoin:          { symbol: 'DOGE',   emoji: '🐕',   name: 'Dogecoin' },
-  chainlink:         { symbol: 'LINK',   emoji: '🔗',   name: 'Chainlink' },
-  'avalanche-2':     { symbol: 'AVAX',   emoji: '❄️',   name: 'Avalanche' },
-  polkadot:          { symbol: 'DOT',    emoji: '🔴',   name: 'Polkadot' },
-  litecoin:          { symbol: 'LTC',    emoji: 'Ł',    name: 'Litecoin' },
-  tron:              { symbol: 'TRX',    emoji: '🔺',   name: 'TRON' },
-  uniswap:           { symbol: 'UNI',    emoji: '🦄',   name: 'Uniswap' },
-  near:              { symbol: 'NEAR',   emoji: '🔷',   name: 'NEAR' },
-  aptos:             { symbol: 'APT',    emoji: '🅰️',   name: 'Aptos' },
-  'tether-gold':     { symbol: 'XAUT',   emoji: '🥇',   name: 'Tether Gold' },
-  'shiba-inu':       { symbol: 'SHIB',   emoji: '🐕‍🦺', name: 'Shiba Inu' },
-  polygon:           { symbol: 'POL',    emoji: '💜',   name: 'Polygon' },
-  sui:               { symbol: 'SUI',    emoji: '💧',   name: 'Sui' },
-  pepe:              { symbol: 'PEPE',   emoji: '🐸',   name: 'Pepe' },
-  arbitrum:          { symbol: 'ARB',    emoji: '🔷',   name: 'Arbitrum' },
-  optimism:          { symbol: 'OP',     emoji: '🔴',   name: 'Optimism' },
-  injective:         { symbol: 'INJ',    emoji: '💉',   name: 'Injective' },
-  bittensor:         { symbol: 'TAO',    emoji: '🔯',   name: 'Bittensor' },
-  'fetch-ai':        { symbol: 'FET',    emoji: '🤖',   name: 'Fetch.ai' },
-  'render-token':    { symbol: 'RENDER', emoji: '🎨',   name: 'Render' },
-  bonk:              { symbol: 'BONK',   emoji: '🔨',   name: 'Bonk' },
-  dogwifhat:         { symbol: 'WIF',    emoji: '🧢',   name: 'dogwifhat' },
+const TIER_1 = {
+  bitcoin:      { symbol: 'BTC',  emoji: '₿',   name: 'Bitcoin',     tier: 1 },
+  ethereum:     { symbol: 'ETH',  emoji: 'Ξ',   name: 'Ethereum',    tier: 1 },
+  solana:       { symbol: 'SOL',  emoji: '◎',   name: 'Solana',      tier: 1 },
+  ripple:       { symbol: 'XRP',  emoji: '✕',   name: 'XRP',         tier: 1 },
+  binancecoin:  { symbol: 'BNB',  emoji: '🔶',  name: 'BNB',         tier: 1 },
+  'tether-gold':{ symbol: 'XAUT', emoji: '🥇',  name: 'Tether Gold', tier: 1 },
 };
 
-const COIN_IDS   = Object.keys(COINS).join(',');
-const CRON_PRICE = '*/30 * * * *';
-const CRON_BUNDLE = '0 */4 * * *';   // AI + F&G + Futures
-const CRON_MOVERS = '0 9,15 * * *';  // 09:00 & 15:00 UTC
+const TIER_2 = {
+  cardano:      { symbol: 'ADA',  emoji: '🔷',  name: 'Cardano',     tier: 2 },
+  chainlink:    { symbol: 'LINK', emoji: '🔗',  name: 'Chainlink',   tier: 2 },
+  'avalanche-2':{ symbol: 'AVAX', emoji: '❄️',  name: 'Avalanche',   tier: 2 },
+  sui:          { symbol: 'SUI',  emoji: '💧',  name: 'Sui',         tier: 2 },
+  'hedera-hashgraph': { symbol: 'HBAR', emoji: '🌿', name: 'Hedera', tier: 2 },
+  polygon:      { symbol: 'POL',  emoji: '💜',  name: 'Polygon',     tier: 2 },
+  injective:    { symbol: 'INJ',  emoji: '💉',  name: 'Injective',   tier: 2 },
+  arbitrum:     { symbol: 'ARB',  emoji: '🔷',  name: 'Arbitrum',    tier: 2 },
+  optimism:     { symbol: 'OP',   emoji: '🔴',  name: 'Optimism',    tier: 2 },
+  cosmos:       { symbol: 'ATOM', emoji: '⚛️',  name: 'Cosmos',      tier: 2 },
+  'the-open-network': { symbol: 'TON', emoji: '💎', name: 'Toncoin', tier: 2 },
+  polkadot:     { symbol: 'DOT',  emoji: '🔴',  name: 'Polkadot',    tier: 2 },
+  litecoin:     { symbol: 'LTC',  emoji: 'Ł',   name: 'Litecoin',    tier: 2 },
+  chainlink:    { symbol: 'LINK', emoji: '🔗',  name: 'Chainlink',   tier: 2 },
+  near:         { symbol: 'NEAR', emoji: '🔷',  name: 'NEAR',        tier: 2 },
+  aptos:        { symbol: 'APT',  emoji: '🅰️',  name: 'Aptos',       tier: 2 },
+  uniswap:      { symbol: 'UNI',  emoji: '🦄',  name: 'Uniswap',     tier: 2 },
+  tron:         { symbol: 'TRX',  emoji: '🔺',  name: 'TRON',        tier: 2 },
+};
+
+const TIER_3 = {
+  'shiba-inu':  { symbol: 'SHIB', emoji: '🐕‍🦺', name: 'Shiba Inu',  tier: 3 },
+  dogecoin:     { symbol: 'DOGE', emoji: '🐕',  name: 'Dogecoin',    tier: 3 },
+  pepe:         { symbol: 'PEPE', emoji: '🐸',  name: 'Pepe',        tier: 3 },
+  dogwifhat:    { symbol: 'WIF',  emoji: '🧢',  name: 'dogwifhat',   tier: 3 },
+  bonk:         { symbol: 'BONK', emoji: '🔨',  name: 'Bonk',        tier: 3 },
+  bittensor:    { symbol: 'TAO',  emoji: '🔯',  name: 'Bittensor',   tier: 3 },
+  'fetch-ai':   { symbol: 'FET',  emoji: '🤖',  name: 'Fetch.ai',    tier: 3 },
+  'render-token':{ symbol: 'RENDER', emoji: '🎨', name: 'Render',     tier: 3 },
+};
+
+const COINS = { ...TIER_1, ...TIER_2, ...TIER_3 };
+const COIN_IDS = Object.keys(COINS).join(',');
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 2. CRON CONFIG — 3 CLEAN TRIGGERS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const CRON_PRICE   = '*/30 * * * *';   // Price + Alerts every 30min
+const CRON_BUNDLE  = '0 */8 * * *';    // AI + F&G + Funding every 8h
+const CRON_MOVERS  = '0 9,15,21 * * *'; // Movers at 09:00, 15:00, 21:00 UTC
 
 const ALERT_PRESETS = {
   bitcoin:  { above: 110000, below: 95000 },
@@ -51,11 +67,16 @@ const ALERT_PRESETS = {
   solana:   { above: 250,    below: 180 },
 };
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 3. API ENDPOINTS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 const COINGECKO_BASE = 'https://api.coingecko.com/api/v3';
 const CMC_BASE = 'https://pro-api.coinmarketcap.com/v1';
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 const GEMINI_FALLBACK_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const FNG_URL = 'https://api.alternative.me/fng/?limit=1';
 
 const BINANCE_MAP = {
   bitcoin: 'BTCUSDT', ethereum: 'ETHUSDT', solana: 'SOLUSDT',
@@ -67,36 +88,31 @@ const BINANCE_MAP = {
   sui: 'SUIUSDT', pepe: 'PEPEUSDT', arbitrum: 'ARBUSDT', optimism: 'OPUSDT',
   injective: 'INJUSDT', bittensor: 'TAOUSDT', 'fetch-ai': 'FETUSDT',
   'render-token': 'RENDERUSDT', bonk: 'BONKUSDT', dogwifhat: 'WIFUSDT',
+  'hedera-hashgraph': 'HBARUSDT', cosmos: 'ATOMUSDT',
 };
 
-const SYMBOL_TO_ID = {
-  BTC: 'bitcoin', ETH: 'ethereum', SOL: 'solana',
-  BNB: 'binancecoin', XRP: 'ripple', TON: 'the-open-network',
-  ADA: 'cardano', DOGE: 'dogecoin', LINK: 'chainlink',
-  AVAX: 'avalanche-2', DOT: 'polkadot', LTC: 'litecoin',
-  TRX: 'tron', UNI: 'uniswap', NEAR: 'near', APT: 'aptos',
-  XAUT: 'tether-gold', SHIB: 'shiba-inu', POL: 'polygon',
-  SUI: 'sui', PEPE: 'pepe', ARB: 'arbitrum', OP: 'optimism',
-  INJ: 'injective', TAO: 'bittensor', FET: 'fetch-ai',
-  RENDER: 'render-token', BONK: 'bonk', WIF: 'dogwifhat',
-};
+const SYMBOL_TO_ID = Object.fromEntries(
+  Object.entries(COINS).map(([id, c]) => [c.symbol, id])
+);
 
-const CMC_SYMBOLS = 'BTC,ETH,SOL,BNB,XRP,TON,ADA,DOGE,LINK,AVAX,DOT,LTC,TRX,UNI,NEAR,APT,XAUT,SHIB,POL,SUI,PEPE,ARB,OP,INJ,TAO,FET,RENDER,BONK,WIF';
-const FOOTER = `<blockquote>📡 <b>TradeAgent IV</b>\n<i>AI Crypto Intelligence</i>\n@TradeAgentIV</blockquote>`;
+const CMC_SYMBOLS = Object.values(COINS).map(c => c.symbol).join(',');
+
+const FOOTER = `<blockquote>📡 <b>TradeAgent IV</b> <i>v2.4</i>\n🪐 AI Crypto Intelligence\n@TradeAgentIV</blockquote>`;
 
 const AI_MODES = { normal: 'Normal', deep: 'Deep', short: 'Short', emotion: 'Emotion' };
 const SCENARIOS = { bullish: 'Bullish', bearish: 'Bearish', neutral: 'Neutral', volatile: 'Volatile' };
+
 const EMOTION_STATES = {
-  PANIC:    { emoji: '💀🚨', tone: 'Short, serious warnings. Market is panicking. Focus on capital preservation and risk.' },
-  FEAR:     { emoji: '😰🧊', tone: 'Conservative. Market is fearful but accumulation opportunities exist. Highlight opportunities.' },
-  NEUTRAL:  { emoji: '😐',   tone: 'Neutral, factual. Market is sideways. Provide balanced analysis.' },
-  MOMENTUM: { emoji: '🔥📈', tone: 'Analytical and optimistic. Upside momentum building. Highlight opportunities.' },
-  BREAKOUT: { emoji: '🚀⚡', tone: 'Controlled excitement. Price breakout confirmed. Confirm trend strength but warn of pullback risk.' },
-  FOMO:     { emoji: '🧨📊', tone: 'Warning with urgency. Market is in extreme greed. Emphasize FOMO risk and danger of entry at highs.' },
+  PANIC:    { emoji: '💀🚨', color: '🔴', tone: 'Short, serious warnings. Market panicking. Focus on capital preservation.' },
+  FEAR:     { emoji: '😰🧊', color: '🟠', tone: 'Conservative. Fearful but accumulation opportunities exist.' },
+  NEUTRAL:  { emoji: '😐',   color: '⚪', tone: 'Neutral, factual. Sideways market. Balanced analysis.' },
+  MOMENTUM: { emoji: '🔥📈', color: '🟢', tone: 'Analytical, optimistic. Upside momentum building.' },
+  BREAKOUT: { emoji: '🚀⚡', color: '🟢', tone: 'Controlled excitement. Breakout confirmed. Warn of pullback risk.' },
+  FOMO:     { emoji: '🧨📊', color: '🔴', tone: 'Warning with urgency. Extreme greed. Emphasize FOMO danger.' },
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 2. SECURITY
+// 4. SECURITY & UTILS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function isAdmin(userId, env) {
@@ -106,10 +122,6 @@ function isAdmin(userId, env) {
 function checkSecret(request, env) {
   return request.headers.get('x-admin-secret') === env.ADMIN_SECRET;
 }
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 3. UTILS
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function esc(text) {
   if (typeof text !== 'string') return text;
@@ -147,11 +159,11 @@ const fmt = {
 
 function getBias(fearValue) {
   const v = parseInt(fearValue);
-  if (v >= 75) return '😱 Extreme Greed — 🔴 Caution';
+  if (v >= 75) return '😱 Extreme Greed — 🔴 Caution!';
   if (v >= 55) return '😊 Greed — 🟡 FOMO Zone';
-  if (v >= 45) return '😐 Neutral — 🟢 Balanced';
+  if (v >= 45) return '😐 Neutral — ⚪ Balanced';
   if (v >= 25) return '😰 Fear — 🟢 Accumulation';
-  return '😨 Extreme Fear — 🟢 Opportunity';
+  return '😨 Extreme Fear — 🟢 Opportunity!';
 }
 
 function progressBar(value, max = 100, blocks = 10) {
@@ -177,7 +189,7 @@ async function hashPrompt(prompt) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 4. EMOTION ENGINE
+// 5. EMOTION ENGINE
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function calculateEmotionState(data) {
@@ -201,7 +213,7 @@ function calculateEmotionState(data) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 5. API HELPERS
+// 6. API HELPERS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function api(url, opts = {}, retries = 3) {
@@ -209,7 +221,7 @@ async function api(url, opts = {}, retries = 3) {
     try {
       const r = await fetch(url, {
         ...opts,
-        headers: { Accept: 'application/json', 'User-Agent': 'TradeAgentIV/2.3', ...opts.headers },
+        headers: { Accept: 'application/json', 'User-Agent': 'TradeAgentIV/2.4', ...opts.headers },
       });
       if (!r.ok) {
         const txt = await r.text().catch(() => '');
@@ -224,7 +236,7 @@ async function api(url, opts = {}, retries = 3) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 6. PRICE API — FAILOVER: CG → CMC → Binance
+// 7. PRICE API — FAILOVER: CG → CMC → Binance
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function normalizeCG(coins) {
@@ -232,6 +244,8 @@ function normalizeCG(coins) {
     id: c.id, current_price: c.current_price,
     price_change_percentage_24h: c.price_change_percentage_24h,
     total_volume: c.total_volume, market_cap: c.market_cap,
+    price_change_percentage_7d_in_currency: c.price_change_percentage_7d_in_currency,
+    price_change_percentage_30d_in_currency: c.price_change_percentage_30d_in_currency,
   }));
 }
 
@@ -241,7 +255,14 @@ function normalizeCMC(data) {
     const id = SYMBOL_TO_ID[coin.symbol];
     if (!id) continue;
     const q = coin.quote?.USD || {};
-    result.push({ id, current_price: q.price || 0, price_change_percentage_24h: q.percent_change_24h || 0, total_volume: q.volume_24h || 0, market_cap: q.market_cap || 0 });
+    result.push({
+      id, current_price: q.price || 0,
+      price_change_percentage_24h: q.percent_change_24h || 0,
+      price_change_percentage_7d_in_currency: q.percent_change_7d || 0,
+      price_change_percentage_30d_in_currency: q.percent_change_30d || 0,
+      total_volume: q.volume_24h || 0,
+      market_cap: q.market_cap || 0,
+    });
   }
   return result;
 }
@@ -250,14 +271,21 @@ function normalizeBinance(data) {
   return data.map(b => {
     const id = Object.keys(BINANCE_MAP).find(k => BINANCE_MAP[k] === b.symbol);
     const price = parseFloat(b.lastPrice);
-    return { id, current_price: price, price_change_percentage_24h: parseFloat(b.priceChangePercent), total_volume: parseFloat(b.volume) * price, market_cap: 0 };
+    return {
+      id, current_price: price,
+      price_change_percentage_24h: parseFloat(b.priceChangePercent),
+      price_change_percentage_7d_in_currency: 0,
+      price_change_percentage_30d_in_currency: 0,
+      total_volume: parseFloat(b.volume) * price,
+      market_cap: 0,
+    };
   });
 }
 
 async function getCoinsCG(env) {
   const key = env.COINGECKO_API_KEY;
   if (!key) return null;
-  const url = `${COINGECKO_BASE}/coins/markets?vs_currency=usd&ids=${COIN_IDS}&order=market_cap_desc&sparkline=false&price_change_percentage=24h`;
+  const url = `${COINGECKO_BASE}/coins/markets?vs_currency=usd&ids=${COIN_IDS}&order=market_cap_desc&sparkline=false&price_change_percentage=24h,7d,30d`;
   return normalizeCG(await api(url, { headers: { 'x-cg-demo-api-key': key } }));
 }
 
@@ -281,7 +309,7 @@ async function getCoins(env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 7. ENHANCED DATA: Top Gainers, Categories, Charts, Futures
+// 8. ENHANCED DATA APIs
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function getTopGainersLosers(env) {
@@ -330,7 +358,7 @@ async function getBinanceFutures(symbol) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 8. GLOBAL & TRENDING — FAILOVER
+// 9. GLOBAL & TRENDING — FAILOVER
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function getGlobalCG(env) {
@@ -344,7 +372,13 @@ async function getGlobalCMC(env) {
   if (!key) return null;
   const data = await api(`${CMC_BASE}/global-metrics/quotes/latest`, { headers: { 'X-CMC_PRO_API_KEY': key } });
   const q = data.data?.quote?.USD || {};
-  return { data: { total_market_cap: { usd: q.total_market_cap || 0 }, total_volume: { usd: q.total_volume_24h || 0 }, market_cap_percentage: { btc: data.data?.btc_dominance || 0 } } };
+  return {
+    data: {
+      total_market_cap: { usd: q.total_market_cap || 0 },
+      total_volume: { usd: q.total_volume_24h || 0 },
+      market_cap_percentage: { btc: data.data?.btc_dominance || 0 }
+    }
+  };
 }
 
 async function getGlobal(env) {
@@ -372,12 +406,17 @@ async function getTrending(env) {
   return null;
 }
 
-function getFearGreed() {
-  return api('https://api.alternative.me/fng/?limit=1');
+async function getFearGreed() {
+  try {
+    return await api(FNG_URL);
+  } catch (e) {
+    console.error('[API] F&G fail:', e.message);
+    return null;
+  }
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 9. AI LAYER — GEMINI (cache+circuit) + OPENROUTER FAILOVER
+// 10. AI LAYER — GEMINI PRIORITY + OPENROUTER FAILOVER
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const AI_CACHE_TTL = 3600;
@@ -421,6 +460,10 @@ async function closeCircuit(env, name) {
 }
 
 async function tryGemini(env, prompt, url, name) {
+  if (!env.GEMINI_API_KEY) {
+    console.log(`[AI] ${name} skipped: No GEMINI_API_KEY`);
+    return null;
+  }
   if (await isCircuitOpen(env, name)) {
     console.log(`[AI] ${name} circuit OPEN, skipping`);
     return null;
@@ -428,8 +471,12 @@ async function tryGemini(env, prompt, url, name) {
   try {
     console.log(`[AI] Trying ${name}...`);
     const res = await api(`${url}?key=${env.GEMINI_API_KEY}`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.3, maxOutputTokens: 900 } }),
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.3, maxOutputTokens: 900 }
+      }),
     });
     console.log(`[AI] ${name} raw:`, JSON.stringify(res).slice(0, 250));
     
@@ -440,14 +487,15 @@ async function tryGemini(env, prompt, url, name) {
     
     if (text && text.length > 30) {
       console.log(`[AI] ${name} SUCCESS, length:`, text.length);
+      await closeCircuit(env, name);
       return text.trim();
     }
     console.log(`[AI] ${name} returned empty/short text`);
     return null;
   } catch (e) {
     console.error(`[AI] ${name} fail:`, e.message);
-    if (e.message.includes('429')) {
-      console.log(`[AI] ${name} 429 → tripping circuit`);
+    if (e.message.includes('429') || e.message.includes('quota') || e.message.includes('exceeded')) {
+      console.log(`[AI] ${name} 429/quota → tripping circuit`);
       await tripCircuit(env, name);
     }
     return null;
@@ -463,21 +511,28 @@ async function getAIAnalysis(env, prompt) {
     return cached;
   }
 
-  if (env.GEMINI_API_KEY) {
-    let text = await tryGemini(env, prompt, GEMINI_URL, 'gemini-2.0-flash');
-    if (!text) {
-      text = await tryGemini(env, prompt, GEMINI_FALLBACK_URL, 'gemini-1.5-flash');
-    }
-    if (text) {
-      const result = { text, source: 'Gemini' };
-      await setAICache(env, promptHash, result);
-      await setConfig(env, 'last_ai_provider', 'Gemini');
-      await setConfig(env, 'last_ai_time', fmt.time());
-      return result;
-    }
+  // PRIORITY 1: Gemini 2.0 Flash
+  let text = await tryGemini(env, prompt, GEMINI_URL, 'gemini-2.0-flash');
+  
+  // PRIORITY 2: Gemini 1.5 Flash (fallback)
+  if (!text) {
+    text = await tryGemini(env, prompt, GEMINI_FALLBACK_URL, 'gemini-1.5-flash');
   }
 
-  if (!env.OPENROUTER_API_KEY) return null;
+  if (text) {
+    const result = { text, source: 'Gemini' };
+    await setAICache(env, promptHash, result);
+    await setConfig(env, 'last_ai_provider', 'Gemini');
+    await setConfig(env, 'last_ai_time', fmt.time());
+    return result;
+  }
+
+  // PRIORITY 3: OpenRouter (only if Gemini completely fails)
+  console.log('[AI] Gemini family failed, trying OpenRouter...');
+  if (!env.OPENROUTER_API_KEY) {
+    console.log('[AI] No OpenRouter key, giving up');
+    return null;
+  }
 
   const models = [
     'google/gemini-2.5-flash-preview-05-20',
@@ -495,7 +550,12 @@ async function getAIAnalysis(env, prompt) {
           'HTTP-Referer': 'https://tradeagent.iv',
           'X-Title': 'TradeAgent IV',
         },
-        body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }], max_tokens: 900, temperature: 0.3 }),
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'user', content: prompt }],
+          max_tokens: 900,
+          temperature: 0.3
+        }),
       });
       const data = await res.json();
       const text = data.choices?.[0]?.message?.content;
@@ -513,7 +573,7 @@ async function getAIAnalysis(env, prompt) {
 }
 
 async function testGeminiConnection(env) {
-  if (!env.GEMINI_API_KEY) return { ok: false, error: 'No API key' };
+  if (!env.GEMINI_API_KEY) return { ok: false, error: 'No API key configured' };
   try {
     const res = await fetch(`${GEMINI_URL}?key=${env.GEMINI_API_KEY}`, {
       method: 'POST',
@@ -528,7 +588,7 @@ async function testGeminiConnection(env) {
     const data = await res.json();
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (text && text.toLowerCase().includes('ok')) return { ok: true, source: 'Gemini' };
-    return { ok: false, error: 'Unexpected response' };
+    return { ok: false, error: 'Unexpected response format' };
   } catch (e) {
     return { ok: false, error: e.message };
   }
@@ -544,14 +604,17 @@ function buildAIPrompt(today, yesterday, mode, scenario, emotion) {
 
   for (const c of mainCoins) {
     const ch24 = c.price_change_percentage_24h || 0;
-    const ch7d = t.changes7d?.[c.id] || 0;
-    const ch30d = t.changes30d?.[c.id] || 0;
+    const ch7d = c.price_change_percentage_7d_in_currency || t.changes7d?.[c.id] || 0;
+    const ch30d = c.price_change_percentage_30d_in_currency || t.changes30d?.[c.id] || 0;
     const info = COINS[c.id];
     coinChanges.push(`${info.symbol}: $${fmt.price(c.current_price)} | 24h: ${fmt.pct(ch24)} | 7d: ${fmt.pct(ch7d)} | 30d: ${fmt.pct(ch30d)} | Vol: ${fmt.vol(c.total_volume)}`);
   }
 
   if (otherCoins.length) {
-    coinChanges.push(`Others: ${otherCoins.map(c => `${COINS[c.id].symbol} ${fmt.pct(c.price_change_percentage_24h)}`).join(', ')}`);
+    const tier2 = otherCoins.filter(c => COINS[c.id]?.tier === 2).map(c => `${COINS[c.id].symbol} ${fmt.pct(c.price_change_percentage_24h)}`);
+    const tier3 = otherCoins.filter(c => COINS[c.id]?.tier === 3).map(c => `${COINS[c.id].symbol} ${fmt.pct(c.price_change_percentage_24h)}`);
+    if (tier2.length) coinChanges.push(`Tier 2: ${tier2.join(', ')}`);
+    if (tier3.length) coinChanges.push(`Tier 3: ${tier3.join(', ')}`);
   }
 
   let futuresText = '';
@@ -562,11 +625,11 @@ function buildAIPrompt(today, yesterday, mode, scenario, emotion) {
 
   let gainersText = '';
   if (t.gainersLosers?.gainers?.length) {
-    gainersText = '\nTop Gainers: ' + t.gainersLosers.gainers.slice(0, 2).map(g => `${g.symbol} ${fmt.pct(g.price_change_percentage_24h)}`).join(', ');
+    gainersText = '\nTop Gainers: ' + t.gainersLosers.gainers.slice(0, 3).map(g => `${g.symbol} ${fmt.pct(g.price_change_percentage_24h)}`).join(', ');
   }
   let losersText = '';
   if (t.gainersLosers?.losers?.length) {
-    losersText = '\nTop Losers: ' + t.gainersLosers.losers.slice(0, 2).map(g => `${g.symbol} ${fmt.pct(g.price_change_percentage_24h)}`).join(', ');
+    losersText = '\nTop Losers: ' + t.gainersLosers.losers.slice(0, 3).map(g => `${g.symbol} ${fmt.pct(g.price_change_percentage_24h)}`).join(', ');
   }
 
   const btcDomChange = y.btcDominance ? (t.btcDominance - y.btcDominance).toFixed(1) : '0';
@@ -574,9 +637,9 @@ function buildAIPrompt(today, yesterday, mode, scenario, emotion) {
 
   const modeDesc = {
     normal: 'Standard professional analysis',
-    deep: 'Deep institutional-grade analysis with trend structure, sector rotation, risk scenarios, and institutional behavior',
+    deep: 'Deep institutional-grade analysis with trend structure, sector rotation, risk scenarios',
     short: 'Give only: trend direction, risk level, and 1 actionable insight. Be extremely concise.',
-    emotion: `Analysis must match the current market emotion: ${emo.state}. ${emo.tone}`,
+    emotion: `Analysis must match current market emotion: ${emo.state}. ${emo.tone}`,
   };
 
   const scenDesc = {
@@ -653,7 +716,7 @@ Write the analysis now.`;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 10. SNAPSHOT KV
+// 11. SNAPSHOT & CONFIG KV
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function storeSnapshot(env, data) {
@@ -670,10 +733,6 @@ async function getSnapshot(env) {
     return raw ? JSON.parse(raw) : null;
   } catch (e) { return null; }
 }
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 11. CONFIG KV HELPERS (with KV-less fallback)
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function getConfig(env, key, def) {
   if (!env.ALERTS_KV) return def;
@@ -705,35 +764,64 @@ async function setUserState(env, userId, value) {
   } catch (e) {}
 }
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 12. DEDUP — FIXED DOUBLE-POST BUG
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 async function dedupSend(env, type, fn) {
   if (!env.ALERTS_KV) {
     console.log(`[DEDUP] KV not available, running without dedup for ${type}`);
     return await fn();
   }
   const key = `dedup:send:${type}`;
+  const lockKey = `dedup:lock:${type}`;
   try {
+    // Check if already sent in last 3 minutes
     const existing = await env.ALERTS_KV.get(key);
     if (existing) {
-      console.log(`[DEDUP] Blocked duplicate ${type} send`);
+      const age = Date.now() - parseInt(existing);
+      if (age < 180000) { // 3 minutes
+        console.log(`[DEDUP] Blocked duplicate ${type} send (age: ${age}ms)`);
+        return;
+      }
+    }
+    
+    // Acquire lock
+    const lock = await env.ALERTS_KV.get(lockKey);
+    if (lock) {
+      console.log(`[DEDUP] Lock active for ${type}, skipping`);
       return;
     }
+    
+    await env.ALERTS_KV.put(lockKey, '1', { expirationTtl: 60 });
     await env.ALERTS_KV.put(key, Date.now().toString(), { expirationTtl: 180 });
-    return await fn();
+    
+    const result = await fn();
+    
+    // Release lock
+    await env.ALERTS_KV.delete(lockKey);
+    return result;
   } catch (e) {
-    console.log(`[DEDUP] KV error, running without dedup for ${type}`);
+    console.log(`[DEDUP] KV error (${e.message}), running without dedup for ${type}`);
+    // Release lock on error
+    try { await env.ALERTS_KV.delete(lockKey); } catch (e2) {}
     return await fn();
   }
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 12. TELEGRAM API
+// 13. TELEGRAM API
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function tgMethod(token, method, body) {
   const url = `https://api.telegram.org/bot${token}/${method}`;
   for (let i = 0; i < 3; i++) {
     try {
-      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
       const d = await r.json();
       if (!d.ok) {
         const err = new Error(d.description || `TG ${method} error`);
@@ -759,7 +847,7 @@ async function answerCallback(env, queryId, text = null) {
     if (text) body.text = text;
     return await tgMethod(env.TELEGRAM_BOT_TOKEN, 'answerCallbackQuery', body);
   } catch (e) {
-    console.log(`[CALLBACK] Silently ignoring error: ${e.message}`);
+    console.log(`[CALLBACK] Silently ignoring: ${e.message}`);
     return null;
   }
 }
@@ -771,14 +859,14 @@ async function editMessage(env, chatId, messageId, text, markup = null) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 13. KEYBOARDS
+// 14. KEYBOARDS — NEW PROFESSIONAL UI
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function mainKeyboard(isAdmin) {
   const kb = [
-    [{ text: '📊 Prices' }, { text: '📈 Market Report' }],
-    [{ text: '🔥 Trending' }, { text: '🧠 F&G' }],
-    [{ text: '🚨 Alerts' }, { text: '⚙️ Settings' }],
+    [{ text: '📊 Market Snapshot' }, { text: '🔥 Trending' }],
+    [{ text: '🧠 AI Analysis' }, { text: '🧭 F&G Index' }],
+    [{ text: '🚨 Price Alerts' }, { text: '⚙️ Settings' }],
   ];
   if (isAdmin) kb.push([{ text: '📣 Admin Panel' }]);
   return { keyboard: kb, resize_keyboard: true };
@@ -789,19 +877,19 @@ function getAdminInline(mode, scenario) {
   const s = SCENARIOS[scenario] || SCENARIOS.neutral;
   return {
     inline_keyboard: [
-      [{ text: '📈 Send Price', callback_data: 'send_price' }, { text: '📉 Send Volume', callback_data: 'send_volume' }],
-      [{ text: '🧠 Send AI', callback_data: 'send_ai' }, { text: '🔥 Send Trending', callback_data: 'send_trending' }],
-      [{ text: '🧠 Send F&G', callback_data: 'send_fng' }, { text: '📊 Send All', callback_data: 'send_all' }],
-      [{ text: '📈 Send Futures', callback_data: 'send_futures' }, { text: '🚀 Send Movers', callback_data: 'send_movers' }],
-      [{ text: '──── AI Config ────', callback_data: 'noop' }],
+      [{ text: '📊 Market Snapshot', callback_data: 'send_price' }, { text: '📈 Volume Report', callback_data: 'send_volume' }],
+      [{ text: '🧠 AI Analysis', callback_data: 'send_ai' }, { text: '🔥 Trending', callback_data: 'send_trending' }],
+      [{ text: '🧭 F&G Index', callback_data: 'send_fng' }, { text: '📊 Send All', callback_data: 'send_all' }],
+      [{ text: '⚡ Funding Rates', callback_data: 'send_futures' }, { text: '🚀 Top Movers', callback_data: 'send_movers' }],
+      [{ text: '──────── AI Config ────────', callback_data: 'noop' }],
       [{ text: `🤖 Mode: ${m}`, callback_data: 'admin:ai_mode' }],
       [{ text: `🎛 Scenario: ${s}`, callback_data: 'admin:scenario' }],
       [{ text: '🧪 Custom Prompt', callback_data: 'admin:custom' }, { text: '📤 Resend Last', callback_data: 'admin:resend' }],
-      [{ text: '──── System ────', callback_data: 'noop' }],
+      [{ text: '──────── System ────────', callback_data: 'noop' }],
       [{ text: '🤖 AI Status', callback_data: 'admin:ai_status' }],
       [{ text: '📊 API Status', callback_data: 'admin:api_status' }],
       [{ text: '⏸ Auto Posts', callback_data: 'admin:auto_posts' }],
-      [{ text: '🔙 Back', callback_data: 'back_main' }],
+      [{ text: '🔙 Back to Main', callback_data: 'back_main' }],
     ],
   };
 }
@@ -838,100 +926,163 @@ function alertsInline(states) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 14. MESSAGE BUILDERS
+// 15. MESSAGE BUILDERS — ENHANCED VISUAL FORMAT
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function buildPrice(coins, source = '') {
-  let m = `📊 <b>LIVE MARKET</b>${source ? ` <i>via ${esc(source)}</i>` : ''}\n\n<pre>`;
-  for (const c of coins) {
-    const i = COINS[c.id]; if (!i) continue;
-    const ch = c.price_change_percentage_24h || 0;
-    const sym = i.symbol.padEnd(6, ' ');
-    const pr = ('$' + fmt.price(c.current_price)).padStart(12, ' ');
-    const chStr = ((ch >= 0 ? '🟢' : '🔴') + (ch >= 0 ? '+' : '') + ch.toFixed(2) + '%').padStart(10, ' ');
-    m += `${sym} ${pr}  ${chStr}\n`;
+  const tier1 = coins.filter(c => COINS[c.id]?.tier === 1);
+  const tier2 = coins.filter(c => COINS[c.id]?.tier === 2);
+  const tier3 = coins.filter(c => COINS[c.id]?.tier === 3);
+  
+  let m = `🪐 <b>MARKET SNAPSHOT</b>${source ? ` <i>· ${esc(source)}</i>` : ''}\n`;
+  m += `<i>${fmt.time()} UTC</i>\n\n`;
+  
+  if (tier1.length) {
+    m += `<b>🏆 Tier 1 — Blue Chips</b>\n`;
+    for (const c of tier1) {
+      const i = COINS[c.id];
+      const ch = c.price_change_percentage_24h || 0;
+      const ch7d = c.price_change_percentage_7d_in_currency || 0;
+      m += `${i.emoji} <b>${i.symbol}</b>  <code>${fmt.price(c.current_price).padStart(12)}</code>\n`;
+      m += `   ${fmt.change(ch)}  ·  7d: ${fmt.pct(ch7d)}\n`;
+    }
+    m += `\n`;
   }
-  m += `</pre>\n\n${FOOTER}`;
+  
+  if (tier2.length) {
+    m += `<b>🔷 Tier 2 — Utility</b>\n`;
+    for (const c of tier2) {
+      const i = COINS[c.id];
+      const ch = c.price_change_percentage_24h || 0;
+      m += `${i.emoji} <b>${i.symbol}</b>  <code>${fmt.price(c.current_price).padStart(12)}</code>  ${fmt.change(ch)}\n`;
+    }
+    m += `\n`;
+  }
+  
+  if (tier3.length) {
+    m += `<b>🐸 Tier 3 — Meme & AI</b>\n`;
+    for (const c of tier3) {
+      const i = COINS[c.id];
+      const ch = c.price_change_percentage_24h || 0;
+      m += `${i.emoji} <b>${i.symbol}</b>  <code>${fmt.price(c.current_price).padStart(12)}</code>  ${fmt.change(ch)}\n`;
+    }
+    m += `\n`;
+  }
+  
+  m += `${FOOTER}`;
   return m;
 }
 
 async function buildVolume(coins, source = '') {
-  let m = `📈 <b>VOLUME REPORT</b>${source ? ` <i>via ${esc(source)}</i>` : ''}\n\n<pre>`;
-  for (const c of coins) {
+  const sorted = [...coins].sort((a, b) => (b.total_volume || 0) - (a.total_volume || 0));
+  
+  let m = `📈 <b>VOLUME LEADERS</b>${source ? ` <i>· ${esc(source)}</i>` : ''}\n`;
+  m += `<i>${fmt.time()} UTC</i>\n\n`;
+  
+  for (const c of sorted.slice(0, 10)) {
     const i = COINS[c.id]; if (!i) continue;
-    const sym = i.symbol.padEnd(6, ' ');
-    const pr = ('$' + fmt.price(c.current_price)).padStart(12, ' ');
-    const vol = fmt.vol(c.total_volume).padStart(12, ' ');
-    let line = `${sym} ${pr}  Vol:${vol}`;
-    if (c.market_cap) line += `  Cap:${fmt.cap(c.market_cap)}`;
-    m += line + '\n';
+    const vol = c.total_volume || 0;
+    const mc = c.market_cap || 0;
+    const ratio = mc > 0 ? ((vol / mc) * 100).toFixed(1) : '?';
+    m += `${i.emoji} <b>${i.symbol}</b>  Vol: ${fmt.vol(vol)}  ·  Vol/MC: ${ratio}%\n`;
   }
-  m += `</pre>\n\n${FOOTER}`;
+  
+  m += `\n${FOOTER}`;
   return m;
 }
 
 async function buildDaily(coins, globalData, trending, fear, source = '') {
   const sorted = [...coins].sort((a, b) => (b.price_change_percentage_24h || 0) - (a.price_change_percentage_24h || 0));
   const best = sorted[0], worst = sorted[sorted.length - 1];
-  let m = `📉 <b>DAILY INTELLIGENCE</b>${source ? ` <i>via ${esc(source)}</i>` : ''}\n\n`;
+  
+  let m = `📉 <b>DAILY INTELLIGENCE</b>${source ? ` <i>· ${esc(source)}</i>` : ''}\n`;
+  m += `<i>${fmt.date()}</i>\n\n`;
 
   if (globalData?.data) {
     const g = globalData.data;
-    m += `🌍 <b>Global</b>\nCap: ${fmt.cap(g.total_market_cap?.usd || 0)} | Vol: ${fmt.vol(g.total_volume?.usd || 0)} | BTC Dom: ${g.market_cap_percentage?.btc?.toFixed(1) || '?'}%\n\n`;
+    m += `🌍 <b>Global Market</b>\n`;
+    m += `💰 Cap: ${fmt.cap(g.total_market_cap?.usd || 0)}\n`;
+    m += `📊 Vol: ${fmt.vol(g.total_volume?.usd || 0)}\n`;
+    m += `₿ Dom: ${g.market_cap_percentage?.btc?.toFixed(1) || '?'}%\n\n`;
   }
+  
   if (fear?.data?.[0]) {
-    m += `🧠 <b>Sentiment</b>\n${getBias(parseInt(fear.data[0].value))}\n\n`;
+    const f = fear.data[0], v = parseInt(f.value);
+    m += `🧠 <b>Market Sentiment</b>\n`;
+    m += `${progressBar(v)} <b>${v}/100</b>\n`;
+    m += `${getBias(v)}\n\n`;
   }
 
-  m += `<pre>`;
+  m += `<b>📋 Performance Board</b>\n<pre>`;
   for (const c of sorted) {
     const i = COINS[c.id]; if (!i) continue;
     const ch = c.price_change_percentage_24h || 0;
-    const sym = i.symbol.padEnd(6, ' ');
-    const pr = ('$' + fmt.price(c.current_price)).padStart(12, ' ');
-    const chStr = ((ch >= 0 ? '🟢' : '🔴') + (ch >= 0 ? '+' : '') + ch.toFixed(2) + '%').padStart(10, ' ');
-    let line = `${sym} ${pr}  ${chStr}`;
-    if (c.market_cap) line += `  ${fmt.cap(c.market_cap)}`;
-    m += line + '\n';
+    const ch7d = c.price_change_percentage_7d_in_currency || 0;
+    const sym = i.symbol.padEnd(6);
+    const pr = fmt.price(c.current_price).padStart(12);
+    const ch24 = ((ch >= 0 ? '🟢' : '🔴') + (ch >= 0 ? '+' : '') + ch.toFixed(2) + '%').padStart(10);
+    const ch7 = (ch7d >= 0 ? '+' : '') + ch7d.toFixed(1) + '%';
+    m += `${sym} ${pr}  ${ch24}  7d:${ch7}\n`;
   }
   m += `</pre>\n\n`;
 
-  if (best && COINS[best.id]) m += `🏆 <b>Leader</b>\n${COINS[best.id].emoji} ${COINS[best.id].symbol}  ${fmt.change(best.price_change_percentage_24h)}\n\n`;
-  if (worst && COINS[worst.id]) m += `⚠️ <b>Weakest</b>\n${COINS[worst.id].emoji} ${COINS[worst.id].symbol}  ${fmt.change(worst.price_change_percentage_24h)}\n\n`;
+  if (best && COINS[best.id]) {
+    m += `🏆 <b>Top Performer</b>\n`;
+    m += `${COINS[best.id].emoji} ${COINS[best.id].symbol}  ${fmt.change(best.price_change_percentage_24h)}\n\n`;
+  }
+  if (worst && COINS[worst.id]) {
+    m += `⚠️ <b>Weakest Link</b>\n`;
+    m += `${COINS[worst.id].emoji} ${COINS[worst.id].symbol}  ${fmt.change(worst.price_change_percentage_24h)}\n\n`;
+  }
+  
   if (trending?.coins?.length) {
-    m += `🔥 <b>Trending</b>\n`;
-    for (const t of trending.coins.slice(0, 3)) m += `   ${esc(t.item.symbol)} — ${esc(t.item.name)}\n`;
+    m += `🔥 <b>Trending Now</b>\n`;
+    for (const t of trending.coins.slice(0, 5)) {
+      m += `   ${esc(t.item.symbol)} — ${esc(t.item.name)}\n`;
+    }
     m += `\n`;
   }
+  
   m += `${FOOTER}`;
   return m;
 }
 
 async function buildTrending(trending) {
-  let m = `🔥 <b>TRENDING COINS</b>\n\n`;
+  let m = `🔥 <b>TRENDING COINS</b>\n`;
+  m += `<i>${fmt.time()} UTC</i>\n\n`;
+  
   if (trending?.coins?.length) {
-    m += `<pre>`;
+    let rank = 1;
     for (const t of trending.coins.slice(0, 10)) {
-      const sym = esc(t.item.symbol).padEnd(6, ' ');
-      const rank = ('#' + (t.item.market_cap_rank || '?')).padStart(4, ' ');
-      m += `${sym} ${rank}  ${esc(t.item.name)}\n`;
+      const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '🔹';
+      m += `${medal} <b>${esc(t.item.symbol)}</b>  ${esc(t.item.name)}  <i>Rank #${t.item.market_cap_rank || '?'}</i>\n`;
+      rank++;
     }
-    m += `</pre>\n\n`;
   } else {
-    m += `No trending data available.\n\n`;
+    m += `No trending data available.\n`;
   }
-  m += `${FOOTER}`;
+  
+  m += `\n${FOOTER}`;
   return m;
 }
 
 async function buildFng(fear) {
-  if (!fear?.data?.[0]) return `🧠 <b>MARKET SENTIMENT</b>\n\nData unavailable.\n\n${FOOTER}`;
+  if (!fear?.data?.[0]) return `🧠 <b>FEAR & GREED INDEX</b>\n\n<i>Data unavailable</i>\n\n${FOOTER}`;
   const f = fear.data[0], v = parseInt(f.value);
-  return `🧠 <b>MARKET SENTIMENT</b>\n\n${progressBar(v)} <b>${v}/100</b>\n${getBias(v)}\n\n${FOOTER}`;
+  const classification = f.value_classification || 'Neutral';
+  
+  let m = `🧠 <b>FEAR & GREED INDEX</b>\n`;
+  m += `<i>${f.timestamp ? new Date(f.timestamp * 1000).toISOString().slice(0, 10) : fmt.date()}</i>\n\n`;
+  m += `${progressBar(v)} <b>${v}/100</b>\n\n`;
+  m += `<b>${classification.toUpperCase()}</b>\n`;
+  m += `${getBias(v)}\n\n`;
+  m += `<i>Updated: ${fmt.time()} UTC</i>\n\n`;
+  m += `${FOOTER}`;
+  return m;
 }
 
 async function buildAIAnalysis(aiResult, todayData, emotion) {
-  const t = todayData, emo = emotion || { state: 'NEUTRAL', intensity: 50, emoji: '😐' };
+  const t = todayData, emo = emotion || { state: 'NEUTRAL', intensity: 50, emoji: '😐', color: '⚪' };
   
   let englishText = aiResult.text;
   let persianText = '';
@@ -942,30 +1093,33 @@ async function buildAIAnalysis(aiResult, todayData, emotion) {
     persianText = aiResult.text.substring(separatorIndex + 14).trim();
   }
   
-  let m = `${emo.emoji} <b>MARKET STATE: ${emo.state}</b> | Intensity: ${emo.intensity}/100\n\n`;
+  let m = `${emo.emoji} <b>MARKET STATE: ${emo.state}</b>\n`;
+  m += `${emo.color} Intensity: ${emo.intensity}/100  ·  ${t.mode || 'Normal'} Mode\n\n`;
+  
   m += `🧠 <b>AI MARKET INTELLIGENCE</b>\n`;
-  m += `<i>${t.date} • ${aiResult.source || 'AI'} • ${t.mode || 'Normal'} Mode</i>\n\n`;
+  m += `<i>${t.date} · ${aiResult.source || 'AI'} · ${t.mode || 'Normal'}</i>\n\n`;
+  
   m += `<blockquote>\n${englishText}\n</blockquote>\n\n`;
 
   if (persianText) {
     m += `<blockquote expandable>\n🇮🇷 <b>تحلیل فارسی</b>\n\n${persianText}\n</blockquote>\n\n`;
   }
 
-  m += `<pre>`;
-  m += `BTC  $${fmt.price(t.btcPrice)}  ${fmt.change(t.btcChange)}\n`;
-  m += `ETH  $${fmt.price(t.ethPrice)}  ${fmt.change(t.ethChange)}\n`;
-  m += `SOL  $${fmt.price(t.solPrice)}  ${fmt.change(t.solChange)}\n`;
+  m += `<b>📊 Key Metrics</b>\n<pre>`;
+  m += `BTC  $${fmt.price(t.btcPrice).padStart(12)}  ${fmt.change(t.btcChange)}\n`;
+  m += `ETH  $${fmt.price(t.ethPrice).padStart(12)}  ${fmt.change(t.ethChange)}\n`;
+  m += `SOL  $${fmt.price(t.solPrice).padStart(12)}  ${fmt.change(t.solChange)}\n`;
   m += `</pre>\n\n`;
 
-  m += `🌍 Cap: ${fmt.cap(t.totalMarketCap)} | Vol: ${fmt.vol(t.totalVolume)}\n`;
-  m += `₿ Dom: ${t.btcDominance}% | 🧠 F&G: ${t.fearGreed}/100\n\n`;
+  m += `🌍 Cap: ${fmt.cap(t.totalMarketCap)}  ·  Vol: ${fmt.vol(t.totalVolume)}\n`;
+  m += `₿ Dom: ${t.btcDominance}%  ·  🧠 F&G: ${t.fearGreed}/100\n\n`;
 
   if (t.futures?.BTCUSDT) {
     const f = t.futures.BTCUSDT;
-    m += `📊 <b>Futures</b>\n`;
+    m += `⚡ <b>Futures Pulse</b>\n`;
     if (f.fundingRate != null) m += `Funding: ${f.fundingRate.toFixed(4)}%\n`;
     if (f.openInterest != null) m += `OI: ${fmt.vol(f.openInterest)}\n`;
-    if (f.longShortRatio != null) m += `L/S Ratio: ${f.longShortRatio.toFixed(2)}\n`;
+    if (f.longShortRatio != null) m += `L/S: ${f.longShortRatio.toFixed(2)}\n`;
     m += `\n`;
   }
 
@@ -975,48 +1129,59 @@ async function buildAIAnalysis(aiResult, todayData, emotion) {
 
 function buildAlert(coinId, price, type) {
   const i = COINS[coinId];
-  const t = type === 'above' ? '🚀 ABOVE' : '📉 BELOW';
-  return `🚨 <b>${esc(i.symbol)} ALERT</b>\n\n${i.emoji} ${esc(i.name)}\n<b>${t}</b> target!\n\nCurrent: $${fmt.price(price)}\n\n${FOOTER}`;
+  const t = type === 'above' ? '🚀 ABOVE TARGET' : '📉 BELOW TARGET';
+  return `🚨 <b>PRICE ALERT</b>\n\n${i.emoji} <b>${esc(i.name)} (${i.symbol})</b>\n${t}\n\n💰 Current: <code>$${fmt.price(price)}</code>\n\n${FOOTER}`;
 }
 
 async function buildFutures(futures) {
-  let m = `📈 <b>FUTURES REPORT</b>\n\n<pre>`;
+  let m = `⚡ <b>FUNDING RATES & FUTURES</b>\n`;
+  m += `<i>${fmt.time()} UTC</i>\n\n`;
+  
   for (const [sym, f] of Object.entries(futures)) {
     const coinId = Object.keys(BINANCE_MAP).find(k => BINANCE_MAP[k] === sym);
     const info = coinId ? COINS[coinId] : { symbol: sym.replace('USDT', ''), emoji: '•' };
-    const line = `${info.emoji} ${info.symbol.padEnd(6)} Funding: ${f.fundingRate !== null ? f.fundingRate.toFixed(4) + '%' : 'N/A'} | OI: ${f.openInterest !== null ? fmt.vol(f.openInterest) : 'N/A'} | L/S: ${f.longShortRatio !== null ? f.longShortRatio.toFixed(2) : 'N/A'}`;
-    m += line + '\n';
+    const funding = f.fundingRate !== null ? f.fundingRate.toFixed(4) + '%' : 'N/A';
+    const oi = f.openInterest !== null ? fmt.vol(f.openInterest) : 'N/A';
+    const ls = f.longShortRatio !== null ? f.longShortRatio.toFixed(2) : 'N/A';
+    const fundingEmoji = f.fundingRate > 0.05 ? '🔴' : f.fundingRate < -0.05 ? '🟢' : '⚪';
+    m += `${info.emoji} <b>${info.symbol}</b>\n`;
+    m += `   ${fundingEmoji} Funding: ${funding}  ·  OI: ${oi}  ·  L/S: ${ls}\n`;
   }
-  m += `</pre>\n\n${FOOTER}`;
+  
+  m += `\n${FOOTER}`;
   return m;
 }
 
 async function buildMovers(gl) {
-  let m = `🚀 <b>TOP MOVERS (24H)</b>\n\n`;
+  let m = `🚀 <b>TOP MOVERS (24H)</b>\n`;
+  m += `<i>${fmt.time()} UTC</i>\n\n`;
+  
   if (gl.gainers?.length) {
-    m += `🔥 <b>Gainers</b>\n<pre>`;
+    m += `🔥 <b>Gainers</b>\n`;
     for (const g of gl.gainers.slice(0, 5)) {
-      const sym = (g.symbol || '?').toUpperCase().padEnd(6);
-      const ch = ((g.price_change_percentage_24h >= 0 ? '+' : '') + (g.price_change_percentage_24h || 0).toFixed(2) + '%').padStart(10);
-      m += `${sym} ${ch}  $${fmt.price(g.current_price || 0)}\n`;
+      const sym = (g.symbol || '?').toUpperCase();
+      const ch = g.price_change_percentage_24h || 0;
+      m += `   🟢 <b>${sym}</b>  ${fmt.change(ch)}  ·  $${fmt.price(g.current_price || 0)}\n`;
     }
-    m += `</pre>\n\n`;
+    m += `\n`;
   }
+  
   if (gl.losers?.length) {
-    m += `❄️ <b>Losers</b>\n<pre>`;
+    m += `❄️ <b>Losers</b>\n`;
     for (const l of gl.losers.slice(0, 5)) {
-      const sym = (l.symbol || '?').toUpperCase().padEnd(6);
-      const ch = ((l.price_change_percentage_24h >= 0 ? '+' : '') + (l.price_change_percentage_24h || 0).toFixed(2) + '%').padStart(10);
-      m += `${sym} ${ch}  $${fmt.price(l.current_price || 0)}\n`;
+      const sym = (l.symbol || '?').toUpperCase();
+      const ch = l.price_change_percentage_24h || 0;
+      m += `   🔴 <b>${sym}</b>  ${fmt.change(ch)}  ·  $${fmt.price(l.current_price || 0)}\n`;
     }
-    m += `</pre>\n\n`;
+    m += `\n`;
   }
+  
   m += `${FOOTER}`;
   return m;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 15. KV HELPERS — ALERTS
+// 16. ALERTS KV & LOGIC
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function getAlertState(env, key) {
@@ -1068,10 +1233,6 @@ async function getAllAlertStates(env) {
   return states;
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 16. CORE LOGIC — ALERTS
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 async function checkAlerts(env, coins) {
   if (!env.ALERTS_KV) return;
   const states = await getAllAlertStates(env);
@@ -1099,12 +1260,15 @@ async function checkAlerts(env, coins) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 17. DATA COLLECTOR (Enhanced)
+// 17. DATA COLLECTOR
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function collectMarketData(env) {
   const [{ source, data }, globalData, trending, fear, gainersLosers, categories] = await Promise.all([
-    getCoins(env), getGlobal(env), getTrending(env), getFearGreed(),
+    getCoins(env),
+    getGlobal(env),
+    getTrending(env),
+    getFearGreed(),
     getTopGainersLosers(env).catch(() => null),
     getCategories(env).catch(() => null),
   ]);
@@ -1148,7 +1312,7 @@ async function collectMarketData(env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 18. CHANNEL SENDERS (with dedup lock)
+// 18. CHANNEL SENDERS — FIXED DEDUP
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function ensureChannel(env) {
@@ -1187,7 +1351,7 @@ async function sendChannelTrending(env) {
   await dedupSend(env, 'trending', async () => {
     const trending = await getTrending(env);
     if (!trending) {
-      await sendMessage(env, env.TELEGRAM_CHANNEL_ID, `🔥 <b>TRENDING COINS</b>\n\nTrending data unavailable.\n\n${FOOTER}`);
+      await sendMessage(env, env.TELEGRAM_CHANNEL_ID, `🔥 <b>TRENDING COINS</b>\n\n<i>Data unavailable</i>\n\n${FOOTER}`);
       return;
     }
     await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildTrending(trending));
@@ -1262,7 +1426,7 @@ async function sendChannelMovers(env) {
   await dedupSend(env, 'movers', async () => {
     const gl = await getTopGainersLosers(env);
     if (!gl) {
-      await sendMessage(env, env.TELEGRAM_CHANNEL_ID, `🚀 <b>TOP MOVERS</b>\n\nData unavailable.\n\n${FOOTER}`);
+      await sendMessage(env, env.TELEGRAM_CHANNEL_ID, `🚀 <b>TOP MOVERS</b>\n\n<i>Data unavailable</i>\n\n${FOOTER}`);
       return;
     }
     await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildMovers(gl));
@@ -1272,9 +1436,12 @@ async function sendChannelMovers(env) {
 async function sendChannelAll(env) {
   const results = [];
   const senders = [
-    { name: 'Price', fn: sendChannelPrice }, { name: 'Volume', fn: sendChannelVolume },
-    { name: 'AI Daily', fn: sendChannelAI }, { name: 'Trending', fn: sendChannelTrending },
-    { name: 'F&G', fn: sendChannelFng }, { name: 'Futures', fn: sendChannelFutures },
+    { name: 'Price', fn: sendChannelPrice },
+    { name: 'Volume', fn: sendChannelVolume },
+    { name: 'AI Daily', fn: sendChannelAI },
+    { name: 'Trending', fn: sendChannelTrending },
+    { name: 'F&G', fn: sendChannelFng },
+    { name: 'Futures', fn: sendChannelFutures },
     { name: 'Movers', fn: sendChannelMovers },
   ];
   for (const s of senders) {
@@ -1291,7 +1458,9 @@ async function sendChannelAll(env) {
 
 async function handleStart(chatId, userId, env) {
   const admin = isAdmin(userId, env);
-  const text = admin ? `👋 <b>Welcome Admin!</b>\n\nTradeAgent IV Ultimate Control Panel.` : `👋 <b>Welcome to TradeAgent IV!</b>\n\nAI Crypto Intelligence Dashboard.`;
+  const text = admin
+    ? `👋 <b>Welcome Commander!</b>\n\n🪐 <b>TradeAgent IV</b> Ultimate Control Panel\n<i>AI Crypto Intelligence Dashboard</i>`
+    : `👋 <b>Welcome to TradeAgent IV!</b>\n\n🪐 AI-Powered Crypto Intelligence\n<i>Real-time market data & AI analysis</i>`;
   await sendMessage(env, chatId, text, mainKeyboard(admin));
 }
 
@@ -1315,7 +1484,7 @@ async function handleDaily(chatId, env) {
 async function handleTrending(chatId, env) {
   const trending = await getTrending(env);
   if (!trending) {
-    await sendMessage(env, chatId, `🔥 <b>TRENDING COINS</b>\n\nTrending data unavailable.\n\n${FOOTER}`);
+    await sendMessage(env, chatId, `🔥 <b>TRENDING COINS</b>\n\n<i>Data unavailable</i>\n\n${FOOTER}`);
     return;
   }
   await sendMessage(env, chatId, await buildTrending(trending));
@@ -1328,12 +1497,12 @@ async function handleFng(chatId, env) {
 
 async function handleAlerts(chatId, env) {
   const states = await getAllAlertStates(env);
-  let text = `🚨 <b>Alert Settings</b>\n\nToggle alerts on/off:\n\n`;
+  let text = `🚨 <b>Price Alert Settings</b>\n\nToggle alerts for target prices:\n\n`;
   for (const [coinId, cfg] of Object.entries(ALERT_PRESETS)) {
     const c = COINS[coinId];
     text += `${c.emoji} <b>${c.symbol}</b>\n`;
-    if (cfg.above) text += `   Above: $${fmt.price(cfg.above)}\n`;
-    if (cfg.below) text += `   Below: $${fmt.price(cfg.below)}\n`;
+    if (cfg.above) text += `   🟢 Above: $${fmt.price(cfg.above)}\n`;
+    if (cfg.below) text += `   🔴 Below: $${fmt.price(cfg.below)}\n`;
     text += `\n`;
   }
   await sendMessage(env, chatId, text, alertsInline(states));
@@ -1344,25 +1513,55 @@ async function handleSettings(chatId, env) {
   if (env.COINGECKO_API_KEY) sources.push('CoinGecko');
   if (env.CMC_API_KEY) sources.push('CoinMarketCap');
   sources.push('Binance');
+  
   const aiStatus = env.GEMINI_API_KEY ? '✅ Gemini' : '⚠️ Off';
   const orStatus = env.OPENROUTER_API_KEY ? '✅ OpenRouter' : '⚠️ Off';
   const mode = await getConfig(env, 'ai_mode', 'normal');
   const scenario = await getConfig(env, 'scenario', 'neutral');
+  const autoPosts = await getConfig(env, 'auto_posts', 'true');
 
-  await sendMessage(env, chatId, `⚙️ <b>Settings</b>\n\nChannel: ${env.TELEGRAM_CHANNEL_ID || 'Not set'}\nCoins: ${Object.keys(COINS).length} | Sources: ${sources.join(', ')}\nAI: ${aiStatus} | ${orStatus}\nMode: ${AI_MODES[mode]}\nScenario: ${SCENARIOS[scenario]}\n\nUse /admin for admin panel.`);
+  await sendMessage(env, chatId,
+    `⚙️ <b>Settings</b>\n\n` +
+    `📡 Channel: ${env.TELEGRAM_CHANNEL_ID || 'Not set'}\n` +
+    `🪙 Coins: ${Object.keys(COINS).length} (T1: ${Object.keys(TIER_1).length}, T2: ${Object.keys(TIER_2).length}, T3: ${Object.keys(TIER_3).length})\n` +
+    `📊 Sources: ${sources.join(', ')}\n` +
+    `🤖 AI: ${aiStatus} | ${orStatus}\n` +
+    `🎛 Mode: ${AI_MODES[mode]} | Scenario: ${SCENARIOS[scenario]}\n` +
+    `⏰ Auto Posts: ${autoPosts === 'true' ? '✅ On' : '⏸ Off'}\n\n` +
+    `Use /admin for admin panel.`
+  );
 }
 
 async function showAdminPanel(chatId, env) {
   const mode = await getConfig(env, 'ai_mode', 'normal');
   const scenario = await getConfig(env, 'scenario', 'neutral');
-  await sendMessage(env, chatId, `📣 <b>Admin Panel</b>\n\nChoose action or configure AI:`, getAdminInline(mode, scenario));
+  await sendMessage(env, chatId, `📣 <b>Admin Control Panel</b>\n\n🪐 Manage posts, AI config, and system status:`, getAdminInline(mode, scenario));
 }
 
 async function handleHelp(chatId, env, userId) {
   const admin = isAdmin(userId, env);
-  let text = `📖 <b>Commands</b>\n\n/start — Main menu\n/price — Live prices\n/volume — Volume report\n/daily — Daily report\n/trending — Trending coins\n/fng — Market Sentiment\n/alerts — Alert settings\n/settings — Bot settings\n/aiprompt — Custom AI prompt (admin)\n`;
+  let text = `📖 <b>TradeAgent IV Commands</b>\n\n`;
+  text += `/start — Main menu\n`;
+  text += `📊 Market Snapshot — Live prices\n`;
+  text += `📈 Volume Report — Volume leaders\n`;
+  text += `🧠 AI Analysis — AI market report\n`;
+  text += `🔥 Trending — Hot coins\n`;
+  text += `🧭 F&G Index — Fear & Greed\n`;
+  text += `🚨 Price Alerts — Alert settings\n`;
+  text += `⚙️ Settings — Bot config\n`;
+  text += `/help — This menu\n`;
+  
   if (admin) {
-    text += `\n<b>Admin Commands:</b>\n/admin — Admin panel\n/sendprice — Send price to channel\n/sendvolume — Send volume to channel\n/sendai — Send AI analysis to channel\n/senddaily — Send daily to channel\n/sendfutures — Send futures to channel\n/sendmovers — Send top movers to channel\n/sendall — Send everything to channel\n/aiprompt — Custom AI prompt\n`;
+    text += `\n<b>👑 Admin Commands:</b>\n`;
+    text += `/admin — Admin panel\n`;
+    text += `/sendprice — Send snapshot to channel\n`;
+    text += `/sendvolume — Send volume to channel\n`;
+    text += `/sendai — Send AI analysis to channel\n`;
+    text += `/senddaily — Send daily report to channel\n`;
+    text += `/sendfutures — Send funding rates to channel\n`;
+    text += `/sendmovers — Send top movers to channel\n`;
+    text += `/sendall — Send everything to channel\n`;
+    text += `/aiprompt — Custom AI prompt\n`;
   }
   await sendMessage(env, chatId, text);
 }
@@ -1372,12 +1571,12 @@ async function handleAIStatus(chatId, env) {
   const lastProvider = await getConfig(env, 'last_ai_provider', 'Unknown');
   const lastTime = await getConfig(env, 'last_ai_time', 'Never');
   
-  let text = `🤖 <b>AI Status</b>\n\n`;
-  text += `<b>Gemini:</b> ${geminiTest.ok ? '✅ Active' : `⚠️ ${geminiTest.error}`}\n`;
+  let text = `🤖 <b>AI System Status</b>\n\n`;
+  text += `<b>Gemini 2.0 Flash:</b> ${geminiTest.ok ? '✅ Active' : `⚠️ ${geminiTest.error}`}\n`;
   text += `<b>OpenRouter:</b> ${env.OPENROUTER_API_KEY ? '✅ Configured' : '⚠️ No Key'}\n`;
   text += `<b>Last Provider:</b> ${lastProvider}\n`;
   text += `<b>Last Analysis:</b> ${lastTime}\n`;
-  text += `\nUse /debug for full API test.`;
+  text += `\nUse /debug for full API diagnostics.`;
   await sendMessage(env, chatId, text);
 }
 
@@ -1386,8 +1585,9 @@ async function handleAPIStatus(chatId, env) {
   try { const cg = await getCoinsCG(env); checks.push(`CoinGecko: ${cg ? '✅' : '⚠️'}`); } catch(e) { checks.push(`CoinGecko: ❌`); }
   try { const bin = await getCoinsBinance(); checks.push(`Binance: ${bin ? '✅' : '⚠️'}`); } catch(e) { checks.push(`Binance: ❌`); }
   try { const f = await getBinanceFutures('BTCUSDT'); checks.push(`Futures: ${f.fundingRate != null ? '✅' : '⚠️'}`); } catch(e) { checks.push(`Futures: ❌`); }
+  try { const fng = await getFearGreed(); checks.push(`F&G: ${fng?.data ? '✅' : '⚠️'}`); } catch(e) { checks.push(`F&G: ❌`); }
   
-  let text = `📊 <b>API Status</b>\n\n${checks.join('\n')}\n\nUse /debug for detailed report.`;
+  let text = `📊 <b>API Health Check</b>\n\n${checks.join('\n')}\n\nUse /debug for detailed report.`;
   await sendMessage(env, chatId, text);
 }
 
@@ -1395,7 +1595,7 @@ async function handleAutoPosts(chatId, env) {
   const current = await getConfig(env, 'auto_posts', 'true');
   const newVal = current === 'true' ? 'false' : 'true';
   await setConfig(env, 'auto_posts', newVal);
-  await sendMessage(env, chatId, `⏸ <b>Auto Posts</b>\n\nStatus: ${newVal === 'true' ? '✅ Enabled' : '⏸ Disabled'}`);
+  await sendMessage(env, chatId, `⏸ <b>Auto Posts</b>\n\nStatus: ${newVal === 'true' ? '✅ Enabled' : '⏸ Disabled'}\n\nCron jobs will ${newVal === 'true' ? 'run normally' : 'be skipped'}.`);
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1431,45 +1631,45 @@ async function processWebhook(update, env) {
       console.log(`[BOT] ${userId}: ${text}`);
 
       if (text === '/start') await handleStart(chatId, userId, env);
-      else if (text === '/price' || text === '📊 Prices') await handlePrices(chatId, env);
-      else if (text === '/volume' || text === '📈 Market Report') await handleVolume(chatId, env);
+      else if (text === '/price' || text === '📊 Market Snapshot') await handlePrices(chatId, env);
+      else if (text === '/volume' || text === '📈 Volume Report') await handleVolume(chatId, env);
       else if (text === '/daily') await handleDaily(chatId, env);
       else if (text === '/trending' || text === '🔥 Trending') await handleTrending(chatId, env);
-      else if (text === '/fng' || text === '🧠 F&G') await handleFng(chatId, env);
-      else if (text === '/alerts' || text === '🚨 Alerts') await handleAlerts(chatId, env);
+      else if (text === '/fng' || text === '🧭 F&G Index') await handleFng(chatId, env);
+      else if (text === '/alerts' || text === '🚨 Price Alerts') await handleAlerts(chatId, env);
       else if (text === '/settings' || text === '⚙️ Settings') await handleSettings(chatId, env);
       else if (text === '/help') await handleHelp(chatId, env, userId);
       else if (text === '/admin' || text === '📣 Admin Panel') {
-        if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ <b>Forbidden</b>'); return; }
+        if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ <b>Access Denied</b>'); return; }
         await showAdminPanel(chatId, env);
       }
       else if (text === '/sendprice') {
         if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
-        await sendMessage(env, chatId, '⏳ Sending...'); await sendChannelPrice(env); await sendMessage(env, chatId, '✅ Done!');
+        await sendMessage(env, chatId, '⏳ Sending snapshot...'); await sendChannelPrice(env); await sendMessage(env, chatId, '✅ Done!');
       }
       else if (text === '/sendvolume') {
         if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
-        await sendMessage(env, chatId, '⏳ Sending...'); await sendChannelVolume(env); await sendMessage(env, chatId, '✅ Done!');
+        await sendMessage(env, chatId, '⏳ Sending volume...'); await sendChannelVolume(env); await sendMessage(env, chatId, '✅ Done!');
       }
       else if (text === '/sendai') {
         if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
-        await sendMessage(env, chatId, '⏳ Generating AI...'); await sendChannelAI(env); await sendMessage(env, chatId, '✅ Done!');
+        await sendMessage(env, chatId, '⏳ Generating AI analysis...'); await sendChannelAI(env); await sendMessage(env, chatId, '✅ Done!');
       }
       else if (text === '/senddaily') {
         if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
-        await sendMessage(env, chatId, '⏳ Sending...'); await sendChannelDaily(env); await sendMessage(env, chatId, '✅ Done!');
+        await sendMessage(env, chatId, '⏳ Sending daily report...'); await sendChannelDaily(env); await sendMessage(env, chatId, '✅ Done!');
       }
       else if (text === '/sendfutures') {
         if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
-        await sendMessage(env, chatId, '⏳ Sending...'); await sendChannelFutures(env); await sendMessage(env, chatId, '✅ Done!');
+        await sendMessage(env, chatId, '⏳ Sending futures...'); await sendChannelFutures(env); await sendMessage(env, chatId, '✅ Done!');
       }
       else if (text === '/sendmovers') {
         if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
-        await sendMessage(env, chatId, '⏳ Sending...'); await sendChannelMovers(env); await sendMessage(env, chatId, '✅ Done!');
+        await sendMessage(env, chatId, '⏳ Sending movers...'); await sendChannelMovers(env); await sendMessage(env, chatId, '✅ Done!');
       }
       else if (text === '/sendall') {
         if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
-        await sendMessage(env, chatId, '⏳ Sending all...'); await sendChannelAll(env); await sendMessage(env, chatId, '✅ Done!');
+        await sendMessage(env, chatId, '⏳ Sending all reports...'); await sendChannelAll(env); await sendMessage(env, chatId, '✅ All done!');
       }
       else if (text.startsWith('/aiprompt')) {
         if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
@@ -1484,7 +1684,7 @@ async function processWebhook(update, env) {
         await sendMessage(env, chatId, '✅ Custom AI sent to channel!');
       }
       else {
-        await sendMessage(env, chatId, '❓ Unknown command. Use /help.');
+        await sendMessage(env, chatId, '❓ Unknown command. Use /help for available commands.');
       }
     }
 
@@ -1534,7 +1734,7 @@ async function processWebhook(update, env) {
         if (!isAdmin(userId, env)) return;
         const mode = data.replace('set_mode:', '');
         await setConfig(env, 'ai_mode', mode);
-        await editMessage(env, chatId, msgId, `📣 <b>Admin Panel</b>\n\n✅ AI Mode set to: <b>${AI_MODES[mode]}</b>`, getAdminInline(mode, await getConfig(env, 'scenario', 'neutral')));
+        await editMessage(env, chatId, msgId, `📣 <b>Admin Panel</b>\n\n✅ AI Mode: <b>${AI_MODES[mode]}</b>`, getAdminInline(mode, await getConfig(env, 'scenario', 'neutral')));
         return;
       }
 
@@ -1542,7 +1742,7 @@ async function processWebhook(update, env) {
         if (!isAdmin(userId, env)) return;
         const scenario = data.replace('set_scenario:', '');
         await setConfig(env, 'scenario', scenario);
-        await editMessage(env, chatId, msgId, `📣 <b>Admin Panel</b>\n\n✅ Scenario set to: <b>${SCENARIOS[scenario]}</b>`, getAdminInline(await getConfig(env, 'ai_mode', 'normal'), scenario));
+        await editMessage(env, chatId, msgId, `📣 <b>Admin Panel</b>\n\n✅ Scenario: <b>${SCENARIOS[scenario]}</b>`, getAdminInline(await getConfig(env, 'ai_mode', 'normal'), scenario));
         return;
       }
 
@@ -1562,7 +1762,7 @@ async function processWebhook(update, env) {
           const lastEmotion = env.ALERTS_KV ? JSON.parse(await env.ALERTS_KV.get('last:emotion') || 'null') : null;
           if (lastResult && lastToday) {
             await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildAIAnalysis(lastResult, lastToday, lastEmotion));
-            await sendMessage(env, chatId, '✅ Resent!');
+            await sendMessage(env, chatId, '✅ Resent to channel!');
           } else {
             await sendMessage(env, chatId, '⚠️ No previous analysis found.');
           }
@@ -1592,7 +1792,7 @@ async function processWebhook(update, env) {
 
       if (data === 'admin:page:main') {
         if (!isAdmin(userId, env)) return;
-        await editMessage(env, chatId, msgId, `📣 <b>Admin Panel</b>\n\nChoose action:`, getAdminInline(await getConfig(env, 'ai_mode', 'normal'), await getConfig(env, 'scenario', 'neutral')));
+        await editMessage(env, chatId, msgId, `📣 <b>Admin Control Panel</b>\n\nManage posts, AI config, and system status:`, getAdminInline(await getConfig(env, 'ai_mode', 'normal'), await getConfig(env, 'scenario', 'neutral')));
         return;
       }
 
@@ -1620,7 +1820,7 @@ async function processWebhook(update, env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 21. CRON HANDLER — FIXED: 3 triggers, separate movers
+// 21. CRON HANDLER — 3 CLEAN TRIGGERS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleCron(event, env) {
@@ -1635,11 +1835,11 @@ async function handleCron(event, env) {
     }
     
     if (cron === CRON_PRICE) {
-      console.log('[CRON] Price + Alerts');
+      console.log('[CRON] Price + Alerts (30min)');
       await sendChannelPrice(env);
     }
     else if (cron === CRON_BUNDLE) {
-      console.log('[CRON] Bundle: AI + F&G + Futures');
+      console.log('[CRON] Bundle: AI + F&G + Funding (8h)');
       const tasks = [
         { name: 'AI', fn: sendChannelAI },
         { name: 'F&G', fn: sendChannelFng },
@@ -1655,7 +1855,7 @@ async function handleCron(event, env) {
       }
     }
     else if (cron === CRON_MOVERS) {
-      console.log('[CRON] Movers (09:00 or 15:00 UTC)');
+      console.log('[CRON] Top Movers (09:00/15:00/21:00 UTC)');
       await sendChannelMovers(env);
     }
     else {
@@ -1725,6 +1925,10 @@ async function handleDebug(env) {
     channel_id: env.TELEGRAM_CHANNEL_ID || 'MISSING',
     admin_id: env.ADMIN_ID || 'MISSING',
     coin_count: Object.keys(COINS).length,
+    tier1: Object.keys(TIER_1).length,
+    tier2: Object.keys(TIER_2).length,
+    tier3: Object.keys(TIER_3).length,
+    version: '2.4',
   };
 
   if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHANNEL_ID) {
@@ -1754,6 +1958,11 @@ async function handleDebug(env) {
     checks.futures_status = f.fundingRate != null ? `✅ OK (Funding: ${f.fundingRate.toFixed(4)}%)` : '⚠️ No data';
   } catch (e) { checks.futures_status = `❌ ${e.message}`; }
 
+  try {
+    const fng = await getFearGreed();
+    checks.fng_status = fng?.data ? `✅ OK (${fng.data[0].value}/100)` : '⚠️ No data';
+  } catch (e) { checks.fng_status = `❌ ${e.message}`; }
+
   return new Response(JSON.stringify(checks, null, 2), { status: 200, headers: { 'Content-Type': 'application/json' } });
 }
 
@@ -1772,7 +1981,14 @@ async function handleHttp(request, env) {
   }
   if (path === '/' && request.method === 'GET') {
     return new Response(
-      `TradeAgent IV ULTIMATE v2.3.3 — AI-Powered Crypto Intelligence\n\nRoutes:\n  POST /webhook  → Telegram webhook\n  POST|GET /admin → Manual trigger (x-admin-secret required)\n  GET  /debug    → Status check + API tests (admin secret required)\n\nCron: ${CRON_PRICE}, ${CRON_BUNDLE}, ${CRON_MOVERS}\nCoins: ${Object.keys(COINS).length} | AI: Gemini (cache+circuit) → OpenRouter (DeepSeek/Qwen)\n`,
+      `🪐 TradeAgent IV ULTIMATE v2.4 — AI-Powered Crypto Intelligence\n\n` +
+      `Routes:\n` +
+      `  POST /webhook  → Telegram webhook\n` +
+      `  POST|GET /admin → Manual trigger (x-admin-secret required)\n` +
+      `  GET  /debug    → Status check + API tests (admin secret required)\n\n` +
+      `Cron: ${CRON_PRICE}, ${CRON_BUNDLE}, ${CRON_MOVERS}\n` +
+      `Coins: ${Object.keys(COINS).length} (T1:${Object.keys(TIER_1).length} T2:${Object.keys(TIER_2).length} T3:${Object.keys(TIER_3).length})\n` +
+      `AI: Gemini (priority) → OpenRouter (failover)\n`,
       { status: 200 }
     );
   }
