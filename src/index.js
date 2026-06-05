@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV ULTIMATE v2.3.2 — AI-Powered Crypto Intelligence
-//  Fixes: Cron dedup, KV binding, CoinCap removal, Async leaks
+//  TRADEAGENT IV ULTIMATE v2.3.3 — AI-Powered Crypto Intelligence
+//  Fixes: Cron deploy, KV-less wrangler, Movers schedule, CoinCap removal
 //  Deploy: Cloudflare Workers (free) + GitHub
 // ═══════════════════════════════════════════════════════════════
 
@@ -42,7 +42,8 @@ const COINS = {
 
 const COIN_IDS   = Object.keys(COINS).join(',');
 const CRON_PRICE = '*/30 * * * *';
-const CRON_BUNDLE = '0 */4 * * *'; // AI + F&G + Futures + Movers
+const CRON_BUNDLE = '0 */4 * * *';   // AI + F&G + Futures
+const CRON_MOVERS = '0 9,15 * * *';  // 09:00 & 15:00 UTC
 
 const ALERT_PRESETS = {
   bitcoin:  { above: 110000, below: 95000 },
@@ -1342,7 +1343,7 @@ async function handleSettings(chatId, env) {
   const sources = [];
   if (env.COINGECKO_API_KEY) sources.push('CoinGecko');
   if (env.CMC_API_KEY) sources.push('CoinMarketCap');
-  sources.push('Binance', 'CoinCap');
+  sources.push('Binance');
   const aiStatus = env.GEMINI_API_KEY ? '✅ Gemini' : '⚠️ Off';
   const orStatus = env.OPENROUTER_API_KEY ? '✅ OpenRouter' : '⚠️ Off';
   const mode = await getConfig(env, 'ai_mode', 'normal');
@@ -1619,7 +1620,7 @@ async function processWebhook(update, env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 21. CRON HANDLER — FIXED: 2 triggers only
+// 21. CRON HANDLER — FIXED: 3 triggers, separate movers
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleCron(event, env) {
@@ -1638,12 +1639,11 @@ async function handleCron(event, env) {
       await sendChannelPrice(env);
     }
     else if (cron === CRON_BUNDLE) {
-      console.log('[CRON] Bundle: AI + F&G + Futures + Movers');
+      console.log('[CRON] Bundle: AI + F&G + Futures');
       const tasks = [
         { name: 'AI', fn: sendChannelAI },
         { name: 'F&G', fn: sendChannelFng },
         { name: 'Futures', fn: sendChannelFutures },
-        { name: 'Movers', fn: sendChannelMovers },
       ];
       for (const task of tasks) {
         try {
@@ -1653,6 +1653,10 @@ async function handleCron(event, env) {
           console.error(`[CRON] ❌ ${task.name}: ${e.message}`);
         }
       }
+    }
+    else if (cron === CRON_MOVERS) {
+      console.log('[CRON] Movers (09:00 or 15:00 UTC)');
+      await sendChannelMovers(env);
     }
     else {
       console.log(`[CRON] Unknown pattern: ${cron}`);
@@ -1760,10 +1764,15 @@ async function handleHttp(request, env) {
 
   if (path === '/webhook' && request.method === 'POST') return handleWebhook(request, env);
   if (path === '/admin' && (request.method === 'POST' || request.method === 'GET')) return routeAdmin(request, env);
-  if (path === '/debug' && request.method === 'GET') return handleDebug(env);
+  if (path === '/debug' && request.method === 'GET') {
+    if (!checkSecret(request, env)) {
+      return new Response('Forbidden: x-admin-secret required', { status: 403 });
+    }
+    return handleDebug(env);
+  }
   if (path === '/' && request.method === 'GET') {
     return new Response(
-      `TradeAgent IV ULTIMATE v2.3.2 — AI-Powered Crypto Intelligence\n\nRoutes:\n  POST /webhook  → Telegram webhook\n  POST|GET /admin → Manual trigger (x-admin-secret required)\n  GET  /debug    → Status check + API tests\n\nCron: ${CRON_PRICE}, ${CRON_BUNDLE}\nCoins: ${Object.keys(COINS).length} | AI: Gemini (cache+circuit) → OpenRouter (DeepSeek/Qwen)\n`,
+      `TradeAgent IV ULTIMATE v2.3.3 — AI-Powered Crypto Intelligence\n\nRoutes:\n  POST /webhook  → Telegram webhook\n  POST|GET /admin → Manual trigger (x-admin-secret required)\n  GET  /debug    → Status check + API tests (admin secret required)\n\nCron: ${CRON_PRICE}, ${CRON_BUNDLE}, ${CRON_MOVERS}\nCoins: ${Object.keys(COINS).length} | AI: Gemini (cache+circuit) → OpenRouter (DeepSeek/Qwen)\n`,
       { status: 200 }
     );
   }
