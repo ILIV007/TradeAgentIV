@@ -560,8 +560,8 @@ if (!env.OPENROUTER_API_KEY) {
 
 // 🆓 ONLY FREE MODELS — no paid models allowed!
 const models = [
-  'deepseek/deepseek-chat-v3-0324:free',   // ⭐ Best free model
   'meta-llama/llama-3.3-70b-instruct:free', // Strong general purpose
+  'deepseek/deepseek-chat-v3-0324:free',   // ⭐ Best free model
   'deepseek/deepseek-r1:free',              // Reasoning specialist
   'qwen/qwen3-235b-a22b:free',              // Large context
   'google/gemma-4-31b-it:free',              // Google, 262K context
@@ -609,6 +609,7 @@ for (const model of models) {
 }
 
 return null;
+}
 
 async function testGeminiConnection(env) {
   if (!env.GEMINI_API_KEY) return { ok: false, error: 'No API key configured' };
