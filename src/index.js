@@ -1,7 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
 //  TRADEAGENT IV ULTIMATE v2.4.1 — AI-Powered Crypto Intelligence
-//  Fixes: Gemini direct fetch, no blockquote, no version in footer,
-//         no flag in Persian, markdown cleaner, better OpenRouter models
 //  Deploy: Cloudflare Workers + GitHub
 // ═══════════════════════════════════════════════════════════════
 
@@ -553,7 +551,7 @@ async function getAIAnalysis(env, prompt) {
     return result;
   }
 
- // PRIORITY 3: OpenRouter FREE models (only if Gemini completely fails)
+// PRIORITY 3: OpenRouter FREE models (only if Gemini completely fails)
 console.log('[AI] Gemini family failed, trying OpenRouter FREE models...');
 if (!env.OPENROUTER_API_KEY) {
   console.log('[AI] No OpenRouter key, giving up');
