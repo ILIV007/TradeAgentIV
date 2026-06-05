@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV ULTIMATE v2.3 — AI-Powered Crypto Intelligence
-//  Fixes: Bilingual AI (exact translation), Callback timeout, KV-less graceful fallback
+//  TRADEAGENT IV ULTIMATE v2.3.2 — AI-Powered Crypto Intelligence
+//  Fixes: Cron dedup, KV binding, CoinCap removal, Async leaks
 //  Deploy: Cloudflare Workers (free) + GitHub
 // ═══════════════════════════════════════════════════════════════
 
@@ -42,10 +42,7 @@ const COINS = {
 
 const COIN_IDS   = Object.keys(COINS).join(',');
 const CRON_PRICE = '*/30 * * * *';
-const CRON_AI    = '0 */4 * * *';
-const CRON_FNG   = '0 */6 * * *';
-const CRON_FUTURES = '0 */8 * * *';
-const CRON_MOVERS  = '0 */12 * * *';
+const CRON_BUNDLE = '0 */4 * * *'; // AI + F&G + Futures + Movers
 
 const ALERT_PRESETS = {
   bitcoin:  { above: 110000, below: 95000 },
@@ -226,7 +223,7 @@ async function api(url, opts = {}, retries = 3) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 6. PRICE API — FAILOVER: CG → CMC → Binance → CoinCap
+// 6. PRICE API — FAILOVER: CG → CMC → Binance
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function normalizeCG(coins) {
@@ -256,15 +253,6 @@ function normalizeBinance(data) {
   });
 }
 
-function normalizeCoinCap(data) {
-  const result = []; const allowed = new Set(Object.keys(COINS));
-  for (const asset of data.data || []) {
-    if (!allowed.has(asset.id)) continue;
-    result.push({ id: asset.id, current_price: parseFloat(asset.priceUsd) || 0, price_change_percentage_24h: parseFloat(asset.changePercent24Hr) || 0, total_volume: parseFloat(asset.volumeUsd24Hr) || 0, market_cap: parseFloat(asset.marketCapUsd) || 0 });
-  }
-  return result;
-}
-
 async function getCoinsCG(env) {
   const key = env.COINGECKO_API_KEY;
   if (!key) return null;
@@ -284,15 +272,10 @@ async function getCoinsBinance() {
   return normalizeBinance(await api(`https://api.binance.com/api/v3/ticker/24hr?symbols=[${symbols}]`));
 }
 
-async function getCoinsCoinCap() {
-  return normalizeCoinCap(await api(`https://api.coincap.io/v2/assets?limit=50`));
-}
-
 async function getCoins(env) {
   try { const cg = await getCoinsCG(env); if (cg?.length) return { source: 'CoinGecko', data: cg }; } catch (e) { console.error('[API] CG fail:', e.message); }
   try { const cmc = await getCoinsCMC(env); if (cmc?.length) return { source: 'CoinMarketCap', data: cmc }; } catch (e) { console.error('[API] CMC fail:', e.message); }
   try { const bin = await getCoinsBinance(); if (bin?.length) return { source: 'Binance', data: bin }; } catch (e) { console.error('[API] Binance fail:', e.message); }
-  try { const cc = await getCoinsCoinCap(); if (cc?.length) return { source: 'CoinCap', data: cc }; } catch (e) { console.error('[API] CoinCap fail:', e.message); }
   throw new Error('All price APIs failed');
 }
 
@@ -709,7 +692,7 @@ async function setConfig(env, key, value) {
 async function getUserState(env, userId) {
   if (!env.ALERTS_KV) return null;
   try {
-    return env.ALERTS_KV.get(`state:${userId}`);
+    return await env.ALERTS_KV.get(`state:${userId}`);
   } catch (e) { return null; }
 }
 
@@ -1053,7 +1036,7 @@ async function setAlertState(env, key, enabled) {
 async function getAlertLast(env, key) {
   if (!env.ALERTS_KV) return null;
   try {
-    return env.ALERTS_KV.get(`alert:last:${key}`);
+    return await env.ALERTS_KV.get(`alert:last:${key}`);
   } catch (e) { return null; }
 }
 
@@ -1636,12 +1619,8 @@ async function processWebhook(update, env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 21. CRON HANDLER — FREE PLAN: 3 CRONS ONLY
+// 21. CRON HANDLER — FIXED: 2 triggers only
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-const CRON_PRICE = '*/30 * * * *';
-const CRON_AI = '0 */4 * * *';
-const CRON_BUNDLE = '0 */6 * * *'; // F&G + Futures + Movers
 
 async function handleCron(event, env) {
   const cron = event.cron;
@@ -1655,27 +1634,33 @@ async function handleCron(event, env) {
     }
     
     if (cron === CRON_PRICE) {
-      console.log('[CRON] Sending Price + Alerts');
+      console.log('[CRON] Price + Alerts');
       await sendChannelPrice(env);
     }
-    else if (cron === CRON_AI) {
-      console.log('[CRON] Sending AI Analysis');
-      await sendChannelAI(env);
-    }
     else if (cron === CRON_BUNDLE) {
-      console.log('[CRON] Sending Bundle: F&G + Futures + Movers');
-      await sendChannelFng(env);
-      await sendChannelFutures(env);
-      await sendChannelMovers(env);
+      console.log('[CRON] Bundle: AI + F&G + Futures + Movers');
+      const tasks = [
+        { name: 'AI', fn: sendChannelAI },
+        { name: 'F&G', fn: sendChannelFng },
+        { name: 'Futures', fn: sendChannelFutures },
+        { name: 'Movers', fn: sendChannelMovers },
+      ];
+      for (const task of tasks) {
+        try {
+          await task.fn(env);
+          console.log(`[CRON] ✅ ${task.name}`);
+        } catch (e) {
+          console.error(`[CRON] ❌ ${task.name}: ${e.message}`);
+        }
+      }
     }
     else {
-      console.log(`[CRON] Unknown cron pattern: ${cron}`);
+      console.log(`[CRON] Unknown pattern: ${cron}`);
     }
   } catch (err) {
     console.error(`[CRON ERROR] ${cron}: ${err.message}`);
   }
 }
-
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 22. HTTP ROUTER
@@ -1750,9 +1735,9 @@ async function handleDebug(env) {
     }
   }
 
-  for (const [name, fn] of [['coingecko', getCoinsCG], ['cmc', getCoinsCMC], ['binance', getCoinsBinance], ['coincap', getCoinsCoinCap]]) {
+  for (const [name, fn] of [['coingecko', getCoinsCG], ['cmc', getCoinsCMC], ['binance', getCoinsBinance]]) {
     try {
-      const r = name === 'binance' || name === 'coincap' ? await fn() : await fn(env);
+      const r = name === 'binance' ? await fn() : await fn(env);
       checks[`${name}_status`] = r ? `✅ OK (${r.length || (r.data ? r.data.length : '?')} items)` : '⚠️ No Key';
     } catch (e) { checks[`${name}_status`] = `❌ ${e.message}`; }
   }
@@ -1778,7 +1763,7 @@ async function handleHttp(request, env) {
   if (path === '/debug' && request.method === 'GET') return handleDebug(env);
   if (path === '/' && request.method === 'GET') {
     return new Response(
-      `TradeAgent IV ULTIMATE v2.3 — AI-Powered Crypto Intelligence\n\nRoutes:\n  POST /webhook  → Telegram webhook\n  POST|GET /admin → Manual trigger (x-admin-secret required)\n  GET  /debug    → Status check + API tests\n\nCron: ${CRON_PRICE}, ${CRON_AI}, ${CRON_FNG}, ${CRON_FUTURES}, ${CRON_MOVERS}\nCoins: ${Object.keys(COINS).length} | AI: Gemini (cache+circuit) → OpenRouter (DeepSeek/Qwen)\n`,
+      `TradeAgent IV ULTIMATE v2.3.2 — AI-Powered Crypto Intelligence\n\nRoutes:\n  POST /webhook  → Telegram webhook\n  POST|GET /admin → Manual trigger (x-admin-secret required)\n  GET  /debug    → Status check + API tests\n\nCron: ${CRON_PRICE}, ${CRON_BUNDLE}\nCoins: ${Object.keys(COINS).length} | AI: Gemini (cache+circuit) → OpenRouter (DeepSeek/Qwen)\n`,
       { status: 200 }
     );
   }
