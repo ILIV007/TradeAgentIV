@@ -1,10 +1,11 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV ULTIMATE v2.5.0 — AI-Powered Crypto Intelligence
-//  Fix: ES Module + Blockquotes + Clean Model Names + HYPE + UX
+//  TRADEAGENT IV HYBRID v3.6.0 — Best of v3.5 Backend + v2 UI
+//  Backend: v3.5 (3-Tier, Emotion, Futures, HYPE, Dedup Fix)
+//  UI: v2.3 (Dry, pre blocks, clean layout, less emoji)
 // ═══════════════════════════════════════════════════════════════
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 1. CONFIG — 3-TIER COIN SYSTEM
+// 1. CONFIG — 3-TIER COIN SYSTEM (from v3.5)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const TIER_1 = {
@@ -52,7 +53,7 @@ const COINS = { ...TIER_1, ...TIER_2, ...TIER_3 };
 const COIN_IDS = Object.keys(COINS).join(',');
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 2. CRON CONFIG — 3 CLEAN TRIGGERS
+// 2. CRON CONFIG — 3 CLEAN TRIGGERS (from v3.5)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const CRON_PRICE   = '*/30 * * * *';
@@ -66,7 +67,7 @@ const ALERT_PRESETS = {
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 3. API ENDPOINTS
+// 3. API ENDPOINTS (from v3.5)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const COINGECKO_BASE = 'https://api.coingecko.com/api/v3';
@@ -110,7 +111,7 @@ const EMOTION_STATES = {
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 4. SECURITY & UTILS
+// 4. SECURITY & UTILS (from v3.5)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function isAdmin(userId, env) {
@@ -205,7 +206,7 @@ async function hashPrompt(prompt) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 5. EMOTION ENGINE
+// 5. EMOTION ENGINE (from v3.5)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function calculateEmotionState(data) {
@@ -229,7 +230,7 @@ function calculateEmotionState(data) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 6. API HELPERS
+// 6. API HELPERS (from v3.5)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function api(url, opts = {}, retries = 3) {
@@ -237,7 +238,7 @@ async function api(url, opts = {}, retries = 3) {
     try {
       const r = await fetch(url, {
         ...opts,
-        headers: { Accept: 'application/json', 'User-Agent': 'TradeAgentIV/2.5', ...opts.headers },
+        headers: { Accept: 'application/json', 'User-Agent': 'TradeAgentIV/3.6', ...opts.headers },
       });
       if (!r.ok) {
         const txt = await r.text().catch(() => '');
@@ -252,7 +253,7 @@ async function api(url, opts = {}, retries = 3) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 7. PRICE API — FAILOVER: CG → CMC → Binance
+// 7. PRICE API — FAILOVER: CG → CMC → Binance (from v3.5)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function normalizeCG(coins) {
@@ -325,7 +326,7 @@ async function getCoins(env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 8. ENHANCED DATA APIs
+// 8. ENHANCED DATA APIs (from v3.5)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function getTopGainersLosers(env) {
@@ -374,7 +375,7 @@ async function getBinanceFutures(symbol) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 9. GLOBAL & TRENDING — FAILOVER
+// 9. GLOBAL & TRENDING — FAILOVER (from v3.5)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function getGlobalCG(env) {
@@ -432,7 +433,7 @@ async function getFearGreed() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 10. AI LAYER — GEMINI PRIORITY + OPENROUTER FAILOVER
+// 10. AI LAYER — GEMINI PRIORITY + OPENROUTER FAILOVER (from v3.5)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const AI_CACHE_TTL = 3600;
@@ -762,7 +763,7 @@ Write the analysis now.`;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 11. SNAPSHOT & CONFIG KV
+// 11. SNAPSHOT & CONFIG KV (from v3.5)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function storeSnapshot(env, data) {
@@ -811,7 +812,7 @@ async function setUserState(env, userId, value) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 12. DEDUP — FIXED DOUBLE-POST BUG
+// 12. DEDUP — FIXED DOUBLE-POST BUG (from v3.5)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function dedupSend(env, type, fn) {
@@ -852,7 +853,7 @@ async function dedupSend(env, type, fn) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 13. TELEGRAM API
+// 13. TELEGRAM API (from v3.5)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function tgMethod(token, method, body) {
@@ -901,14 +902,15 @@ async function editMessage(env, chatId, messageId, text, markup = null) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 14. KEYBOARDS
+// 14. KEYBOARDS — HYBRID: v2 compact layout + v3 labels
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function mainKeyboard(isAdmin) {
   const kb = [
-    [{ text: '📊 Market Snapshot' }, { text: '🔥 Trending' }],
-    [{ text: '🧠 AI Analysis' }, { text: '🧭 F&G Index' }],
-    [{ text: '🚨 Price Alerts' }, { text: '⚙️ Settings' }],
+    [{ text: '📊 Prices' }, { text: '📈 Volume' }],
+    [{ text: '🔥 Trending' }, { text: '🧠 AI Analysis' }],
+    [{ text: '🧭 F&G' }, { text: '🚨 Alerts' }],
+    [{ text: '⚙️ Settings' }],
   ];
   if (isAdmin) kb.push([{ text: '📣 Admin Panel' }]);
   return { keyboard: kb, resize_keyboard: true };
@@ -919,24 +921,19 @@ function getAdminInline(mode, scenario) {
   const s = SCENARIOS[scenario] || SCENARIOS.neutral;
   return {
     inline_keyboard: [
-      [{ text: '📊 Market Snapshot', callback_data: 'send_price' }],
-      [{ text: '📈 Volume Report', callback_data: 'send_volume' }],
-      [{ text: '🧠 AI Analysis', callback_data: 'send_ai' }],
-      [{ text: '🔥 Trending', callback_data: 'send_trending' }],
-      [{ text: '🧭 F&G Index', callback_data: 'send_fng' }],
-      [{ text: '⚡ Funding Rates', callback_data: 'send_futures' }],
-      [{ text: '🚀 Top Movers', callback_data: 'send_movers' }],
-      [{ text: '📊 Send All', callback_data: 'send_all' }],
-      [{ text: '──────── AI Config ────────', callback_data: 'noop' }],
+      [{ text: '📈 Send Price', callback_data: 'send_price' }, { text: '📉 Send Volume', callback_data: 'send_volume' }],
+      [{ text: '🧠 Send AI', callback_data: 'send_ai' }, { text: '🔥 Send Trending', callback_data: 'send_trending' }],
+      [{ text: '🧠 Send F&G', callback_data: 'send_fng' }, { text: '📊 Send All', callback_data: 'send_all' }],
+      [{ text: '⚡ Send Futures', callback_data: 'send_futures' }, { text: '🚀 Send Movers', callback_data: 'send_movers' }],
+      [{ text: '──── AI Config ────', callback_data: 'noop' }],
       [{ text: `🤖 Mode: ${m}`, callback_data: 'admin:ai_mode' }],
       [{ text: `🎛 Scenario: ${s}`, callback_data: 'admin:scenario' }],
-      [{ text: '🧪 Custom Prompt', callback_data: 'admin:custom' }],
-      [{ text: '📤 Resend Last', callback_data: 'admin:resend' }],
-      [{ text: '──────── System ────────', callback_data: 'noop' }],
+      [{ text: '🧪 Custom Prompt', callback_data: 'admin:custom' }, { text: '📤 Resend Last', callback_data: 'admin:resend' }],
+      [{ text: '──── System ────', callback_data: 'noop' }],
       [{ text: '🤖 AI Status', callback_data: 'admin:ai_status' }],
       [{ text: '📊 API Status', callback_data: 'admin:api_status' }],
       [{ text: '⏸ Auto Posts', callback_data: 'admin:auto_posts' }],
-      [{ text: '🔙 Back to Main', callback_data: 'back_main' }],
+      [{ text: '🔙 Back', callback_data: 'back_main' }],
     ],
   };
 }
@@ -973,69 +970,40 @@ function alertsInline(states) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 15. MESSAGE BUILDERS — WITH BLOCKQUOTES
+// 15. MESSAGE BUILDERS — HYBRID: v2 dry UI + v3 data richness
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function buildPrice(coins, source = '') {
-  const tier1 = coins.filter(c => COINS[c.id]?.tier === 1);
-  const tier2 = coins.filter(c => COINS[c.id]?.tier === 2);
-  const tier3 = coins.filter(c => COINS[c.id]?.tier === 3);
-  
-  let m = `🪐 <b>MARKET SNAPSHOT</b>${source ? ` <i>· ${esc(source)}</i>` : ''}\n`;
-  m += `<i>${fmt.time()} UTC</i>\n\n`;
-  
-  if (tier1.length) {
-    m += `<blockquote><b>🏆 Tier 1 — Blue Chips</b>\n`;
-    for (const c of tier1) {
-      const i = COINS[c.id];
-      const ch = c.price_change_percentage_24h || 0;
-      const ch7d = c.price_change_percentage_7d_in_currency || 0;
-      m += `${i.emoji} <b>${i.symbol}</b>  <code>${fmt.price(c.current_price).padStart(12)}</code>\n`;
-      m += `   ${fmt.change(ch)}  ·  7d: ${fmt.pct(ch7d)}\n`;
-    }
-    m += `</blockquote>\n\n`;
+  let m = `📊 <b>LIVE MARKET</b>${source ? ` <i>via ${esc(source)}</i>` : ''}\n`;
+  m += `<i>${fmt.time()} UTC</i>\n\n<pre>`;
+  for (const c of coins) {
+    const i = COINS[c.id]; if (!i) continue;
+    const ch = c.price_change_percentage_24h || 0;
+    const ch7d = c.price_change_percentage_7d_in_currency || 0;
+    const sym = i.symbol.padEnd(6, ' ');
+    const pr = ('$' + fmt.price(c.current_price)).padStart(12, ' ');
+    const ch24 = ((ch >= 0 ? '🟢' : '🔴') + (ch >= 0 ? '+' : '') + ch.toFixed(2) + '%').padStart(10, ' ');
+    const ch7 = (ch7d >= 0 ? '+' : '') + ch7d.toFixed(1) + '%';
+    m += `${sym} ${pr}  ${ch24}  7d:${ch7}\n`;
   }
-  
-  if (tier2.length) {
-    m += `<blockquote><b>🔷 Tier 2 — Utility</b>\n`;
-    for (const c of tier2) {
-      const i = COINS[c.id];
-      const ch = c.price_change_percentage_24h || 0;
-      m += `${i.emoji} <b>${i.symbol}</b>  <code>${fmt.price(c.current_price).padStart(12)}</code>  ${fmt.change(ch)}\n`;
-    }
-    m += `</blockquote>\n\n`;
-  }
-  
-  if (tier3.length) {
-    m += `<blockquote><b>🐸 Tier 3 — Meme & AI</b>\n`;
-    for (const c of tier3) {
-      const i = COINS[c.id];
-      const ch = c.price_change_percentage_24h || 0;
-      m += `${i.emoji} <b>${i.symbol}</b>  <code>${fmt.price(c.current_price).padStart(12)}</code>  ${fmt.change(ch)}\n`;
-    }
-    m += `</blockquote>\n\n`;
-  }
-  
-  m += `${FOOTER}`;
+  m += `</pre>\n\n${FOOTER}`;
   return m;
 }
 
 async function buildVolume(coins, source = '') {
   const sorted = [...coins].sort((a, b) => (b.total_volume || 0) - (a.total_volume || 0));
-  
-  let m = `📈 <b>VOLUME LEADERS</b>${source ? ` <i>· ${esc(source)}</i>` : ''}\n`;
-  m += `<i>${fmt.time()} UTC</i>\n\n`;
-  m += `<blockquote>`;
-  
+  let m = `📈 <b>VOLUME LEADERS</b>${source ? ` <i>via ${esc(source)}</i>` : ''}\n`;
+  m += `<i>${fmt.time()} UTC</i>\n\n<pre>`;
   for (const c of sorted.slice(0, 10)) {
     const i = COINS[c.id]; if (!i) continue;
-    const vol = c.total_volume || 0;
-    const mc = c.market_cap || 0;
-    const ratio = mc > 0 ? ((vol / mc) * 100).toFixed(1) : '?';
-    m += `${i.emoji} <b>${i.symbol}</b>  Vol: ${fmt.vol(vol)}  ·  Vol/MC: ${ratio}%\n`;
+    const sym = i.symbol.padEnd(6, ' ');
+    const pr = ('$' + fmt.price(c.current_price)).padStart(12, ' ');
+    const vol = fmt.vol(c.total_volume).padStart(12, ' ');
+    let line = `${sym} ${pr}  Vol:${vol}`;
+    if (c.market_cap) line += `  Cap:${fmt.cap(c.market_cap)}`;
+    m += line + '\n';
   }
-  
-  m += `</blockquote>\n\n${FOOTER}`;
+  m += `</pre>\n\n${FOOTER}`;
   return m;
 }
 
@@ -1043,97 +1011,67 @@ async function buildDaily(coins, globalData, trending, fear, source = '') {
   const sorted = [...coins].sort((a, b) => (b.price_change_percentage_24h || 0) - (a.price_change_percentage_24h || 0));
   const best = sorted[0], worst = sorted[sorted.length - 1];
   
-  let m = `📉 <b>DAILY INTELLIGENCE</b>${source ? ` <i>· ${esc(source)}</i>` : ''}\n`;
+  let m = `📉 <b>DAILY INTELLIGENCE</b>${source ? ` <i>via ${esc(source)}</i>` : ''}\n`;
   m += `<i>${fmt.date()}</i>\n\n`;
 
   if (globalData?.data) {
     const g = globalData.data;
-    m += `<blockquote><b>🌍 Global Market</b>\n`;
-    m += `💰 Cap: ${fmt.cap(g.total_market_cap?.usd || 0)}\n`;
-    m += `📊 Vol: ${fmt.vol(g.total_volume?.usd || 0)}\n`;
-    m += `₿ Dom: ${g.market_cap_percentage?.btc?.toFixed(1) || '?'}%\n`;
-    m += `</blockquote>\n\n`;
+    m += `<b>Global</b>  Cap: ${fmt.cap(g.total_market_cap?.usd || 0)} | Vol: ${fmt.vol(g.total_volume?.usd || 0)} | BTC Dom: ${g.market_cap_percentage?.btc?.toFixed(1) || '?'}%\n\n`;
   }
   
   if (fear?.data?.[0]) {
-    const f = fear.data[0], v = parseInt(f.value);
-    m += `<blockquote><b>🧠 Market Sentiment</b>\n`;
-    m += `${progressBar(v)} <b>${v}/100</b>\n`;
-    m += `${getBias(v)}\n`;
-    m += `</blockquote>\n\n`;
+    m += `<b>Sentiment</b>  ${getBias(parseInt(fear.data[0].value))}\n\n`;
   }
 
-  m += `<b>📋 Performance Board</b>\n<pre>`;
+  m += `<pre>`;
   for (const c of sorted) {
     const i = COINS[c.id]; if (!i) continue;
     const ch = c.price_change_percentage_24h || 0;
     const ch7d = c.price_change_percentage_7d_in_currency || 0;
-    const sym = i.symbol.padEnd(6);
-    const pr = fmt.price(c.current_price).padStart(12);
-    const ch24 = ((ch >= 0 ? '🟢' : '🔴') + (ch >= 0 ? '+' : '') + ch.toFixed(2) + '%').padStart(10);
+    const sym = i.symbol.padEnd(6, ' ');
+    const pr = ('$' + fmt.price(c.current_price)).padStart(12, ' ');
+    const ch24 = ((ch >= 0 ? '🟢' : '🔴') + (ch >= 0 ? '+' : '') + ch.toFixed(2) + '%').padStart(10, ' ');
     const ch7 = (ch7d >= 0 ? '+' : '') + ch7d.toFixed(1) + '%';
-    m += `${sym} ${pr}  ${ch24}  7d:${ch7}\n`;
+    let line = `${sym} ${pr}  ${ch24}  7d:${ch7}`;
+    if (c.market_cap) line += `  ${fmt.cap(c.market_cap)}`;
+    m += line + '\n';
   }
   m += `</pre>\n\n`;
 
   if (best && COINS[best.id]) {
-    m += `<blockquote><b>🏆 Top Performer</b>\n`;
-    m += `${COINS[best.id].emoji} ${COINS[best.id].symbol}  ${fmt.change(best.price_change_percentage_24h)}\n`;
-    m += `</blockquote>\n\n`;
+    m += `<b>Leader:</b> ${COINS[best.id].emoji} ${COINS[best.id].symbol}  ${fmt.change(best.price_change_percentage_24h)}\n`;
   }
   if (worst && COINS[worst.id]) {
-    m += `<blockquote><b>⚠️ Weakest Link</b>\n`;
-    m += `${COINS[worst.id].emoji} ${COINS[worst.id].symbol}  ${fmt.change(worst.price_change_percentage_24h)}\n`;
-    m += `</blockquote>\n\n`;
+    m += `<b>Weakest:</b> ${COINS[worst.id].emoji} ${COINS[worst.id].symbol}  ${fmt.change(worst.price_change_percentage_24h)}\n`;
   }
-  
   if (trending?.coins?.length) {
-    m += `<blockquote><b>🔥 Trending Now</b>\n`;
-    for (const t of trending.coins.slice(0, 5)) {
-      m += `   ${esc(t.item.symbol)} — ${esc(t.item.name)}\n`;
-    }
-    m += `</blockquote>\n\n`;
+    m += `\n<b>Trending:</b> ${trending.coins.slice(0, 5).map(t => esc(t.item.symbol)).join(', ')}\n`;
   }
   
-  m += `${FOOTER}`;
+  m += `\n${FOOTER}`;
   return m;
 }
 
 async function buildTrending(trending) {
   let m = `🔥 <b>TRENDING COINS</b>\n`;
-  m += `<i>${fmt.time()} UTC</i>\n\n`;
-  m += `<blockquote>`;
-  
+  m += `<i>${fmt.time()} UTC</i>\n\n<pre>`;
   if (trending?.coins?.length) {
-    let rank = 1;
     for (const t of trending.coins.slice(0, 10)) {
-      const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '🔹';
-      m += `${medal} <b>${esc(t.item.symbol)}</b>  ${esc(t.item.name)}  <i>Rank #${t.item.market_cap_rank || '?'}</i>\n`;
-      rank++;
+      const sym = esc(t.item.symbol).padEnd(6, ' ');
+      const rank = ('#' + (t.item.market_cap_rank || '?')).padStart(4, ' ');
+      m += `${sym} ${rank}  ${esc(t.item.name)}\n`;
     }
   } else {
     m += `No trending data available.\n`;
   }
-  
-  m += `</blockquote>\n\n${FOOTER}`;
+  m += `</pre>\n\n${FOOTER}`;
   return m;
 }
 
 async function buildFng(fear) {
-  if (!fear?.data?.[0]) return `🧠 <b>FEAR & GREED INDEX</b>\n\n<i>Data unavailable</i>\n\n${FOOTER}`;
+  if (!fear?.data?.[0]) return `🧠 <b>MARKET SENTIMENT</b>\n\nData unavailable.\n\n${FOOTER}`;
   const f = fear.data[0], v = parseInt(f.value);
-  const classification = f.value_classification || 'Neutral';
-  
-  let m = `🧠 <b>FEAR & GREED INDEX</b>\n`;
-  m += `<i>${f.timestamp ? new Date(f.timestamp * 1000).toISOString().slice(0, 10) : fmt.date()}</i>\n\n`;
-  m += `<blockquote>`;
-  m += `${progressBar(v)} <b>${v}/100</b>\n\n`;
-  m += `<b>${classification.toUpperCase()}</b>\n`;
-  m += `${getBias(v)}\n`;
-  m += `</blockquote>\n\n`;
-  m += `<i>Updated: ${fmt.time()} UTC</i>\n\n`;
-  m += `${FOOTER}`;
-  return m;
+  return `🧠 <b>MARKET SENTIMENT</b>\n\n${progressBar(v)} <b>${v}/100</b>\n${getBias(v)}\n\n${FOOTER}`;
 }
 
 async function buildAIAnalysis(aiResult, todayData, emotion) {
@@ -1148,9 +1086,7 @@ async function buildAIAnalysis(aiResult, todayData, emotion) {
     englishText = englishText.substring(0, separatorIndex).trim();
   }
   
-  let m = `${emo.emoji} <b>MARKET STATE: ${emo.state}</b>\n`;
-  m += `${emo.color} Intensity: ${emo.intensity}/100  ·  ${t.mode || 'Normal'} Mode\n\n`;
-  
+  let m = `${emo.emoji} <b>MARKET STATE: ${emo.state}</b> | Intensity: ${emo.intensity}/100\n\n`;
   m += `🧠 <b>AI MARKET INTELLIGENCE</b>\n`;
   m += `<i>${t.date} · ${aiResult.source || 'AI'} · ${t.mode || 'Normal'}</i>\n\n`;
   
@@ -1159,26 +1095,26 @@ async function buildAIAnalysis(aiResult, todayData, emotion) {
   }
   
   if (persianText) {
-    m += `<blockquote>\n<b>🌀 تحلیل فارسی</b>\n\n`;
-    m += `${cleanMarkdown(persianText)}\n</blockquote>\n\n`;
+    m += `<blockquote>\n<b>🇮🇷 تحلیل فارسی</b>\n\n${cleanMarkdown(persianText)}\n</blockquote>\n\n`;
   }
 
-  m += `<b>📊 Key Metrics</b>\n<pre>`;
+  m += `<pre>`;
   m += `BTC  $${fmt.price(t.btcPrice).padStart(12)}  ${fmt.change(t.btcChange)}\n`;
   m += `ETH  $${fmt.price(t.ethPrice).padStart(12)}  ${fmt.change(t.ethChange)}\n`;
   m += `SOL  $${fmt.price(t.solPrice).padStart(12)}  ${fmt.change(t.solChange)}\n`;
   m += `</pre>\n\n`;
 
-  m += `🌍 Cap: ${fmt.cap(t.totalMarketCap)}  ·  Vol: ${fmt.vol(t.totalVolume)}\n`;
-  m += `₿ Dom: ${t.btcDominance}%  ·  🧠 F&G: ${t.fearGreed}/100\n\n`;
+  m += `<b>Global:</b> Cap ${fmt.cap(t.totalMarketCap)} | Vol ${fmt.vol(t.totalVolume)}\n`;
+  m += `BTC Dom: ${t.btcDominance}% | F&G: ${t.fearGreed}/100\n\n`;
 
   if (t.futures?.BTCUSDT) {
     const f = t.futures.BTCUSDT;
-    m += `⚡ <b>Futures Pulse</b>\n`;
-    if (f.fundingRate != null) m += `Funding: ${f.fundingRate.toFixed(4)}%\n`;
-    if (f.openInterest != null) m += `OI: ${fmt.vol(f.openInterest)}\n`;
-    if (f.longShortRatio != null) m += `L/S: ${f.longShortRatio.toFixed(2)}\n`;
-    m += `\n`;
+    m += `<b>Futures:</b> `;
+    const parts = [];
+    if (f.fundingRate != null) parts.push(`Funding ${f.fundingRate.toFixed(4)}%`);
+    if (f.openInterest != null) parts.push(`OI ${fmt.vol(f.openInterest)}`);
+    if (f.longShortRatio != null) parts.push(`L/S ${f.longShortRatio.toFixed(2)}`);
+    m += parts.join(' | ') + '\n\n';
   }
 
   m += `${FOOTER}`;
@@ -1188,26 +1124,19 @@ async function buildAIAnalysis(aiResult, todayData, emotion) {
 function buildAlert(coinId, price, type) {
   const i = COINS[coinId];
   const t = type === 'above' ? '🚀 ABOVE TARGET' : '📉 BELOW TARGET';
-  return `🚨 <b>PRICE ALERT</b>\n\n<<blockquote>${i.emoji} <b>${esc(i.name)} (${i.symbol})</b>\n${t}\n\n💰 Current: <code>$${fmt.price(price)}</code></blockquote>\n\n${FOOTER}`;
+  return `🚨 <b>PRICE ALERT</b>\n\n<blockquote>${i.emoji} <b>${esc(i.name)} (${i.symbol})</b>\n${t}\n\nCurrent: <code>$${fmt.price(price)}</code></blockquote>\n\n${FOOTER}`;
 }
 
 async function buildFutures(futures) {
   let m = `⚡ <b>FUNDING RATES & FUTURES</b>\n`;
-  m += `<i>${fmt.time()} UTC</i>\n\n`;
-  m += `<blockquote>`;
-  
+  m += `<i>${fmt.time()} UTC</i>\n\n<pre>`;
   for (const [sym, f] of Object.entries(futures)) {
     const coinId = Object.keys(BINANCE_MAP).find(k => BINANCE_MAP[k] === sym);
     const info = coinId ? COINS[coinId] : { symbol: sym.replace('USDT', ''), emoji: '•' };
-    const funding = f.fundingRate !== null ? f.fundingRate.toFixed(4) + '%' : 'N/A';
-    const oi = f.openInterest !== null ? fmt.vol(f.openInterest) : 'N/A';
-    const ls = f.longShortRatio !== null ? f.longShortRatio.toFixed(2) : 'N/A';
-    const fundingEmoji = f.fundingRate > 0.05 ? '🔴' : f.fundingRate < -0.05 ? '🟢' : '⚪';
-    m += `${info.emoji} <b>${info.symbol}</b>\n`;
-    m += `   ${fundingEmoji} Funding: ${funding}  ·  OI: ${oi}  ·  L/S: ${ls}\n`;
+    const line = `${info.emoji} ${info.symbol.padEnd(6)} Funding: ${f.fundingRate !== null ? f.fundingRate.toFixed(4) + '%' : 'N/A'} | OI: ${f.openInterest !== null ? fmt.vol(f.openInterest) : 'N/A'} | L/S: ${f.longShortRatio !== null ? f.longShortRatio.toFixed(2) : 'N/A'}`;
+    m += line + '\n';
   }
-  
-  m += `</blockquote>\n\n${FOOTER}`;
+  m += `</pre>\n\n${FOOTER}`;
   return m;
 }
 
@@ -1216,23 +1145,23 @@ async function buildMovers(gl) {
   m += `<i>${fmt.time()} UTC</i>\n\n`;
   
   if (gl.gainers?.length) {
-    m += `<blockquote><b>🔥 Gainers</b>\n`;
+    m += `<b>🔥 Gainers</b>\n<pre>`;
     for (const g of gl.gainers.slice(0, 5)) {
-      const sym = (g.symbol || '?').toUpperCase();
-      const ch = g.price_change_percentage_24h || 0;
-      m += `   🟢 <b>${sym}</b>  ${fmt.change(ch)}  ·  $${fmt.price(g.current_price || 0)}\n`;
+      const sym = (g.symbol || '?').toUpperCase().padEnd(6);
+      const ch = ((g.price_change_percentage_24h >= 0 ? '+' : '') + (g.price_change_percentage_24h || 0).toFixed(2) + '%').padStart(10);
+      m += `${sym} ${ch}  $${fmt.price(g.current_price || 0)}\n`;
     }
-    m += `</blockquote>\n\n`;
+    m += `</pre>\n\n`;
   }
   
   if (gl.losers?.length) {
-    m += `<blockquote><b>❄️ Losers</b>\n`;
+    m += `<b>❄️ Losers</b>\n<pre>`;
     for (const l of gl.losers.slice(0, 5)) {
-      const sym = (l.symbol || '?').toUpperCase();
-      const ch = l.price_change_percentage_24h || 0;
-      m += `   🔴 <b>${sym}</b>  ${fmt.change(ch)}  ·  $${fmt.price(l.current_price || 0)}\n`;
+      const sym = (l.symbol || '?').toUpperCase().padEnd(6);
+      const ch = ((l.price_change_percentage_24h >= 0 ? '+' : '') + (l.price_change_percentage_24h || 0).toFixed(2) + '%').padStart(10);
+      m += `${sym} ${ch}  $${fmt.price(l.current_price || 0)}\n`;
     }
-    m += `</blockquote>\n\n`;
+    m += `</pre>\n\n`;
   }
   
   m += `${FOOTER}`;
@@ -1240,7 +1169,7 @@ async function buildMovers(gl) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 16. ALERTS KV & LOGIC
+// 16. ALERTS KV & LOGIC (from v3.5)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function getAlertState(env, key) {
@@ -1319,7 +1248,7 @@ async function checkAlerts(env, coins) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 17. DATA COLLECTOR
+// 17. DATA COLLECTOR (from v3.5)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function collectMarketData(env) {
@@ -1371,7 +1300,7 @@ async function collectMarketData(env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 18. CHANNEL SENDERS
+// 18. CHANNEL SENDERS (from v3.5)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function ensureChannel(env) {
@@ -1509,14 +1438,14 @@ async function sendChannelAll(env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 19. BOT HANDLERS
+// 19. BOT HANDLERS — HYBRID: v2 dry text + v3 logic
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleStart(chatId, userId, env) {
   const admin = isAdmin(userId, env);
   const text = admin
-    ? `🪐 <b>Welcome Commander!</b>\n\n🌀 <b>TradeAgent IV</b> Ultimate Control Panel\n<i>AI Crypto Intelligence Dashboard</i>`
-    : `🪐 <b>Welcome to TradeAgent IV!</b>\n\n🌀 AI-Powered Crypto Intelligence\n<i>Real-time market data & AI analysis</i>`;
+    ? `👋 <b>Welcome Admin!</b>\n\nTradeAgent IV Control Panel.`
+    : `👋 <b>Welcome to TradeAgent IV!</b>\n\nAI Crypto Intelligence Dashboard.`;
   await sendMessage(env, chatId, text, mainKeyboard(admin));
 }
 
@@ -1557,8 +1486,8 @@ async function handleAlerts(chatId, env) {
   for (const [coinId, cfg] of Object.entries(ALERT_PRESETS)) {
     const c = COINS[coinId];
     text += `${c.emoji} <b>${c.symbol}</b>\n`;
-    if (cfg.above) text += `   🟢 Above: $${fmt.price(cfg.above)}\n`;
-    if (cfg.below) text += `   🔴 Below: $${fmt.price(cfg.below)}\n`;
+    if (cfg.above) text += `   Above: $${fmt.price(cfg.above)}\n`;
+    if (cfg.below) text += `   Below: $${fmt.price(cfg.below)}\n`;
     text += `\n`;
   }
   await sendMessage(env, chatId, text, alertsInline(states));
@@ -1578,12 +1507,12 @@ async function handleSettings(chatId, env) {
 
   await sendMessage(env, chatId,
     `⚙️ <b>Settings</b>\n\n` +
-    `📡 Channel: ${env.TELEGRAM_CHANNEL_ID || 'Not set'}\n` +
-    `🪙 Coins: ${Object.keys(COINS).length} (T1: ${Object.keys(TIER_1).length}, T2: ${Object.keys(TIER_2).length}, T3: ${Object.keys(TIER_3).length})\n` +
-    `📊 Sources: ${sources.join(', ')}\n` +
-    `🤖 AI: ${aiStatus} | ${orStatus}\n` +
-    `🎛 Mode: ${AI_MODES[mode]} | Scenario: ${SCENARIOS[scenario]}\n` +
-    `⏰ Auto Posts: ${autoPosts === 'true' ? '✅ On' : '⏸ Off'}\n\n` +
+    `Channel: ${env.TELEGRAM_CHANNEL_ID || 'Not set'}\n` +
+    `Coins: ${Object.keys(COINS).length} (T1:${Object.keys(TIER_1).length} T2:${Object.keys(TIER_2).length} T3:${Object.keys(TIER_3).length})\n` +
+    `Sources: ${sources.join(', ')}\n` +
+    `AI: ${aiStatus} | ${orStatus}\n` +
+    `Mode: ${AI_MODES[mode]} | Scenario: ${SCENARIOS[scenario]}\n` +
+    `Auto Posts: ${autoPosts === 'true' ? 'On' : 'Off'}\n\n` +
     `Use /admin for admin panel.`
   );
 }
@@ -1591,24 +1520,24 @@ async function handleSettings(chatId, env) {
 async function showAdminPanel(chatId, env) {
   const mode = await getConfig(env, 'ai_mode', 'normal');
   const scenario = await getConfig(env, 'scenario', 'neutral');
-  await sendMessage(env, chatId, `📣 <b>Admin Control Panel</b>\n\n🪐 Manage posts, AI config, and system status:`, getAdminInline(mode, scenario));
+  await sendMessage(env, chatId, `📣 <b>Admin Control Panel</b>\n\nManage posts, AI config, and system status:`, getAdminInline(mode, scenario));
 }
 
 async function handleHelp(chatId, env, userId) {
   const admin = isAdmin(userId, env);
   let text = `📖 <b>TradeAgent IV Commands</b>\n\n`;
   text += `/start — Main menu\n`;
-  text += `📊 Market Snapshot — Live prices\n`;
-  text += `📈 Volume Report — Volume leaders\n`;
-  text += `🧠 AI Analysis — AI market report\n`;
-  text += `🔥 Trending — Hot coins\n`;
-  text += `🧭 F&G Index — Fear & Greed\n`;
-  text += `🚨 Price Alerts — Alert settings\n`;
-  text += `⚙️ Settings — Bot config\n`;
+  text += `/price — Live prices\n`;
+  text += `/volume — Volume leaders\n`;
+  text += `/daily — Daily report\n`;
+  text += `/trending — Hot coins\n`;
+  text += `/fng — Market Sentiment\n`;
+  text += `/alerts — Alert settings\n`;
+  text += `/settings — Bot config\n`;
   text += `/help — This menu\n`;
   
   if (admin) {
-    text += `\n<b>👑 Admin Commands:</b>\n`;
+    text += `\n<b>Admin Commands:</b>\n`;
     text += `/admin — Admin panel\n`;
     text += `/sendprice — Send snapshot to channel\n`;
     text += `/sendvolume — Send volume to channel\n`;
@@ -1655,7 +1584,7 @@ async function handleAutoPosts(chatId, env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 20. WEBHOOK PROCESSOR
+// 20. WEBHOOK PROCESSOR (from v3.5)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function processWebhook(update, env) {
@@ -1687,12 +1616,12 @@ async function processWebhook(update, env) {
       console.log(`[BOT] ${userId}: ${text}`);
 
       if (text === '/start') await handleStart(chatId, userId, env);
-      else if (text === '/price' || text === '📊 Market Snapshot') await handlePrices(chatId, env);
-      else if (text === '/volume' || text === '📈 Volume Report') await handleVolume(chatId, env);
+      else if (text === '/price' || text === '📊 Prices') await handlePrices(chatId, env);
+      else if (text === '/volume' || text === '📈 Volume') await handleVolume(chatId, env);
       else if (text === '/daily') await handleDaily(chatId, env);
       else if (text === '/trending' || text === '🔥 Trending') await handleTrending(chatId, env);
-      else if (text === '/fng' || text === '🧭 F&G Index') await handleFng(chatId, env);
-      else if (text === '/alerts' || text === '🚨 Price Alerts') await handleAlerts(chatId, env);
+      else if (text === '/fng' || text === '🧭 F&G') await handleFng(chatId, env);
+      else if (text === '/alerts' || text === '🚨 Alerts') await handleAlerts(chatId, env);
       else if (text === '/settings' || text === '⚙️ Settings') await handleSettings(chatId, env);
       else if (text === '/help') await handleHelp(chatId, env, userId);
       else if (text === '/admin' || text === '📣 Admin Panel') {
@@ -1876,7 +1805,7 @@ async function processWebhook(update, env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 21. CRON HANDLER — 3 CLEAN TRIGGERS
+// 21. CRON HANDLER — 3 CLEAN TRIGGERS (from v3.5)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleCron(event, env) {
@@ -1923,7 +1852,7 @@ async function handleCron(event, env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 22. HTTP ROUTER
+// 22. HTTP ROUTER (from v3.5)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleWebhook(request, env) {
@@ -1984,7 +1913,7 @@ async function handleDebug(env) {
     tier1: Object.keys(TIER_1).length,
     tier2: Object.keys(TIER_2).length,
     tier3: Object.keys(TIER_3).length,
-    version: '2.5.0',
+    version: '3.6.0',
   };
 
   if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHANNEL_ID) {
@@ -2037,7 +1966,9 @@ async function handleHttp(request, env) {
   }
   if (path === '/' && request.method === 'GET') {
     return new Response(
-      `🪐 TradeAgent IV ULTIMATE v2.5.0 — AI-Powered Crypto Intelligence\n\n` +
+      `TradeAgent IV HYBRID v3.6.0 — AI-Powered Crypto Intelligence\n\n` +
+      `Backend: v3.5 (3-Tier, Emotion, Futures, HYPE, Dedup Fix)\n` +
+      `UI: v2.3 (Dry pre blocks, compact layout, less emoji)\n\n` +
       `Routes:\n` +
       `  POST /webhook  → Telegram webhook\n` +
       `  POST /admin    → Manual trigger (x-admin-secret required)\n` +
