@@ -1,7 +1,8 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV HYBRID v4.2.0 — Collapse Persian + Gemini Priority + Modern Keyboard
+//  TRADEAGENT IV HYBRID v4.2.1 — Timeout Fix + Sticker + Parallel Safety
 //  Backend: v4.2 (3-Tier, Emotion, Futures, HYPE, Dedup v3, Modern UI)
-//  UI: Collapsible Persian (<blockquote expandable>) + Gemini Priority + Updated Commands
+//  FIXES: fetchWithTimeout, sendChannelAll sequential timeout,
+//         dedupSend no infinite retry, sticker after bundle
 // ═══════════════════════════════════════════════════════════════
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -57,7 +58,7 @@ const COIN_IDS = Object.keys(COINS).join(',');
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const CRON_PRICE   = '*/30 * * * *';
-const CRON_BUNDLE  = '0 */8 * * *';
+const CRON_BUNDLE  = '0 */4 * * *';   // [FIX v4.2.1] Changed to 4h for user config
 const CRON_MOVERS  = '0 9,15,21 * * *';
 
 const ALERT_PRESETS = {
@@ -110,6 +111,8 @@ const EMOTION_STATES = {
   FOMO:     { emoji: '🧨📊', color: '🔴', tone: 'Warning with urgency. Extreme greed. Emphasize FOMO danger.' },
 };
 
+const STICKER_SET_NAME = 'TradeAgentIVstickers'; // [FIX v4.2.1] Sticker set name
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 4. SECURITY & UTILS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -125,6 +128,13 @@ function checkSecret(request, env) {
 function esc(text) {
   if (typeof text !== 'string') return text;
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// [FIX v4.2.1] Global fetch timeout helper to prevent hanging
+function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timeoutId));
 }
 
 function cleanMarkdown(text) {
@@ -237,10 +247,10 @@ function calculateEmotionState(data) {
 async function api(url, opts = {}, retries = 3) {
   for (let i = 0; i < retries; i++) {
     try {
-      const r = await fetch(url, {
+      const r = await fetchWithTimeout(url, {
         ...opts,
         headers: { Accept: 'application/json', 'User-Agent': 'TradeAgentIV/4.2', ...opts.headers },
-      });
+      }, 15000); // [FIX v4.2.1] 15s timeout per attempt
       if (!r.ok) {
         const txt = await r.text().catch(() => '');
         throw new Error(`HTTP ${r.status} ${txt.slice(0, 100)}`);
@@ -540,14 +550,14 @@ async function tryGeminiDirect(env, prompt, modelUrl, name) {
   }
   try {
     console.log(`[AI] Trying Gemini direct: ${name}...`);
-    const res = await fetch(`${modelUrl}?key=${env.GEMINI_API_KEY}`, {
+    const res = await fetchWithTimeout(`${modelUrl}?key=${env.GEMINI_API_KEY}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: { temperature: 0.3, maxOutputTokens: 900 }
       }),
-    });
+    }, 20000); // [FIX v4.2.1] 20s timeout
     
     if (!res.ok) {
       const txt = await res.text().catch(() => '');
@@ -625,7 +635,7 @@ async function getAIAnalysis(env, prompt) {
   for (const model of models) {
     try {
       console.log(`[AI] Trying OpenRouter: ${getShortModelName(model)}...`);
-      const res = await fetch(OPENROUTER_URL, {
+      const res = await fetchWithTimeout(OPENROUTER_URL, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${env.OPENROUTER_API_KEY}`,
@@ -639,7 +649,7 @@ async function getAIAnalysis(env, prompt) {
           max_tokens: 900,
           temperature: 0.3
         }),
-      });
+      }, 20000); // [FIX v4.2.1] 20s timeout
       
       if (!res.ok) {
         const errText = await res.text().catch(() => '');
@@ -669,14 +679,14 @@ async function getAIAnalysis(env, prompt) {
 async function testGeminiConnection(env) {
   if (!env.GEMINI_API_KEY) return { ok: false, error: 'No API key configured' };
   try {
-    const res = await fetch(`${GEMINI_URL}?key=${env.GEMINI_API_KEY}`, {
+    const res = await fetchWithTimeout(`${GEMINI_URL}?key=${env.GEMINI_API_KEY}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ parts: [{ text: 'Reply with exactly: OK' }] }],
         generationConfig: { temperature: 0, maxOutputTokens: 10 }
       })
-    });
+    }, 10000); // [FIX v4.2.1] 10s timeout
     if (res.status === 429) return { ok: false, error: 'Rate limited (429)', source: 'Gemini' };
     if (res.status === 400) {
       const txt = await res.text().catch(() => '');
@@ -919,7 +929,8 @@ async function dedupSend(env, type, fn) {
   } catch (e) {
     console.log(`[DEDUP] Error for ${type}: ${e.message}`);
     try { await env.ALERTS_KV.delete(lockKey); } catch (e2) {}
-    return await fn();
+    // [FIX v4.2.1] Removed automatic retry to prevent infinite hang loops
+    throw e;
   }
 }
 
@@ -931,11 +942,11 @@ async function tgMethod(token, method, body) {
   const url = `https://api.telegram.org/bot${token}/${method}`;
   for (let i = 0; i < 3; i++) {
     try {
-      const r = await fetch(url, {
+      const r = await fetchWithTimeout(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
-      });
+      }, 15000); // [FIX v4.2.1] 15s timeout per TG attempt
       const d = await r.json();
       if (!d.ok) {
         const err = new Error(d.description || `TG ${method} error`);
@@ -955,6 +966,11 @@ async function sendMessage(env, chatId, text, markup = null) {
   return tgMethod(env.TELEGRAM_BOT_TOKEN, 'sendMessage', body);
 }
 
+async function sendSticker(env, chatId, stickerFileId) {
+  // [FIX v4.2.1] Sticker sender helper
+  return tgMethod(env.TELEGRAM_BOT_TOKEN, 'sendSticker', { chat_id: chatId, sticker: stickerFileId });
+}
+
 async function answerCallback(env, queryId, text = null) {
   try {
     const body = { callback_query_id: queryId };
@@ -970,6 +986,41 @@ async function editMessage(env, chatId, messageId, text, markup = null) {
   const body = { chat_id: chatId, message_id: messageId, text, parse_mode: 'HTML', disable_web_page_preview: true };
   if (markup) body.reply_markup = markup;
   return tgMethod(env.TELEGRAM_BOT_TOKEN, 'editMessageText', body);
+}
+
+// [FIX v4.2.1] Sticker cache and channel sender
+async function getStickerFileId(env) {
+  if (!env.ALERTS_KV) return null;
+  try {
+    const cached = await env.ALERTS_KV.get('sticker:file_id');
+    if (cached) return cached;
+    
+    const set = await tgMethod(env.TELEGRAM_BOT_TOKEN, 'getStickerSet', { name: STICKER_SET_NAME });
+    if (set.result?.stickers?.length > 0) {
+      const fileId = set.result.stickers[0].file_id;
+      await env.ALERTS_KV.put('sticker:file_id', fileId, { expirationTtl: 2592000 }); // 30 days
+      console.log('[STICKER] Cached file_id:', fileId);
+      return fileId;
+    }
+  } catch (e) {
+    console.error('[STICKER] Failed to get sticker set:', e.message);
+  }
+  return null;
+}
+
+async function sendChannelSticker(env) {
+  if (!env.TELEGRAM_CHANNEL_ID) return;
+  try {
+    const fileId = await getStickerFileId(env);
+    if (fileId) {
+      await sendSticker(env, env.TELEGRAM_CHANNEL_ID, fileId);
+      console.log('[STICKER] Sent sticker to channel');
+    } else {
+      console.log('[STICKER] No file_id available, skipping');
+    }
+  } catch (e) {
+    console.error('[STICKER] Send error:', e.message);
+  }
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1640,6 +1691,14 @@ async function sendChannelMovers(env) {
   });
 }
 
+// [FIX v4.2.1] Timeout wrapper for sequential sends so one hang doesn't block all
+async function sendWithTimeout(fn, env, name, timeoutMs = 35000) {
+  return Promise.race([
+    fn(env),
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`${name} timeout after ${timeoutMs}ms`)), timeoutMs))
+  ]);
+}
+
 async function sendChannelAll(env) {
   await dedupSend(env, 'all_bundle', async () => {
     const results = [];
@@ -1650,8 +1709,13 @@ async function sendChannelAll(env) {
       { name: 'Movers', fn: sendChannelMovers },
     ];
     for (const s of senders) {
-      try { await s.fn(env); results.push(`✅ ${s.name}`); }
-      catch (e) { results.push(`❌ ${s.name}: ${e.message}`); }
+      try { 
+        await sendWithTimeout(s.fn, env, s.name, 35000); // [FIX v4.2.1] 35s timeout per sender
+        results.push(`✅ ${s.name}`); 
+      }
+      catch (e) { 
+        results.push(`❌ ${s.name}: ${e.message}`); 
+      }
     }
     console.log('[SEND ALL]\n' + results.join('\n'));
     if (results.every(r => r.startsWith('❌'))) throw new Error('All sends failed');
@@ -2052,7 +2116,7 @@ async function processWebhook(update, env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 21. CRON HANDLER — v4.2 (Staggered + Dedup)
+// 21. CRON HANDLER — v4.2.1 (Staggered + Dedup + Sticker)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleCron(event, env) {
@@ -2071,7 +2135,7 @@ async function handleCron(event, env) {
       await sendChannelPrice(env);
     }
     else if (cron === CRON_BUNDLE) {
-      console.log('[CRON] Bundle: AI + F&G + Funding (8h)');
+      console.log('[CRON] Bundle: AI + F&G + Funding (4h) + Sticker');
       const tasks = [
         { name: 'AI', fn: sendChannelAI, delay: 0 },
         { name: 'F&G', fn: sendChannelFng, delay: 5000 },
@@ -2085,6 +2149,13 @@ async function handleCron(event, env) {
         } catch (e) {
           console.error(`[CRON] ❌ ${task.name}: ${e.message}`);
         }
+      }
+      // [FIX v4.2.1] Send sticker after bundle to keep channel lively
+      await new Promise(r => setTimeout(r, 3000));
+      try {
+        await sendChannelSticker(env);
+      } catch (e) {
+        console.error(`[CRON] ❌ Sticker: ${e.message}`);
       }
     }
     else if (cron === CRON_MOVERS) {
@@ -2137,6 +2208,9 @@ async function routeAdmin(request, env) {
       const { data } = await getCoins(env);
       await checkAlerts(env, data);
     }
+    if (type === 'sticker') {
+      await sendChannelSticker(env);
+    }
     return new Response('✅ Sent!', { status: 200 });
   } catch (e) {
     return new Response(`❌ ${e.message}`, { status: 500 });
@@ -2161,7 +2235,7 @@ async function handleDebug(env) {
     tier1: Object.keys(TIER_1).length,
     tier2: Object.keys(TIER_2).length,
     tier3: Object.keys(TIER_3).length,
-    version: '4.2.0',
+    version: '4.2.1',
   };
 
   if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHANNEL_ID) {
@@ -2201,6 +2275,12 @@ async function handleDebug(env) {
     checks.movers_status = movers ? `✅ OK (G:${movers.gainers?.length || 0} L:${movers.losers?.length || 0})` : '⚠️ No data';
   } catch (e) { checks.movers_status = `❌ ${e.message}`; }
 
+  // [FIX v4.2.1] Sticker check
+  try {
+    const stickerId = await getStickerFileId(env);
+    checks.sticker_status = stickerId ? `✅ OK (${stickerId.slice(0, 20)}...)` : '⚠️ No sticker cached';
+  } catch (e) { checks.sticker_status = `❌ ${e.message}`; }
+
   return new Response(JSON.stringify(checks, null, 2), { status: 200, headers: { 'Content-Type': 'application/json' } });
 }
 
@@ -2219,8 +2299,8 @@ async function handleHttp(request, env) {
   }
   if (path === '/' && request.method === 'GET') {
     return new Response(
-      `TradeAgent IV HYBRID v4.2.0 — AI-Powered Crypto Intelligence\n\n` +
-      `Backend: v4.2 (3-Tier, Emotion, Futures, HYPE, Dedup v3, Modern UI)\n` +
+      `TradeAgent IV HYBRID v4.2.1 — AI-Powered Crypto Intelligence\n\n` +
+      `Backend: v4.2.1 (3-Tier, Emotion, Futures, HYPE, Dedup v3, Modern UI, Timeout Fix)\n` +
       `UI: Collapsible Persian (blockquote expandable) + Gemini Priority + Updated Commands\n\n` +
       `Routes:\n` +
       `  POST /webhook  → Telegram webhook\n` +
@@ -2232,7 +2312,9 @@ async function handleHttp(request, env) {
       `Movers: Binance 24h ticker (no CMC required)\n` +
       `Dedup: v3 (10min gap + 5min lock + race-proof)\n` +
       `F&G: Modern visual bar + signal interpretation\n` +
-      `Persian: Collapsible <blockquote expandable> (no flag)\n`,
+      `Persian: Collapsible <blockquote expandable> (no flag)\n` +
+      `Sticker: Auto-send after bundle via getStickerSet\n` +
+      `Timeout: All fetches capped at 15-20s to prevent hangs\n`,
       { status: 200 }
     );
   }
