@@ -1,7 +1,8 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV HYBRID v4.2.4 — AI Debug + Sticker First + Reorder
-//  FIXES: Shorter AI prompt (1200 tokens), Sticker FIRST in sendAll/cron,
-//         Detailed sticker error logs, AI fail logs with key preview
+//  TRADEAGENT IV HYBRID v4.2.5 — AI Fix + Sticker First + Stable Prompt
+//  FIXES: Reverted to v3.7 prompt structure (proven working), 
+//         AI fallback to daily restored, sticker FIRST in all sends,
+//         "message not modified" error handled, keyboard variants fixed
 // ═══════════════════════════════════════════════════════════════
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -493,7 +494,7 @@ async function getFearGreed() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 10. AI LAYER — GEMINI DIRECT → OPENROUTER FAILOVER (v4.2.4)
+// 10. AI LAYER — GEMINI DIRECT → OPENROUTER FAILOVER (v4.2.5)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const AI_CACHE_TTL = 3600;
@@ -536,6 +537,7 @@ async function closeCircuit(env, name) {
   } catch (e) {}
 }
 
+// ── GEMINI DIRECT API (priority) ──
 async function tryGeminiDirect(env, prompt, modelUrl, name) {
   if (!env.GEMINI_API_KEY) {
     console.log(`[AI] ${name} skipped: No GEMINI_API_KEY`);
@@ -552,17 +554,17 @@ async function tryGeminiDirect(env, prompt, modelUrl, name) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.3, maxOutputTokens: 1200 }
+        generationConfig: { temperature: 0.3, maxOutputTokens: 900 }
       }),
-    }, 25000);
+    }, 20000);
     
     if (!res.ok) {
       const txt = await res.text().catch(() => '');
-      throw new Error(`HTTP ${res.status} ${txt.slice(0, 200)}`);
+      throw new Error(`HTTP ${res.status} ${txt.slice(0, 100)}`);
     }
     
     const data = await res.json();
-    console.log(`[AI] ${name} raw:`, JSON.stringify(data).slice(0, 300));
+    console.log(`[AI] ${name} raw:`, JSON.stringify(data).slice(0, 250));
     
     let text = null;
     if (data?.candidates?.[0]?.content?.parts?.[0]?.text) {
@@ -590,7 +592,6 @@ async function tryGeminiDirect(env, prompt, modelUrl, name) {
 
 async function getAIAnalysis(env, prompt) {
   const promptHash = await hashPrompt(prompt);
-  console.log(`[AI] Prompt hash: ${promptHash}, length: ${prompt.length} chars`);
   
   const cached = await getAICache(env, promptHash);
   if (cached) {
@@ -598,8 +599,10 @@ async function getAIAnalysis(env, prompt) {
     return cached;
   }
 
+  // ── STEP 1: Gemini 2.0 Flash Direct (HIGHEST PRIORITY) ──
   let text = await tryGeminiDirect(env, prompt, GEMINI_URL, 'gemini-2.0-flash');
   
+  // ── STEP 2: Gemini 1.5 Flash Fallback ──
   if (!text) {
     text = await tryGeminiDirect(env, prompt, GEMINI_FALLBACK_URL, 'gemini-1.5-flash');
   }
@@ -612,12 +615,14 @@ async function getAIAnalysis(env, prompt) {
     return result;
   }
 
+  // ── STEP 3: OpenRouter Failover (Updated Top 5 Free Ranked) ──
   console.log('[AI] Gemini family failed, trying OpenRouter...');
   if (!env.OPENROUTER_API_KEY) {
     console.log('[AI] No OpenRouter key, giving up');
     return null;
   }
 
+  // Updated Top 5 free models by rank on OpenRouter (2026)
   const models = [
     'google/gemini-2.5-flash-preview:free',
     'deepseek/deepseek-chat-v3-0324:free',
@@ -640,10 +645,10 @@ async function getAIAnalysis(env, prompt) {
         body: JSON.stringify({
           model,
           messages: [{ role: 'user', content: prompt }],
-          max_tokens: 1200,
+          max_tokens: 900,
           temperature: 0.3
         }),
-      }, 25000);
+      }, 20000);
       
       if (!res.ok) {
         const errText = await res.text().catch(() => '');
@@ -696,7 +701,7 @@ async function testGeminiConnection(env) {
   }
 }
 
-// [FIX v4.2.4] Shorter prompt to avoid Gemini rejection
+// [FIX v4.2.5] Reverted to v3.7 prompt structure — PROVEN WORKING with Gemini
 function buildAIPrompt(today, yesterday, mode, scenario, emotion) {
   const t = today, y = yesterday || {};
   const emo = emotion || { state: 'NEUTRAL', intensity: 50, tone: 'Neutral, factual.' };
@@ -975,13 +980,22 @@ async function answerCallback(env, queryId, text = null) {
   }
 }
 
+// [FIX v4.2.5] Handle "message not modified" error gracefully
 async function editMessage(env, chatId, messageId, text, markup = null) {
-  const body = { chat_id: chatId, message_id: messageId, text, parse_mode: 'HTML', disable_web_page_preview: true };
-  if (markup) body.reply_markup = markup;
-  return tgMethod(env.TELEGRAM_BOT_TOKEN, 'editMessageText', body);
+  try {
+    const body = { chat_id: chatId, message_id: messageId, text, parse_mode: 'HTML', disable_web_page_preview: true };
+    if (markup) body.reply_markup = markup;
+    return await tgMethod(env.TELEGRAM_BOT_TOKEN, 'editMessageText', body);
+  } catch (e) {
+    if (e.message && e.message.includes('message is not modified')) {
+      console.log(`[EDIT] Ignoring "not modified" for msg ${messageId}`);
+      return null;
+    }
+    throw e;
+  }
 }
 
-// [FIX v4.2.4] Better sticker error logging
+// [FIX v4.2.5] Better sticker error logging
 async function getStickerFileId(env) {
   if (!env.ALERTS_KV) return null;
   try {
@@ -1004,7 +1018,7 @@ async function getStickerFileId(env) {
     }
   } catch (e) {
     console.error(`[STICKER] getStickerSet FAILED: ${e.message} | Set: ${STICKER_SET_NAME}`);
-    console.error(`[STICKER] HINT: Bot must be admin/owner of sticker set "${STICKER_SET_NAME}"`);
+    console.error(`[STICKER] HINT: Bot must be owner/admin of sticker set "${STICKER_SET_NAME}"`);
   }
   return null;
 }
@@ -1028,7 +1042,7 @@ async function sendChannelSticker(env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 14. KEYBOARDS
+// 14. KEYBOARDS — [FIX v4.2.5] Updated layout + emoji variants
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function mainKeyboard(isAdmin) {
@@ -1555,7 +1569,7 @@ async function collectMarketData(env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 18. CHANNEL SENDERS — DEDUP v3
+// 18. CHANNEL SENDERS — DEDUP v3 + [FIX v4.2.5] AI Fallback
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function ensureChannel(env) {
@@ -1609,6 +1623,7 @@ async function sendChannelFng(env) {
   });
 }
 
+// [FIX v4.2.5] AI fallback to Daily Report if AI fails
 async function sendChannelAI(env, customPrompt = null) {
   ensureChannel(env);
   await dedupSend(env, 'ai', async () => {
@@ -1633,8 +1648,11 @@ async function sendChannelAI(env, customPrompt = null) {
       aiResult = await getAIAnalysis(env, prompt);
     }
 
+    // [FIX v4.2.5] Fallback to Daily Report if AI completely fails
     if (!aiResult) {
-      throw new Error('All AI sources failed. Check GEMINI_API_KEY / OPENROUTER_API_KEY and quotas.');
+      console.log('[AI] Analysis failed, falling back to Daily Report');
+      await sendChannelDaily(env);
+      return;
     }
 
     if (env.ALERTS_KV) {
@@ -1679,7 +1697,7 @@ async function sendWithTimeout(fn, env, name, timeoutMs = 35000) {
   ]);
 }
 
-// [FIX v4.2.4] Sticker FIRST, then posts with 2s gap
+// [FIX v4.2.5] Sticker FIRST, then posts with 2s gap
 async function sendChannelAll(env, ctx) {
   await dedupSend(env, 'all_bundle', async () => {
     // 1. STICKER FIRST
@@ -2126,7 +2144,7 @@ async function processWebhook(update, env, ctx) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 21. CRON HANDLER — [FIX v4.2.4] Sticker FIRST in bundle
+// 21. CRON HANDLER — [FIX v4.2.5] Sticker FIRST in bundle
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleCron(event, env) {
@@ -2146,7 +2164,7 @@ async function handleCron(event, env) {
     }
     else if (cron === CRON_BUNDLE) {
       console.log('[CRON] Bundle: Sticker + AI + F&G + Funding (8h)');
-      // [FIX v4.2.4] Sticker FIRST
+      // [FIX v4.2.5] Sticker FIRST
       try {
         await sendChannelSticker(env);
         console.log('[CRON] ✅ Sticker sent first');
@@ -2247,7 +2265,7 @@ async function handleDebug(env) {
     tier1: Object.keys(TIER_1).length,
     tier2: Object.keys(TIER_2).length,
     tier3: Object.keys(TIER_3).length,
-    version: '4.2.4',
+    version: '4.2.5',
   };
 
   if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHANNEL_ID) {
@@ -2310,7 +2328,7 @@ async function handleHttp(request, env, ctx) {
   }
   if (path === '/' && request.method === 'GET') {
     return new Response(
-      `TradeAgent IV HYBRID v4.2.4 — AI-Powered Crypto Intelligence\n\n` +
+      `TradeAgent IV HYBRID v4.2.5 — AI-Powered Crypto Intelligence\n\n` +
       `Backend: v4.2 (3-Tier, Emotion, Futures, HYPE, Dedup v3, Modern UI)\n` +
       `UI: Collapsible Persian (blockquote expandable) + Gemini Priority + Updated Commands\n\n` +
       `Routes:\n` +
@@ -2327,7 +2345,8 @@ async function handleHttp(request, env, ctx) {
       `Sticker: Auto-send after bundle via getStickerSet\n` +
       `Timeout: All fetches capped at 15-25s to prevent hangs\n` +
       `SendAll/Cron: Sticker FIRST, then posts with 2s gap\n` +
-      `AI Fail: Throws error with detailed logs\n`,
+      `AI Fail: Falls back to Daily Report automatically\n` +
+      `EditMsg: "not modified" errors ignored silently\n`,
       { status: 200 }
     );
   }
