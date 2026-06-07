@@ -1,7 +1,8 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV HYBRID v4.2.6 — AI Fallback Fix + Edit Error Fix
-//  FIXES: AI fallback bypasses dedup, "not modified" case-insensitive,
-//         Gemini timeout restored, sticker first in cron
+//  TRADEAGENT IV HYBRID v4.2.6-FINAL — AI Prompt Fix + Free Models Only
+//  FIXES: Reverted to PROVEN v3.7 prompt, OpenRouter :free models restored,
+//         Gemini 2.5/2.0/1.5 cascade, Persian blockquote expandable,
+//         "not modified" case-insensitive, AI fallback bypasses dedup
 // ═══════════════════════════════════════════════════════════════
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -130,7 +131,7 @@ function esc(text) {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-// [FIX v4.2.6] fetchWithTimeout restored for all API calls
+// [FIX v4.2.6-FINAL] fetchWithTimeout with configurable timeout
 function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -495,7 +496,7 @@ async function getFearGreed() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 10. AI LAYER — GEMINI DIRECT → OPENROUTER FAILOVER (v4.2.6)
+// 10. AI LAYER — GEMINI DIRECT → OPENROUTER :FREE FAILOVER (v4.2.6-FINAL)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const AI_CACHE_TTL = 3600;
@@ -600,7 +601,7 @@ async function getAIAnalysis(env, prompt) {
     return cached;
   }
 
-  // ── STEP 1: Gemini 2.5 Flash Direct (NEW PRIMARY) ──
+  // ── STEP 1: Gemini 2.5 Flash Direct (PRIMARY) ──
   let text = await tryGeminiDirect(env, prompt, GEMINI_URL, 'gemini-2.5-flash');
   
   // ── STEP 2: Gemini 2.0 Flash Fallback ──
@@ -621,25 +622,26 @@ async function getAIAnalysis(env, prompt) {
     return result;
   }
 
-  // ── STEP 4: OpenRouter Failover ──
-  console.log('[AI] Gemini family failed, trying OpenRouter...');
+  // ── STEP 4: OpenRouter :FREE Failover ──
+  console.log('[AI] Gemini family failed, trying OpenRouter FREE models...');
   if (!env.OPENROUTER_API_KEY) {
     console.log('[AI] No OpenRouter key, giving up');
     return null;
   }
 
+  // [FIX v4.2.6-FINAL] ALL models must have :free suffix for zero cost
   const models = [
-    'google/gemini-2.5-flash-preview',
-    'deepseek/deepseek-chat-v3-0324',
-    'meta-llama/llama-4-maverick',
-    'qwen/qwen3-30b-a3b',
-    'mistralai/mistral-small-3.1-24b',
-    'anthropic/claude-3.5-haiku',
+    'google/gemini-2.5-flash-preview:free',
+    'deepseek/deepseek-chat-v3-0324:free',
+    'meta-llama/llama-4-maverick:free',
+    'qwen/qwen3-235b-a22b:free',
+    'mistralai/mistral-small-3.1-24b-instruct:free',
+    'google/gemma-3-27b-it:free',
   ];
 
   for (const model of models) {
     try {
-      console.log(`[AI] Trying OpenRouter: ${getShortModelName(model)}...`);
+      console.log(`[AI] Trying OpenRouter FREE: ${getShortModelName(model)}...`);
       const res = await fetchWithTimeout(OPENROUTER_URL, {
         method: 'POST',
         headers: {
@@ -677,7 +679,7 @@ async function getAIAnalysis(env, prompt) {
     }
   }
 
-  console.log('[AI] All OpenRouter models failed');
+  console.log('[AI] All OpenRouter FREE models failed');
   return null;
 }
 
@@ -707,7 +709,7 @@ async function testGeminiConnection(env) {
   }
 }
 
-// [FIX v4.2.6] Reverted to v3.7 prompt structure + typo fix in Yesterday's Data
+// [FIX v4.2.6-FINAL] PROVEN v3.7 prompt structure + correct yesterday data
 function buildAIPrompt(today, yesterday, mode, scenario, emotion) {
   const t = today, y = yesterday || {};
   const emo = emotion || { state: 'NEUTRAL', intensity: 50, tone: 'Neutral, factual.' };
@@ -943,7 +945,7 @@ async function dedupSend(env, type, fn) {
 // 13. TELEGRAM API
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-// [FIX v4.2.6] tgMethod now uses fetchWithTimeout and handles "not modified" in retry
+// [FIX v4.2.6-FINAL] tgMethod with case-insensitive "not modified" handling
 async function tgMethod(token, method, body) {
   const url = `https://api.telegram.org/bot${token}/${method}`;
   for (let i = 0; i < 3; i++) {
@@ -960,7 +962,7 @@ async function tgMethod(token, method, body) {
       }
       return d;
     } catch (e) {
-      // [FIX v4.2.6] Don't retry "not modified" errors
+      // [FIX] Don't retry "not modified" errors — case insensitive
       const msg = (e.message || '').toLowerCase();
       if (msg.includes('not modified')) throw e;
       if (i === 2) throw e;
@@ -990,7 +992,7 @@ async function answerCallback(env, queryId, text = null) {
   }
 }
 
-// [FIX v4.2.6] Case-insensitive "not modified" check + toLowerCase
+// [FIX v4.2.6-FINAL] Case-insensitive "not modified" check
 async function editMessage(env, chatId, messageId, text, markup = null) {
   try {
     const body = { chat_id: chatId, message_id: messageId, text, parse_mode: 'HTML', disable_web_page_preview: true };
@@ -1052,7 +1054,7 @@ async function sendChannelSticker(env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 14. KEYBOARDS — [FIX v4.2.6] Updated layout + emoji variants
+// 14. KEYBOARDS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function mainKeyboard(isAdmin) {
@@ -1337,6 +1339,7 @@ async function buildFng(fear) {
   return m;
 }
 
+// [FIX v4.2.6-FINAL] Persian MUST be in <blockquote expandable>
 async function buildAIAnalysis(aiResult, todayData, emotion) {
   const t = todayData, emo = emotion || { state: 'NEUTRAL', intensity: 50, emoji: '😐', color: '⚪' };
   
@@ -1348,7 +1351,6 @@ async function buildAIAnalysis(aiResult, todayData, emotion) {
     persianText = englishText.substring(separatorIndex + 14).trim();
     englishText = englishText.substring(0, separatorIndex).trim();
   }
-  
   let m = `${emo.emoji} <b>MARKET STATE: ${emo.state}</b>\n`;
   m += `${emo.color} Intensity: ${emo.intensity}/100  ·  ${t.mode || 'Normal'} Mode\n\n`;
   
@@ -1579,7 +1581,7 @@ async function collectMarketData(env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 18. CHANNEL SENDERS — DEDUP v3 + [FIX v4.2.6] AI Fallback Bypass Dedup
+// 18. CHANNEL SENDERS — DEDUP v3 + [FIX v4.2.6-FINAL] AI Fallback Bypass Dedup
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function ensureChannel(env) {
@@ -1633,7 +1635,7 @@ async function sendChannelFng(env) {
   });
 }
 
-// [FIX v4.2.6] AI fallback bypasses dedup — sends Daily Report directly if AI fails
+// [FIX v4.2.6-FINAL] AI fallback bypasses dedup — sends Daily Report directly if AI fails
 async function sendChannelAI(env, customPrompt = null) {
   ensureChannel(env);
   await dedupSend(env, 'ai', async () => {
@@ -1658,7 +1660,7 @@ async function sendChannelAI(env, customPrompt = null) {
       aiResult = await getAIAnalysis(env, prompt);
     }
 
-    // [FIX v4.2.6] Fallback to Daily Report if AI completely fails — BYPASS DEDUP
+    // [FIX v4.2.6-FINAL] Fallback to Daily Report if AI completely fails — BYPASS DEDUP
     if (!aiResult) {
       console.log('[AI] Analysis failed, falling back to Daily Report (bypass dedup)');
       try {
@@ -1714,7 +1716,7 @@ async function sendWithTimeout(fn, env, name, timeoutMs = 35000) {
   ]);
 }
 
-// [FIX v4.2.6] Sticker FIRST, then posts with 2s gap
+// [FIX v4.2.6-FINAL] Sticker FIRST, then posts with 2s gap
 async function sendChannelAll(env, ctx) {
   await dedupSend(env, 'all_bundle', async () => {
     // 1. STICKER FIRST
@@ -2161,7 +2163,7 @@ async function processWebhook(update, env, ctx) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 21. CRON HANDLER — [FIX v4.2.6] Sticker FIRST in bundle
+// 21. CRON HANDLER — [FIX v4.2.6-FINAL] Sticker FIRST in bundle
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleCron(event, env) {
@@ -2181,7 +2183,7 @@ async function handleCron(event, env) {
     }
     else if (cron === CRON_BUNDLE) {
       console.log('[CRON] Bundle: Sticker + AI + F&G + Funding (8h)');
-      // [FIX v4.2.6] Sticker FIRST
+      // [FIX v4.2.6-FINAL] Sticker FIRST
       try {
         await sendChannelSticker(env);
         console.log('[CRON] ✅ Sticker sent first');
@@ -2282,7 +2284,7 @@ async function handleDebug(env) {
     tier1: Object.keys(TIER_1).length,
     tier2: Object.keys(TIER_2).length,
     tier3: Object.keys(TIER_3).length,
-    version: '4.2.6',
+    version: '4.2.6-FINAL',
   };
 
   if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHANNEL_ID) {
@@ -2345,7 +2347,7 @@ async function handleHttp(request, env, ctx) {
   }
   if (path === '/' && request.method === 'GET') {
     return new Response(
-      `TradeAgent IV HYBRID v4.2.6 — AI-Powered Crypto Intelligence\n\n` +
+      `TradeAgent IV HYBRID v4.2.6-FINAL — AI-Powered Crypto Intelligence\n\n` +
       `Backend: v4.2 (3-Tier, Emotion, Futures, HYPE, Dedup v3, Modern UI)\n` +
       `UI: Collapsible Persian (blockquote expandable) + Gemini Priority + Updated Commands\n\n` +
       `Routes:\n` +
@@ -2354,7 +2356,7 @@ async function handleHttp(request, env, ctx) {
       `  GET  /debug    → Status check + API tests (admin secret required)\n\n` +
       `Cron: ${CRON_PRICE}, ${CRON_BUNDLE}, ${CRON_MOVERS}\n` +
       `Coins: ${Object.keys(COINS).length} (T1:${Object.keys(TIER_1).length} T2:${Object.keys(TIER_2).length} T3:${Object.keys(TIER_3).length})\n` +
-      `AI: Gemini 2.5 Flash (primary) → Gemini 2.0 → Gemini 1.5 → OpenRouter\n` +
+      `AI: Gemini 2.5 Flash (primary) → Gemini 2.0 → Gemini 1.5 → OpenRouter :FREE\n` +
       `Movers: Binance 24h ticker (no CMC required)\n` +
       `Dedup: v3 (10min gap + 5min lock + race-proof)\n` +
       `F&G: Modern visual bar + signal interpretation\n` +
@@ -2363,7 +2365,8 @@ async function handleHttp(request, env, ctx) {
       `Timeout: All fetches capped at 15-25s to prevent hangs\n` +
       `SendAll/Cron: Sticker FIRST, then posts with 2s gap\n` +
       `AI Fail: Falls back to Daily Report directly (bypass dedup)\n` +
-      `EditMsg: "not modified" errors ignored silently (case-insensitive)\n`,
+      `EditMsg: "not modified" errors ignored silently (case-insensitive)\n` +
+      `Cost: 100% FREE — All AI models use :free tier or Gemini free tier\n`,
       { status: 200 }
     );
   }
