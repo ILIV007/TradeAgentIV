@@ -1,7 +1,7 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV HYBRID v4.1.0 — Collapse Persian + Dedup v3 + Movers Fix
-//  Backend: v4.1 (3-Tier, Emotion, Futures, HYPE, Dedup v3, Modern F&G)
-//  UI: Collapsible Persian (tg-spoiler) + Modern F&G + Re-layout Admin
+//  TRADEAGENT IV HYBRID v4.2.0 — Collapse Persian + Gemini Priority + Modern Keyboard
+//  Backend: v4.2 (3-Tier, Emotion, Futures, HYPE, Dedup v3, Modern UI)
+//  UI: Collapsible Persian (<blockquote expandable>) + Gemini Priority + Updated Commands
 // ═══════════════════════════════════════════════════════════════
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -239,7 +239,7 @@ async function api(url, opts = {}, retries = 3) {
     try {
       const r = await fetch(url, {
         ...opts,
-        headers: { Accept: 'application/json', 'User-Agent': 'TradeAgentIV/4.1', ...opts.headers },
+        headers: { Accept: 'application/json', 'User-Agent': 'TradeAgentIV/4.2', ...opts.headers },
       });
       if (!r.ok) {
         const txt = await r.text().catch(() => '');
@@ -327,7 +327,7 @@ async function getCoins(env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 8. ENHANCED DATA APIs — MOVERS FIX (Binance Primary + Robust)
+// 8. ENHANCED DATA APIs — MOVERS FIX (Binance Primary)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function getTopGainersLosersBinance() {
@@ -378,11 +378,9 @@ async function getTopGainersLosersCG(env) {
 }
 
 async function getTopGainersLosers(env) {
-  // Binance first — no key needed, most reliable
   const bin = await getTopGainersLosersBinance();
   if (bin) return bin;
   
-  // Fallback to CoinGecko
   if (env.COINGECKO_API_KEY) {
     const cg = await getTopGainersLosersCG(env);
     if (cg) return cg;
@@ -487,7 +485,7 @@ async function getFearGreed() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 10. AI LAYER — GEMINI DIRECT → OPENROUTER FAILOVER
+// 10. AI LAYER — GEMINI DIRECT → OPENROUTER FAILOVER (v4.2)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const AI_CACHE_TTL = 3600;
@@ -592,7 +590,7 @@ async function getAIAnalysis(env, prompt) {
     return cached;
   }
 
-  // ── STEP 1: Gemini 2.0 Flash Direct ──
+  // ── STEP 1: Gemini 2.0 Flash Direct (HIGHEST PRIORITY) ──
   let text = await tryGeminiDirect(env, prompt, GEMINI_URL, 'gemini-2.0-flash');
   
   // ── STEP 2: Gemini 1.5 Flash Fallback ──
@@ -608,19 +606,20 @@ async function getAIAnalysis(env, prompt) {
     return result;
   }
 
-  // ── STEP 3: OpenRouter Failover (Top 5 Free) ──
+  // ── STEP 3: OpenRouter Failover (Updated Top 5 Free Ranked) ──
   console.log('[AI] Gemini family failed, trying OpenRouter...');
   if (!env.OPENROUTER_API_KEY) {
     console.log('[AI] No OpenRouter key, giving up');
     return null;
   }
 
+  // Updated Top 5 free models by rank on OpenRouter (2026)
   const models = [
+    'google/gemini-2.5-flash-preview:free',
     'deepseek/deepseek-chat-v3-0324:free',
-    'meta-llama/llama-3.3-70b-instruct:free',
-    'deepseek/deepseek-r1:free',
-    'qwen/qwen3-235b-a22b:free',
-    'google/gemma-4-31b-it:free',
+    'meta-llama/llama-4-maverick:free',
+    'qwen/qwen3-30b-a3b:free',
+    'mistralai/mistral-small-3.1-24b:free',
   ];
 
   for (const model of models) {
@@ -890,7 +889,6 @@ async function dedupSend(env, type, fn) {
   const now = Date.now();
   
   try {
-    // Check if recently sent (10 min gap)
     const existing = await env.ALERTS_KV.get(key);
     if (existing) {
       const age = now - parseInt(existing);
@@ -900,10 +898,8 @@ async function dedupSend(env, type, fn) {
       }
     }
     
-    // Acquire lock (5 min TTL — longer than any send should take)
     await env.ALERTS_KV.put(lockKey, now.toString(), { expirationTtl: 300 });
     
-    // Race-condition double-check
     const doubleCheck = await env.ALERTS_KV.get(key);
     if (doubleCheck) {
       const age2 = now - parseInt(doubleCheck);
@@ -914,10 +910,8 @@ async function dedupSend(env, type, fn) {
       }
     }
     
-    // Execute the send
     const result = await fn();
     
-    // Mark sent + release lock
     await env.ALERTS_KV.put(key, now.toString(), { expirationTtl: 900 });
     await env.ALERTS_KV.delete(lockKey);
     
@@ -979,15 +973,14 @@ async function editMessage(env, chatId, messageId, text, markup = null) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 14. KEYBOARDS — MODERN RE-LAYOUT
+// 14. KEYBOARDS — MODERN RE-LAYOUT (v4.2)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function mainKeyboard(isAdmin) {
   const kb = [
-    [{ text: '📊 Prices' }, { text: '📈 Volume' }],
-    [{ text: '🔥 Trending' }, { text: '🧠 AI Analysis' }],
-    [{ text: '🧭 F&G' }, { text: '🚨 Alerts' }],
-    [{ text: '⚙️ Settings' }],
+    [{ text: '📊 Prices' }, { text: '📈 Volume' }, { text: '🔥 Trending' }],
+    [{ text: '🧠 AI Analysis' }, { text: '🧭 F&G' }, { text: '📉 Market Report' }],
+    [{ text: '🚨 Alerts' }, { text: '⚙️ Settings' }, { text: '❓ Help' }],
   ];
   if (isAdmin) kb.push([{ text: '📣 Admin Panel' }]);
   return { keyboard: kb, resize_keyboard: true };
@@ -1229,7 +1222,7 @@ async function buildTrending(trending) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// MODERN FEAR & GREED — v4.1 Redesign
+// MODERN FEAR & GREED — v4.2 Redesign
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function buildFng(fear) {
@@ -1240,11 +1233,9 @@ async function buildFng(fear) {
   const f = fear.data[0], v = parseInt(f.value);
   const classification = f.value_classification || 'Neutral';
   
-  // Modern visual bar (12 blocks)
   const filled = Math.round((v / 100) * 12);
   const bar = '█'.repeat(filled) + '░'.repeat(12 - filled);
   
-  // Color-coded emoji
   let clsEmoji = '⚪';
   let signalText = 'Balanced market sentiment.';
   if (v >= 75) {
@@ -1267,14 +1258,11 @@ async function buildFng(fear) {
   let m = `🧠 <b>FEAR & GREED INDEX</b>\n`;
   m += `<i>${f.timestamp ? new Date(f.timestamp * 1000).toISOString().slice(0, 10) : fmt.date()}</i>\n\n`;
   
-  // Big bar
   m += `<pre>${bar} ${v}/100</pre>\n\n`;
   
-  // Classification + Bias
   m += `<b>${clsEmoji} ${classification.toUpperCase()}</b>\n`;
   m += `<i>${getBias(v)}</i>\n\n`;
   
-  // Signal box
   m += `<blockquote>${signalText}</blockquote>\n\n`;
   
   m += `<i>Updated: ${fmt.time()} UTC</i>\n\n`;
@@ -1283,7 +1271,7 @@ async function buildFng(fear) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// AI ANALYSIS — Collapsible Persian (tg-spoiler) + No Flag
+// AI ANALYSIS — Collapsible Persian (blockquote expandable) + No Flag
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function buildAIAnalysis(aiResult, todayData, emotion) {
@@ -1308,10 +1296,10 @@ async function buildAIAnalysis(aiResult, todayData, emotion) {
     m += `<blockquote>\n${cleanMarkdown(englishText)}\n</blockquote>\n\n`;
   }
   
-  // Persian: no flag, exact translation, collapsible (tg-spoiler)
+  // Persian: no flag, exact translation, collapsible (blockquote expandable)
   if (persianText) {
     m += `<b>📋 خلاصه بازار</b>\n`;
-    m += `<tg-spoiler>\n${cleanMarkdown(persianText)}\n</tg-spoiler>\n\n`;
+    m += `<blockquote expandable>\n${cleanMarkdown(persianText)}\n</blockquote>\n\n`;
   }
 
   m += `<b>📊 Key Metrics</b>\n<pre>`;
@@ -1340,7 +1328,7 @@ async function buildAIAnalysis(aiResult, todayData, emotion) {
 function buildAlert(coinId, price, type) {
   const i = COINS[coinId];
   const t = type === 'above' ? '🚀 ABOVE TARGET' : '📉 BELOW TARGET';
-  return `🚨 <b>PRICE ALERT</b>\n\n<blockquote>${i.emoji} <b>${esc(i.name)} (${i.symbol})</b>\n${t}\n\nCurrent: <code>$${fmt.price(price)}</code></blockquote>\n\n${FOOTER}`;
+  return `🚨 <b>PRICE ALERT</b>\n\n<<blockquote>${i.emoji} <b>${esc(i.name)} (${i.symbol})</b>\n${t}\n\nCurrent: <code>$${fmt.price(price)}</code></blockquote>\n\n${FOOTER}`;
 }
 
 async function buildFutures(futures) {
@@ -1653,7 +1641,6 @@ async function sendChannelMovers(env) {
 }
 
 async function sendChannelAll(env) {
-  // Bundle-level dedup to prevent double-sends in rapid succession
   await dedupSend(env, 'all_bundle', async () => {
     const results = [];
     const senders = [
@@ -1865,12 +1852,12 @@ async function processWebhook(update, env) {
       if (text === '/start') await handleStart(chatId, userId, env);
       else if (text === '/price' || text === '📊 Prices') await handlePrices(chatId, env);
       else if (text === '/volume' || text === '📈 Volume') await handleVolume(chatId, env);
-      else if (text === '/daily' || text === '/marketreport') await handleDaily(chatId, env);
+      else if (text === '/daily' || text === '📉 Market Report' || text === '/marketreport') await handleDaily(chatId, env);
       else if (text === '/trending' || text === '🔥 Trending') await handleTrending(chatId, env);
       else if (text === '/fng' || text === '🧭 F&G' || text === '/feargreed' || text === '/fg') await handleFng(chatId, env);
       else if (text === '/alerts' || text === '🚨 Alerts') await handleAlerts(chatId, env);
       else if (text === '/settings' || text === '⚙️ Settings') await handleSettings(chatId, env);
-      else if (text === '/help') await handleHelp(chatId, env, userId);
+      else if (text === '/help' || text === '❓ Help') await handleHelp(chatId, env, userId);
       else if (text === '/admin' || text === '📣 Admin Panel') {
         if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ <b>Access Denied</b>'); return; }
         await showAdminPanel(chatId, env);
@@ -2065,7 +2052,7 @@ async function processWebhook(update, env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 21. CRON HANDLER — v4.1 (Staggered + Dedup)
+// 21. CRON HANDLER — v4.2 (Staggered + Dedup)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleCron(event, env) {
@@ -2087,8 +2074,8 @@ async function handleCron(event, env) {
       console.log('[CRON] Bundle: AI + F&G + Funding (8h)');
       const tasks = [
         { name: 'AI', fn: sendChannelAI, delay: 0 },
-        { name: 'F&G', fn: sendChannelFng, delay: 4000 },
-        { name: 'Futures', fn: sendChannelFutures, delay: 8000 },
+        { name: 'F&G', fn: sendChannelFng, delay: 5000 },
+        { name: 'Futures', fn: sendChannelFutures, delay: 10000 },
       ];
       for (const task of tasks) {
         if (task.delay > 0) await new Promise(r => setTimeout(r, task.delay));
@@ -2174,7 +2161,7 @@ async function handleDebug(env) {
     tier1: Object.keys(TIER_1).length,
     tier2: Object.keys(TIER_2).length,
     tier3: Object.keys(TIER_3).length,
-    version: '4.1.0',
+    version: '4.2.0',
   };
 
   if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHANNEL_ID) {
@@ -2232,9 +2219,9 @@ async function handleHttp(request, env) {
   }
   if (path === '/' && request.method === 'GET') {
     return new Response(
-      `TradeAgent IV HYBRID v4.1.0 — AI-Powered Crypto Intelligence\n\n` +
-      `Backend: v4.1 (3-Tier, Emotion, Futures, HYPE, Dedup v3, Modern F&G)\n` +
-      `UI: Collapsible Persian (tg-spoiler) + Modern F&G + Re-layout Admin\n\n` +
+      `TradeAgent IV HYBRID v4.2.0 — AI-Powered Crypto Intelligence\n\n` +
+      `Backend: v4.2 (3-Tier, Emotion, Futures, HYPE, Dedup v3, Modern UI)\n` +
+      `UI: Collapsible Persian (blockquote expandable) + Gemini Priority + Updated Commands\n\n` +
       `Routes:\n` +
       `  POST /webhook  → Telegram webhook\n` +
       `  POST /admin    → Manual trigger (x-admin-secret required)\n` +
@@ -2244,7 +2231,8 @@ async function handleHttp(request, env) {
       `AI: Gemini Direct (priority) → OpenRouter (Top 5 Free Ranked)\n` +
       `Movers: Binance 24h ticker (no CMC required)\n` +
       `Dedup: v3 (10min gap + 5min lock + race-proof)\n` +
-      `F&G: Modern visual bar + signal interpretation\n`,
+      `F&G: Modern visual bar + signal interpretation\n` +
+      `Persian: Collapsible <blockquote expandable> (no flag)\n`,
       { status: 200 }
     );
   }
