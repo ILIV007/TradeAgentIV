@@ -1421,7 +1421,7 @@ async function buildAIAnalysis(aiResult, todayData, emotion) {
   
   if (persianText) {
     m += `<b>📋 خلاصه بازار</b>\n`;
-    m += `<blockquote>\n${persianText}\n</blockquote>\n\n`;
+    m += `<blockquote expandable>\n${persianText}\n</blockquote>\n\n`;
   }
 
   m += `<b>📊 Key Metrics</b>\n<pre>`;
