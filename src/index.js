@@ -1,7 +1,7 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV HYBRID v4.0.0 — Modern UI + Dedup Fix + Movers Fix
-//  Backend: v4.0 (3-Tier, Emotion, Futures, HYPE, Dedup v2)
-//  UI: Compact tiered blocks + clean Persian AI + modern emoji
+//  TRADEAGENT IV HYBRID v4.1.0 — Collapse Persian + Dedup v3 + Movers Fix
+//  Backend: v4.1 (3-Tier, Emotion, Futures, HYPE, Dedup v3, Modern F&G)
+//  UI: Collapsible Persian (tg-spoiler) + Modern F&G + Re-layout Admin
 // ═══════════════════════════════════════════════════════════════
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -53,7 +53,7 @@ const COINS = { ...TIER_1, ...TIER_2, ...TIER_3 };
 const COIN_IDS = Object.keys(COINS).join(',');
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 2. CRON CONFIG — DEDUP v2
+// 2. CRON CONFIG
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const CRON_PRICE   = '*/30 * * * *';
@@ -239,7 +239,7 @@ async function api(url, opts = {}, retries = 3) {
     try {
       const r = await fetch(url, {
         ...opts,
-        headers: { Accept: 'application/json', 'User-Agent': 'TradeAgentIV/4.0', ...opts.headers },
+        headers: { Accept: 'application/json', 'User-Agent': 'TradeAgentIV/4.1', ...opts.headers },
       });
       if (!r.ok) {
         const txt = await r.text().catch(() => '');
@@ -327,14 +327,21 @@ async function getCoins(env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 8. ENHANCED DATA APIs — MOVERS FIX (Binance Primary)
+// 8. ENHANCED DATA APIs — MOVERS FIX (Binance Primary + Robust)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function getTopGainersLosersBinance() {
   try {
+    console.log('[API] Fetching movers from Binance...');
     const data = await api('https://api.binance.com/api/v3/ticker/24hr');
+    if (!Array.isArray(data)) {
+      console.error('[API] Binance movers: response not array');
+      return null;
+    }
+    
+    const ourSymbols = new Set(Object.values(BINANCE_MAP));
     const mapped = data
-      .filter(t => Object.values(BINANCE_MAP).includes(t.symbol))
+      .filter(t => ourSymbols.has(t.symbol))
       .map(t => {
         const id = Object.keys(BINANCE_MAP).find(k => BINANCE_MAP[k] === t.symbol);
         return {
@@ -345,11 +352,20 @@ async function getTopGainersLosersBinance() {
       })
       .sort((a, b) => b.price_change_percentage_24h - a.price_change_percentage_24h);
     
+    if (!mapped.length) {
+      console.error('[API] Binance movers: no mapped coins found');
+      return null;
+    }
+    
+    console.log(`[API] Binance movers: ${mapped.length} coins mapped`);
     return {
       gainers: mapped.slice(0, 5),
       losers: mapped.slice(-5).reverse(),
     };
-  } catch (e) { console.error('[API] Binance Movers fail:', e.message); return null; }
+  } catch (e) { 
+    console.error('[API] Binance Movers fail:', e.message); 
+    return null; 
+  }
 }
 
 async function getTopGainersLosersCG(env) {
@@ -362,14 +378,17 @@ async function getTopGainersLosersCG(env) {
 }
 
 async function getTopGainersLosers(env) {
-  // Try Binance first (no API key needed, always works)
+  // Binance first — no key needed, most reliable
   const bin = await getTopGainersLosersBinance();
   if (bin) return bin;
-  // Fallback to CoinGecko if available
+  
+  // Fallback to CoinGecko
   if (env.COINGECKO_API_KEY) {
     const cg = await getTopGainersLosersCG(env);
     if (cg) return cg;
   }
+  
+  console.error('[API] All movers sources failed');
   return null;
 }
 
@@ -468,7 +487,7 @@ async function getFearGreed() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 10. AI LAYER — GEMINI DIRECT → OPENROUTER FAILOVER (v4.0)
+// 10. AI LAYER — GEMINI DIRECT → OPENROUTER FAILOVER
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const AI_CACHE_TTL = 3600;
@@ -589,14 +608,13 @@ async function getAIAnalysis(env, prompt) {
     return result;
   }
 
-  // ── STEP 3: OpenRouter Failover (Top 5 Free Ranked) ──
+  // ── STEP 3: OpenRouter Failover (Top 5 Free) ──
   console.log('[AI] Gemini family failed, trying OpenRouter...');
   if (!env.OPENROUTER_API_KEY) {
     console.log('[AI] No OpenRouter key, giving up');
     return null;
   }
 
-  // Top 5 free models by rank on OpenRouter
   const models = [
     'deepseek/deepseek-chat-v3-0324:free',
     'meta-llama/llama-3.3-70b-instruct:free',
@@ -760,7 +778,7 @@ Then add this EXACT separator on its own line:
 
 Then write the COMPACT PERSIAN TRANSLATION. Keep it SHORT and DENSE.
 Use bullet points (•) only. Each bullet max 1 line. No paragraphs.
-Match the English meaning exactly but be extremely concise.
+Translate EXACTLY — same meaning, same points, no additions, no omissions.
 
 Persian structure:
 <b>خلاصه بازار</b>
@@ -858,12 +876,12 @@ async function setUserState(env, userId, value) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 12. DEDUP — v2 FIX (Stronger Lock + TTL)
+// 12. DEDUP — v3 FIX (10min Gap + 5min Lock + Race-Proof)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function dedupSend(env, type, fn) {
   if (!env.ALERTS_KV) {
-    console.log(`[DEDUP] KV not available, running without dedup for ${type}`);
+    console.log(`[DEDUP] KV not available, running ${type}`);
     return await fn();
   }
   
@@ -872,41 +890,40 @@ async function dedupSend(env, type, fn) {
   const now = Date.now();
   
   try {
-    // Check if recently sent
+    // Check if recently sent (10 min gap)
     const existing = await env.ALERTS_KV.get(key);
     if (existing) {
       const age = now - parseInt(existing);
-      if (age < 300000) { // 5 min minimum gap
-        console.log(`[DEDUP] Blocked duplicate ${type} send (age: ${age}ms)`);
+      if (age < 600000) {
+        console.log(`[DEDUP] Blocked ${type} (age: ${age}ms < 10min)`);
         return;
       }
     }
     
-    // Acquire lock with 2-min TTL
-    const lockVal = now.toString();
-    await env.ALERTS_KV.put(lockKey, lockVal, { expirationTtl: 120 });
+    // Acquire lock (5 min TTL — longer than any send should take)
+    await env.ALERTS_KV.put(lockKey, now.toString(), { expirationTtl: 300 });
     
-    // Double-check after lock
+    // Race-condition double-check
     const doubleCheck = await env.ALERTS_KV.get(key);
     if (doubleCheck) {
       const age2 = now - parseInt(doubleCheck);
-      if (age2 < 300000) {
+      if (age2 < 600000) {
         await env.ALERTS_KV.delete(lockKey);
-        console.log(`[DEDUP] Double-check blocked ${type} (age: ${age2}ms)`);
+        console.log(`[DEDUP] Race blocked ${type} (age: ${age2}ms)`);
         return;
       }
     }
     
-    // Execute
+    // Execute the send
     const result = await fn();
     
     // Mark sent + release lock
-    await env.ALERTS_KV.put(key, now.toString(), { expirationTtl: 600 });
+    await env.ALERTS_KV.put(key, now.toString(), { expirationTtl: 900 });
     await env.ALERTS_KV.delete(lockKey);
     
     return result;
   } catch (e) {
-    console.log(`[DEDUP] KV error (${e.message}), running without dedup for ${type}`);
+    console.log(`[DEDUP] Error for ${type}: ${e.message}`);
     try { await env.ALERTS_KV.delete(lockKey); } catch (e2) {}
     return await fn();
   }
@@ -962,7 +979,7 @@ async function editMessage(env, chatId, messageId, text, markup = null) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 14. KEYBOARDS — MODERN UI
+// 14. KEYBOARDS — MODERN RE-LAYOUT
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function mainKeyboard(isAdmin) {
@@ -982,19 +999,46 @@ function getAdminInline(mode, scenario, autoPosts) {
   const autoStatus = autoPosts === 'true' ? '✅ On' : '⏸ Off';
   return {
     inline_keyboard: [
-      [{ text: '📈 Send Price', callback_data: 'send_price' }, { text: '📉 Send Volume', callback_data: 'send_volume' }],
-      [{ text: '🧠 Send AI', callback_data: 'send_ai' }, { text: '🔥 Send Trending', callback_data: 'send_trending' }],
-      [{ text: '🧠 Send F&G', callback_data: 'send_fng' }, { text: '📊 Send All', callback_data: 'send_all' }],
-      [{ text: '⚡ Send Futures', callback_data: 'send_futures' }, { text: '🚀 Send Movers', callback_data: 'send_movers' }],
-      [{ text: '──── AI Config ────', callback_data: 'noop' }],
-      [{ text: `🤖 Mode: ${m}`, callback_data: 'admin:ai_mode' }],
-      [{ text: `🎛 Scenario: ${s}`, callback_data: 'admin:scenario' }],
-      [{ text: '🧪 Custom Prompt', callback_data: 'admin:custom' }, { text: '📤 Resend Last', callback_data: 'admin:resend' }],
+      // Send Row 1
+      [
+        { text: '📈 Price', callback_data: 'send_price' },
+        { text: '📉 Volume', callback_data: 'send_volume' },
+        { text: '🧠 AI', callback_data: 'send_ai' },
+      ],
+      // Send Row 2
+      [
+        { text: '🔥 Trending', callback_data: 'send_trending' },
+        { text: '🧠 F&G', callback_data: 'send_fng' },
+        { text: '📊 All', callback_data: 'send_all' },
+      ],
+      // Send Row 3
+      [
+        { text: '⚡ Futures', callback_data: 'send_futures' },
+        { text: '🚀 Movers', callback_data: 'send_movers' },
+      ],
+      // Divider
+      [{ text: '──── AI Configuration ────', callback_data: 'noop' }],
+      // AI Config
+      [
+        { text: `🤖 ${m}`, callback_data: 'admin:ai_mode' },
+        { text: `🎛 ${s}`, callback_data: 'admin:scenario' },
+      ],
+      [
+        { text: '🧪 Custom Prompt', callback_data: 'admin:custom' },
+        { text: '📤 Resend Last', callback_data: 'admin:resend' },
+      ],
+      // Divider
       [{ text: '──── System ────', callback_data: 'noop' }],
-      [{ text: '🤖 AI Status', callback_data: 'admin:ai_status' }],
-      [{ text: '📊 API Status', callback_data: 'admin:api_status' }],
-      [{ text: `⏸ Auto Posts: ${autoStatus}`, callback_data: 'admin:auto_posts' }],
-      [{ text: '🔙 Back', callback_data: 'back_main' }],
+      // System
+      [
+        { text: '🤖 AI Status', callback_data: 'admin:ai_status' },
+        { text: '📊 API Status', callback_data: 'admin:api_status' },
+      ],
+      [
+        { text: `⏸ Auto: ${autoStatus}`, callback_data: 'admin:auto_posts' },
+      ],
+      // Back
+      [{ text: '🔙 Back to Menu', callback_data: 'back_main' }],
     ],
   };
 }
@@ -1031,7 +1075,7 @@ function alertsInline(states) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 15. MESSAGE BUILDERS — MODERN TIERED UI
+// 15. MESSAGE BUILDERS — MODERN UI
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function buildPrice(coins, source = '') {
@@ -1184,20 +1228,63 @@ async function buildTrending(trending) {
   return m;
 }
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// MODERN FEAR & GREED — v4.1 Redesign
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 async function buildFng(fear) {
-  if (!fear?.data?.[0]) return `🧠 <b>FEAR & GREED INDEX</b>\n\n<i>Data unavailable</i>\n\n${FOOTER}`;
+  if (!fear?.data?.[0]) {
+    return `🧠 <b>FEAR & GREED INDEX</b>\n\n<i>Data unavailable</i>\n\n${FOOTER}`;
+  }
+  
   const f = fear.data[0], v = parseInt(f.value);
   const classification = f.value_classification || 'Neutral';
   
+  // Modern visual bar (12 blocks)
+  const filled = Math.round((v / 100) * 12);
+  const bar = '█'.repeat(filled) + '░'.repeat(12 - filled);
+  
+  // Color-coded emoji
+  let clsEmoji = '⚪';
+  let signalText = 'Balanced market sentiment.';
+  if (v >= 75) {
+    clsEmoji = '🔴';
+    signalText = '⚠️ Extreme greed — consider taking profits.';
+  } else if (v >= 55) {
+    clsEmoji = '🟡';
+    signalText = '📊 Greed detected — caution advised, FOMO zone.';
+  } else if (v >= 45) {
+    clsEmoji = '⚪';
+    signalText = '⚖️ Neutral — wait for clear directional move.';
+  } else if (v >= 25) {
+    clsEmoji = '🟢';
+    signalText = '💎 Fear present — potential accumulation zone.';
+  } else {
+    clsEmoji = '🟢';
+    signalText = '🛡️ Extreme fear — historical buying opportunity.';
+  }
+  
   let m = `🧠 <b>FEAR & GREED INDEX</b>\n`;
   m += `<i>${f.timestamp ? new Date(f.timestamp * 1000).toISOString().slice(0, 10) : fmt.date()}</i>\n\n`;
-  m += `${progressBar(v)} <b>${v}/100</b>\n\n`;
-  m += `<b>${classification.toUpperCase()}</b>\n`;
-  m += `${getBias(v)}\n\n`;
+  
+  // Big bar
+  m += `<pre>${bar} ${v}/100</pre>\n\n`;
+  
+  // Classification + Bias
+  m += `<b>${clsEmoji} ${classification.toUpperCase()}</b>\n`;
+  m += `<i>${getBias(v)}</i>\n\n`;
+  
+  // Signal box
+  m += `<blockquote>${signalText}</blockquote>\n\n`;
+  
   m += `<i>Updated: ${fmt.time()} UTC</i>\n\n`;
   m += `${FOOTER}`;
   return m;
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// AI ANALYSIS — Collapsible Persian (tg-spoiler) + No Flag
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function buildAIAnalysis(aiResult, todayData, emotion) {
   const t = todayData, emo = emotion || { state: 'NEUTRAL', intensity: 50, emoji: '😐', color: '⚪' };
@@ -1221,10 +1308,10 @@ async function buildAIAnalysis(aiResult, todayData, emotion) {
     m += `<blockquote>\n${cleanMarkdown(englishText)}\n</blockquote>\n\n`;
   }
   
-  // Compact Persian — dense bullet format
+  // Persian: no flag, exact translation, collapsible (tg-spoiler)
   if (persianText) {
-    m += `<blockquote>\n<b>🇮🇷 خلاصه بازار</b>\n\n`;
-    m += `${cleanMarkdown(persianText)}\n</blockquote>\n\n`;
+    m += `<b>📋 خلاصه بازار</b>\n`;
+    m += `<tg-spoiler>\n${cleanMarkdown(persianText)}\n</tg-spoiler>\n\n`;
   }
 
   m += `<b>📊 Key Metrics</b>\n<pre>`;
@@ -1274,26 +1361,38 @@ async function buildFutures(futures) {
   return m;
 }
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// MOVERS — Robust Build + Fallback Message
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 async function buildMovers(gl) {
+  if (!gl || (!gl.gainers?.length && !gl.losers?.length)) {
+    return `🚀 <b>TOP MOVERS (24H)</b>\n\n<i>No movers data available</i>\n\n${FOOTER}`;
+  }
+  
   let m = `🚀 <b>TOP MOVERS (24H)</b>\n`;
   m += `<i>${fmt.time()} UTC</i>\n\n`;
   
   if (gl.gainers?.length) {
-    m += `<b>🔥 Gainers</b>\n<pre>`;
+    m += `<b>🔥 Top Gainers</b>\n<pre>`;
     for (const g of gl.gainers.slice(0, 5)) {
-      const sym = (g.symbol || '?').toUpperCase().padEnd(6);
-      const ch = ((g.price_change_percentage_24h >= 0 ? '+' : '') + (g.price_change_percentage_24h || 0).toFixed(2) + '%').padStart(10);
-      m += `   🟢 ${sym} ${ch}  $${fmt.price(g.current_price || 0)}\n`;
+      const sym = (g.symbol || '?').toString().toUpperCase().padEnd(6);
+      const chVal = g.price_change_percentage_24h || 0;
+      const ch = ((chVal >= 0 ? '+' : '') + chVal.toFixed(2) + '%').padStart(10);
+      const price = g.current_price || 0;
+      m += `   🟢 ${sym} ${ch}  $${fmt.price(price)}\n`;
     }
     m += `</pre>\n\n`;
   }
   
   if (gl.losers?.length) {
-    m += `<b>❄️ Losers</b>\n<pre>`;
+    m += `<b>❄️ Top Losers</b>\n<pre>`;
     for (const l of gl.losers.slice(0, 5)) {
-      const sym = (l.symbol || '?').toUpperCase().padEnd(6);
-      const ch = ((l.price_change_percentage_24h >= 0 ? '+' : '') + (l.price_change_percentage_24h || 0).toFixed(2) + '%').padStart(10);
-      m += `   🔴 ${sym} ${ch}  $${fmt.price(l.current_price || 0)}\n`;
+      const sym = (l.symbol || '?').toString().toUpperCase().padEnd(6);
+      const chVal = l.price_change_percentage_24h || 0;
+      const ch = ((chVal >= 0 ? '+' : '') + chVal.toFixed(2) + '%').padStart(10);
+      const price = l.current_price || 0;
+      m += `   🔴 ${sym} ${ch}  $${fmt.price(price)}\n`;
     }
     m += `</pre>\n\n`;
   }
@@ -1391,7 +1490,7 @@ async function collectMarketData(env) {
     getGlobal(env),
     getTrending(env),
     getFearGreed(),
-    getTopGainersLosers(env).catch(() => null),
+    getTopGainersLosers(env).catch(e => { console.error('[COLLECT] Movers error:', e.message); return null; }),
     getCategories(env).catch(() => null),
   ]);
 
@@ -1434,7 +1533,7 @@ async function collectMarketData(env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 18. CHANNEL SENDERS — DEDUP v2
+// 18. CHANNEL SENDERS — DEDUP v3
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function ensureChannel(env) {
@@ -1546,33 +1645,34 @@ async function sendChannelFutures(env) {
 async function sendChannelMovers(env) {
   ensureChannel(env);
   await dedupSend(env, 'movers', async () => {
+    console.log('[MOVERS] Starting send...');
     const gl = await getTopGainersLosers(env);
-    if (!gl) {
-      await sendMessage(env, env.TELEGRAM_CHANNEL_ID, `🚀 <b>TOP MOVERS</b>\n\n<i>Data unavailable</i>\n\n${FOOTER}`);
-      return;
-    }
+    console.log('[MOVERS] Data:', gl ? `G:${gl.gainers?.length} L:${gl.losers?.length}` : 'null');
     await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildMovers(gl));
   });
 }
 
 async function sendChannelAll(env) {
-  const results = [];
-  const senders = [
-    { name: 'Price', fn: sendChannelPrice }, { name: 'Volume', fn: sendChannelVolume },
-    { name: 'AI Daily', fn: sendChannelAI }, { name: 'Trending', fn: sendChannelTrending },
-    { name: 'F&G', fn: sendChannelFng }, { name: 'Futures', fn: sendChannelFutures },
-    { name: 'Movers', fn: sendChannelMovers },
-  ];
-  for (const s of senders) {
-    try { await s.fn(env); results.push(`✅ ${s.name}`); }
-    catch (e) { results.push(`❌ ${s.name}: ${e.message}`); }
-  }
-  console.log('[SEND ALL]\n' + results.join('\n'));
-  if (results.every(r => r.startsWith('❌'))) throw new Error('All sends failed');
+  // Bundle-level dedup to prevent double-sends in rapid succession
+  await dedupSend(env, 'all_bundle', async () => {
+    const results = [];
+    const senders = [
+      { name: 'Price', fn: sendChannelPrice }, { name: 'Volume', fn: sendChannelVolume },
+      { name: 'AI Daily', fn: sendChannelAI }, { name: 'Trending', fn: sendChannelTrending },
+      { name: 'F&G', fn: sendChannelFng }, { name: 'Futures', fn: sendChannelFutures },
+      { name: 'Movers', fn: sendChannelMovers },
+    ];
+    for (const s of senders) {
+      try { await s.fn(env); results.push(`✅ ${s.name}`); }
+      catch (e) { results.push(`❌ ${s.name}: ${e.message}`); }
+    }
+    console.log('[SEND ALL]\n' + results.join('\n'));
+    if (results.every(r => r.startsWith('❌'))) throw new Error('All sends failed');
+  });
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 19. BOT HANDLERS
+// 19. BOT HANDLERS — FIXED COMMANDS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleStart(chatId, userId, env) {
@@ -1665,8 +1765,11 @@ async function handleHelp(chatId, env, userId) {
   text += `/price — Live prices\n`;
   text += `/volume — Volume leaders\n`;
   text += `/daily — Daily report\n`;
+  text += `/marketreport — Daily market report (alias)\n`;
   text += `/trending — Hot coins\n`;
-  text += `/fng — Market Sentiment\n`;
+  text += `/fng — Fear & Greed index\n`;
+  text += `/feargreed — Fear & Greed (alias)\n`;
+  text += `/fg — Fear & Greed (short alias)\n`;
   text += `/alerts — Alert settings\n`;
   text += `/settings — Bot config\n`;
   text += `/help — This menu\n`;
@@ -1706,6 +1809,7 @@ async function handleAPIStatus(chatId, env) {
   try { const bin = await getCoinsBinance(); checks.push(`Binance: ${bin ? '✅' : '⚠️'}`); } catch(e) { checks.push(`Binance: ❌`); }
   try { const f = await getBinanceFutures('BTCUSDT'); checks.push(`Futures: ${f.fundingRate != null ? '✅' : '⚠️'}`); } catch(e) { checks.push(`Futures: ❌`); }
   try { const fng = await getFearGreed(); checks.push(`F&G: ${fng?.data ? '✅' : '⚠️'}`); } catch(e) { checks.push(`F&G: ❌`); }
+  try { const mov = await getTopGainersLosers(env); checks.push(`Movers: ${mov ? '✅' : '⚠️'}`); } catch(e) { checks.push(`Movers: ❌`); }
   
   let text = `📊 <b>API Health Check</b>\n\n${checks.join('\n')}\n\nUse /debug for detailed report.`;
   await sendMessage(env, chatId, text);
@@ -1727,7 +1831,7 @@ async function handleAutoPosts(chatId, env, msgId = null) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 20. WEBHOOK PROCESSOR
+// 20. WEBHOOK PROCESSOR — FIXED COMMAND ROUTING
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function processWebhook(update, env) {
@@ -1761,9 +1865,9 @@ async function processWebhook(update, env) {
       if (text === '/start') await handleStart(chatId, userId, env);
       else if (text === '/price' || text === '📊 Prices') await handlePrices(chatId, env);
       else if (text === '/volume' || text === '📈 Volume') await handleVolume(chatId, env);
-      else if (text === '/daily') await handleDaily(chatId, env);
+      else if (text === '/daily' || text === '/marketreport') await handleDaily(chatId, env);
       else if (text === '/trending' || text === '🔥 Trending') await handleTrending(chatId, env);
-      else if (text === '/fng' || text === '🧭 F&G') await handleFng(chatId, env);
+      else if (text === '/fng' || text === '🧭 F&G' || text === '/feargreed' || text === '/fg') await handleFng(chatId, env);
       else if (text === '/alerts' || text === '🚨 Alerts') await handleAlerts(chatId, env);
       else if (text === '/settings' || text === '⚙️ Settings') await handleSettings(chatId, env);
       else if (text === '/help') await handleHelp(chatId, env, userId);
@@ -1961,7 +2065,7 @@ async function processWebhook(update, env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 21. CRON HANDLER — v4.0 (Auto-posts check + staggered sends)
+// 21. CRON HANDLER — v4.1 (Staggered + Dedup)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleCron(event, env) {
@@ -1981,11 +2085,10 @@ async function handleCron(event, env) {
     }
     else if (cron === CRON_BUNDLE) {
       console.log('[CRON] Bundle: AI + F&G + Funding (8h)');
-      // Staggered sends with small delays to avoid rate limits
       const tasks = [
         { name: 'AI', fn: sendChannelAI, delay: 0 },
-        { name: 'F&G', fn: sendChannelFng, delay: 3000 },
-        { name: 'Futures', fn: sendChannelFutures, delay: 6000 },
+        { name: 'F&G', fn: sendChannelFng, delay: 4000 },
+        { name: 'Futures', fn: sendChannelFutures, delay: 8000 },
       ];
       for (const task of tasks) {
         if (task.delay > 0) await new Promise(r => setTimeout(r, task.delay));
@@ -2071,7 +2174,7 @@ async function handleDebug(env) {
     tier1: Object.keys(TIER_1).length,
     tier2: Object.keys(TIER_2).length,
     tier3: Object.keys(TIER_3).length,
-    version: '4.0.0',
+    version: '4.1.0',
   };
 
   if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHANNEL_ID) {
@@ -2106,7 +2209,6 @@ async function handleDebug(env) {
     checks.fng_status = fng?.data ? `✅ OK (${fng.data[0].value}/100)` : '⚠️ No data';
   } catch (e) { checks.fng_status = `❌ ${e.message}`; }
 
-  // Test movers
   try {
     const movers = await getTopGainersLosers(env);
     checks.movers_status = movers ? `✅ OK (G:${movers.gainers?.length || 0} L:${movers.losers?.length || 0})` : '⚠️ No data';
@@ -2130,9 +2232,9 @@ async function handleHttp(request, env) {
   }
   if (path === '/' && request.method === 'GET') {
     return new Response(
-      `TradeAgent IV HYBRID v4.0.0 — AI-Powered Crypto Intelligence\n\n` +
-      `Backend: v4.0 (3-Tier, Emotion, Futures, HYPE, Dedup v2)\n` +
-      `UI: Modern tiered blocks + compact Persian AI + clean emoji\n\n` +
+      `TradeAgent IV HYBRID v4.1.0 — AI-Powered Crypto Intelligence\n\n` +
+      `Backend: v4.1 (3-Tier, Emotion, Futures, HYPE, Dedup v3, Modern F&G)\n` +
+      `UI: Collapsible Persian (tg-spoiler) + Modern F&G + Re-layout Admin\n\n` +
       `Routes:\n` +
       `  POST /webhook  → Telegram webhook\n` +
       `  POST /admin    → Manual trigger (x-admin-secret required)\n` +
@@ -2141,7 +2243,8 @@ async function handleHttp(request, env) {
       `Coins: ${Object.keys(COINS).length} (T1:${Object.keys(TIER_1).length} T2:${Object.keys(TIER_2).length} T3:${Object.keys(TIER_3).length})\n` +
       `AI: Gemini Direct (priority) → OpenRouter (Top 5 Free Ranked)\n` +
       `Movers: Binance 24h ticker (no CMC required)\n` +
-      `Dedup: v2 (5min gap + double-check lock)\n`,
+      `Dedup: v3 (10min gap + 5min lock + race-proof)\n` +
+      `F&G: Modern visual bar + signal interpretation\n`,
       { status: 200 }
     );
   }
