@@ -1,7 +1,7 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV HYBRID v3.7.0 — Tier UI + Gemini Fix + Movers Fix
-//  Backend: v3.5 (3-Tier, Emotion, Futures, HYPE, Dedup Fix)
-//  UI: Tiered blocks with emoji + compact pre tables
+//  TRADEAGENT IV HYBRID v4.0.0 — Modern UI + Dedup Fix + Movers Fix
+//  Backend: v4.0 (3-Tier, Emotion, Futures, HYPE, Dedup v2)
+//  UI: Compact tiered blocks + clean Persian AI + modern emoji
 // ═══════════════════════════════════════════════════════════════
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -46,14 +46,14 @@ const TIER_3 = {
   bonk:         { symbol: 'BONK', emoji: '🔨',  name: 'Bonk',        tier: 3 },
   bittensor:    { symbol: 'TAO',  emoji: '🔯',  name: 'Bittensor',   tier: 3 },
   'fetch-ai':   { symbol: 'FET',  emoji: '🤖',  name: 'Fetch.ai',    tier: 3 },
-  'render-token':{ symbol: 'RENDER', emoji: '🎨', name: 'Render',     tier: 3 },
+  'render-token':{ symbol: 'RENDER', emoji: '🎨', name: 'Render',   tier: 3 },
 };
 
 const COINS = { ...TIER_1, ...TIER_2, ...TIER_3 };
 const COIN_IDS = Object.keys(COINS).join(',');
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 2. CRON CONFIG
+// 2. CRON CONFIG — DEDUP v2
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const CRON_PRICE   = '*/30 * * * *';
@@ -194,6 +194,7 @@ function getShortModelName(fullName) {
   if (lower.includes('gpt')) return 'GPT';
   if (lower.includes('llama')) return 'Llama';
   if (lower.includes('kimi')) return 'Kimi';
+  if (lower.includes('gemma')) return 'Gemma';
   return clean;
 }
 
@@ -238,7 +239,7 @@ async function api(url, opts = {}, retries = 3) {
     try {
       const r = await fetch(url, {
         ...opts,
-        headers: { Accept: 'application/json', 'User-Agent': 'TradeAgentIV/3.7', ...opts.headers },
+        headers: { Accept: 'application/json', 'User-Agent': 'TradeAgentIV/4.0', ...opts.headers },
       });
       if (!r.ok) {
         const txt = await r.text().catch(() => '');
@@ -326,17 +327,8 @@ async function getCoins(env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 8. ENHANCED DATA APIs
+// 8. ENHANCED DATA APIs — MOVERS FIX (Binance Primary)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-async function getTopGainersLosersCG(env) {
-  const key = env.COINGECKO_API_KEY;
-  if (!key) return null;
-  try {
-    const data = await api(`${COINGECKO_BASE}/coins/top_gainers_losers?vs_currency=usd&duration=24h`, { headers: { 'x-cg-demo-api-key': key } });
-    return { gainers: (data.top_gainers || []).slice(0, 5), losers: (data.top_losers || []).slice(0, 5) };
-  } catch (e) { console.error('[API] CG Gainers fail:', e.message); return null; }
-}
 
 async function getTopGainersLosersBinance() {
   try {
@@ -360,12 +352,25 @@ async function getTopGainersLosersBinance() {
   } catch (e) { console.error('[API] Binance Movers fail:', e.message); return null; }
 }
 
+async function getTopGainersLosersCG(env) {
+  const key = env.COINGECKO_API_KEY;
+  if (!key) return null;
+  try {
+    const data = await api(`${COINGECKO_BASE}/coins/top_gainers_losers?vs_currency=usd&duration=24h`, { headers: { 'x-cg-demo-api-key': key } });
+    return { gainers: (data.top_gainers || []).slice(0, 5), losers: (data.top_losers || []).slice(0, 5) };
+  } catch (e) { console.error('[API] CG Gainers fail:', e.message); return null; }
+}
+
 async function getTopGainersLosers(env) {
+  // Try Binance first (no API key needed, always works)
+  const bin = await getTopGainersLosersBinance();
+  if (bin) return bin;
+  // Fallback to CoinGecko if available
   if (env.COINGECKO_API_KEY) {
     const cg = await getTopGainersLosersCG(env);
     if (cg) return cg;
   }
-  return await getTopGainersLosersBinance();
+  return null;
 }
 
 async function getCategories(env) {
@@ -463,7 +468,7 @@ async function getFearGreed() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 10. AI LAYER — GEMINI DIRECT + OPENROUTER FAILOVER (REWRITTEN)
+// 10. AI LAYER — GEMINI DIRECT → OPENROUTER FAILOVER (v4.0)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const AI_CACHE_TTL = 3600;
@@ -506,7 +511,7 @@ async function closeCircuit(env, name) {
   } catch (e) {}
 }
 
-// ── GEMINI DIRECT API (not via OpenRouter) ──
+// ── GEMINI DIRECT API (priority) ──
 async function tryGeminiDirect(env, prompt, modelUrl, name) {
   if (!env.GEMINI_API_KEY) {
     console.log(`[AI] ${name} skipped: No GEMINI_API_KEY`);
@@ -584,20 +589,20 @@ async function getAIAnalysis(env, prompt) {
     return result;
   }
 
-  // ── STEP 3: OpenRouter Failover ──
+  // ── STEP 3: OpenRouter Failover (Top 5 Free Ranked) ──
   console.log('[AI] Gemini family failed, trying OpenRouter...');
   if (!env.OPENROUTER_API_KEY) {
     console.log('[AI] No OpenRouter key, giving up');
     return null;
   }
 
+  // Top 5 free models by rank on OpenRouter
   const models = [
     'deepseek/deepseek-chat-v3-0324:free',
     'meta-llama/llama-3.3-70b-instruct:free',
     'deepseek/deepseek-r1:free',
     'qwen/qwen3-235b-a22b:free',
     'google/gemma-4-31b-it:free',
-    'moonshotai/kimi-k2.6:free',
   ];
 
   for (const model of models) {
@@ -753,12 +758,19 @@ First write the FULL ENGLISH ANALYSIS with these sections:
 Then add this EXACT separator on its own line:
 ---PERSIAN---
 
-Then write the EXACT PERSIAN TRANSLATION of the ENTIRE English analysis above. Do NOT change the meaning. Do NOT add new information. Do NOT remove information. Translate faithfully and accurately.
+Then write the COMPACT PERSIAN TRANSLATION. Keep it SHORT and DENSE.
+Use bullet points (•) only. Each bullet max 1 line. No paragraphs.
+Match the English meaning exactly but be extremely concise.
 
-The Persian section must use this structure:
-<b>خلاصه تحلیل بازار</b>
-• [Persian translation of each English point, as bullet points]
-• [Keep the same tone and emotion as the English version]
+Persian structure:
+<b>خلاصه بازار</b>
+• [1-line Persian bullet]
+• [1-line Persian bullet]
+• [1-line Persian bullet]
+• [1-line Persian bullet]
+• [1-line Persian bullet]
+• [1-line Persian bullet]
+• [1-line Persian bullet]
 
 RULES:
 - English sections in English, Persian section in Persian (Farsi)
@@ -846,7 +858,7 @@ async function setUserState(env, userId, value) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 12. DEDUP — FIXED DOUBLE-POST BUG
+// 12. DEDUP — v2 FIX (Stronger Lock + TTL)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function dedupSend(env, type, fn) {
@@ -854,30 +866,44 @@ async function dedupSend(env, type, fn) {
     console.log(`[DEDUP] KV not available, running without dedup for ${type}`);
     return await fn();
   }
+  
   const key = `dedup:send:${type}`;
   const lockKey = `dedup:lock:${type}`;
+  const now = Date.now();
+  
   try {
+    // Check if recently sent
     const existing = await env.ALERTS_KV.get(key);
     if (existing) {
-      const age = Date.now() - parseInt(existing);
-      if (age < 180000) {
+      const age = now - parseInt(existing);
+      if (age < 300000) { // 5 min minimum gap
         console.log(`[DEDUP] Blocked duplicate ${type} send (age: ${age}ms)`);
         return;
       }
     }
     
-    const lock = await env.ALERTS_KV.get(lockKey);
-    if (lock) {
-      console.log(`[DEDUP] Lock active for ${type}, skipping`);
-      return;
+    // Acquire lock with 2-min TTL
+    const lockVal = now.toString();
+    await env.ALERTS_KV.put(lockKey, lockVal, { expirationTtl: 120 });
+    
+    // Double-check after lock
+    const doubleCheck = await env.ALERTS_KV.get(key);
+    if (doubleCheck) {
+      const age2 = now - parseInt(doubleCheck);
+      if (age2 < 300000) {
+        await env.ALERTS_KV.delete(lockKey);
+        console.log(`[DEDUP] Double-check blocked ${type} (age: ${age2}ms)`);
+        return;
+      }
     }
     
-    await env.ALERTS_KV.put(lockKey, '1', { expirationTtl: 60 });
-    await env.ALERTS_KV.put(key, Date.now().toString(), { expirationTtl: 180 });
-    
+    // Execute
     const result = await fn();
     
+    // Mark sent + release lock
+    await env.ALERTS_KV.put(key, now.toString(), { expirationTtl: 600 });
     await env.ALERTS_KV.delete(lockKey);
+    
     return result;
   } catch (e) {
     console.log(`[DEDUP] KV error (${e.message}), running without dedup for ${type}`);
@@ -936,7 +962,7 @@ async function editMessage(env, chatId, messageId, text, markup = null) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 14. KEYBOARDS — FIXED ADMIN PANEL
+// 14. KEYBOARDS — MODERN UI
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function mainKeyboard(isAdmin) {
@@ -1005,7 +1031,7 @@ function alertsInline(states) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 15. MESSAGE BUILDERS — TIERED WITH EMOJI
+// 15. MESSAGE BUILDERS — MODERN TIERED UI
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function buildPrice(coins, source = '') {
@@ -1195,9 +1221,9 @@ async function buildAIAnalysis(aiResult, todayData, emotion) {
     m += `<blockquote>\n${cleanMarkdown(englishText)}\n</blockquote>\n\n`;
   }
   
-  // Compact Persian — no flag, just translation
+  // Compact Persian — dense bullet format
   if (persianText) {
-    m += `<blockquote>\n<b>خلاصه تحلیل بازار</b>\n\n`;
+    m += `<blockquote>\n<b>🇮🇷 خلاصه بازار</b>\n\n`;
     m += `${cleanMarkdown(persianText)}\n</blockquote>\n\n`;
   }
 
@@ -1408,7 +1434,7 @@ async function collectMarketData(env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 18. CHANNEL SENDERS
+// 18. CHANNEL SENDERS — DEDUP v2
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function ensureChannel(env) {
@@ -1546,7 +1572,7 @@ async function sendChannelAll(env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 19. BOT HANDLERS — FIXED ADMIN PANEL CALLBACKS
+// 19. BOT HANDLERS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleStart(chatId, userId, env) {
@@ -1701,7 +1727,7 @@ async function handleAutoPosts(chatId, env, msgId = null) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 20. WEBHOOK PROCESSOR — FIXED CALLBACKS
+// 20. WEBHOOK PROCESSOR
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function processWebhook(update, env) {
@@ -1896,7 +1922,6 @@ async function processWebhook(update, env) {
         return;
       }
 
-      // ── FIXED: Auto Posts toggle with inline refresh ──
       if (data === 'admin:auto_posts') {
         if (!isAdmin(userId, env)) return;
         await handleAutoPosts(chatId, env, msgId);
@@ -1936,7 +1961,7 @@ async function processWebhook(update, env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 21. CRON HANDLER
+// 21. CRON HANDLER — v4.0 (Auto-posts check + staggered sends)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleCron(event, env) {
@@ -1956,12 +1981,14 @@ async function handleCron(event, env) {
     }
     else if (cron === CRON_BUNDLE) {
       console.log('[CRON] Bundle: AI + F&G + Funding (8h)');
+      // Staggered sends with small delays to avoid rate limits
       const tasks = [
-        { name: 'AI', fn: sendChannelAI },
-        { name: 'F&G', fn: sendChannelFng },
-        { name: 'Futures', fn: sendChannelFutures },
+        { name: 'AI', fn: sendChannelAI, delay: 0 },
+        { name: 'F&G', fn: sendChannelFng, delay: 3000 },
+        { name: 'Futures', fn: sendChannelFutures, delay: 6000 },
       ];
       for (const task of tasks) {
+        if (task.delay > 0) await new Promise(r => setTimeout(r, task.delay));
         try {
           await task.fn(env);
           console.log(`[CRON] ✅ ${task.name}`);
@@ -2044,7 +2071,7 @@ async function handleDebug(env) {
     tier1: Object.keys(TIER_1).length,
     tier2: Object.keys(TIER_2).length,
     tier3: Object.keys(TIER_3).length,
-    version: '3.7.0',
+    version: '4.0.0',
   };
 
   if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHANNEL_ID) {
@@ -2079,6 +2106,12 @@ async function handleDebug(env) {
     checks.fng_status = fng?.data ? `✅ OK (${fng.data[0].value}/100)` : '⚠️ No data';
   } catch (e) { checks.fng_status = `❌ ${e.message}`; }
 
+  // Test movers
+  try {
+    const movers = await getTopGainersLosers(env);
+    checks.movers_status = movers ? `✅ OK (G:${movers.gainers?.length || 0} L:${movers.losers?.length || 0})` : '⚠️ No data';
+  } catch (e) { checks.movers_status = `❌ ${e.message}`; }
+
   return new Response(JSON.stringify(checks, null, 2), { status: 200, headers: { 'Content-Type': 'application/json' } });
 }
 
@@ -2097,17 +2130,18 @@ async function handleHttp(request, env) {
   }
   if (path === '/' && request.method === 'GET') {
     return new Response(
-      `TradeAgent IV HYBRID v3.7.0 — AI-Powered Crypto Intelligence\n\n` +
-      `Backend: v3.5 (3-Tier, Emotion, Futures, HYPE, Dedup Fix)\n` +
-      `UI: Tiered blocks with emoji + compact pre tables\n\n` +
+      `TradeAgent IV HYBRID v4.0.0 — AI-Powered Crypto Intelligence\n\n` +
+      `Backend: v4.0 (3-Tier, Emotion, Futures, HYPE, Dedup v2)\n` +
+      `UI: Modern tiered blocks + compact Persian AI + clean emoji\n\n` +
       `Routes:\n` +
       `  POST /webhook  → Telegram webhook\n` +
       `  POST /admin    → Manual trigger (x-admin-secret required)\n` +
       `  GET  /debug    → Status check + API tests (admin secret required)\n\n` +
       `Cron: ${CRON_PRICE}, ${CRON_BUNDLE}, ${CRON_MOVERS}\n` +
       `Coins: ${Object.keys(COINS).length} (T1:${Object.keys(TIER_1).length} T2:${Object.keys(TIER_2).length} T3:${Object.keys(TIER_3).length})\n` +
-      `AI: Gemini Direct (priority) → OpenRouter (DeepSeek/Llama/Qwen/Gemma/Kimi failover)\n` +
-      `Movers: Binance 24h ticker fallback (no CMC required)\n`,
+      `AI: Gemini Direct (priority) → OpenRouter (Top 5 Free Ranked)\n` +
+      `Movers: Binance 24h ticker (no CMC required)\n` +
+      `Dedup: v2 (5min gap + double-check lock)\n`,
       { status: 200 }
     );
   }
