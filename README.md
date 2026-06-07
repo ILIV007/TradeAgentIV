@@ -1,147 +1,158 @@
 - https://t.me/TradeAgentIV
 
-# 🚀 TradeAgent IV — AI-Powered Crypto Intelligence
+```markdown
+# 🚀 TradeAgent IV HYBRID
 
-**An un-sleeping, intelligent crypto assistant that watches the market 24/7, analyzes trends with AI, and delivers daily intelligence directly to your Telegram channel.**
+[![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-F69652?style=for-the-badge&logo=cloudflare&logoColor=white)](https://workers.cloudflare.com/)
+[![Telegram Bot](https://img.shields.io/badge/Telegram-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://core.telegram.org/bots/api)
+[![AI Powered](https://img.shields.io/badge/AI-Gemini%20%7C%20OpenRouter-blueviolet?style=for-the-badge)]()
+[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)]()
 
-Built on **Cloudflare Workers**, TradeAgent IV is designed to be fast, reliable, and completely serverless. It doesn't just fetch prices; it understands the market.
+**TradeAgent IV HYBRID** is an advanced, serverless, AI-powered cryptocurrency market intelligence system. Designed as a Cloudflare Worker, it automates Telegram channel posting, provides real-time market analysis, and features a proprietary "Emotion Engine" to gauge market sentiment. 
+
+Built with a **100% free AI tier architecture**, it leverages multi-tier API failovers to ensure maximum uptime without incurring infrastructure costs.
 
 ---
 
 ## ✨ Key Features
 
-- 🧠 **AI Market Analysis:** Uses **Gemini 2.0 Flash Lite** to generate daily Persian market intelligence based on real-time data.
-- 🛡️ **Smart Failover System:** Never misses a beat. If CoinGecko fails, it switches to CMC, then Binance, then CoinCap automatically.
-- 📊 **Live Market Reports:** Price, Volume, and Daily Intelligence reports with beautiful HTML formatting.
-- 🚨 **Custom Alerts:** Set "Above" and "Below" price thresholds for BTC, ETH, and SOL.
-- 🔥 **Trending Coins:** Daily updates on the hottest coins in the market.
-- 🧠 **Fear & Greed Index:** Visual market sentiment tracking.
-- ⏰ **Automated Cron Jobs:** Scheduled reports without manual intervention.
-- 💾 **Stateful Storage:** Uses Cloudflare KV to remember alert states and historical data for AI comparison.
+### 🧠 Advanced AI Intelligence
+* **Multi-Model Failover:** Automatically cascades through Gemini 3.5 Flash → 3.1 Flash-Lite → 2.5 Flash → OpenRouter FREE models.
+* **Bilingual Output:** Generates comprehensive English market analysis followed by a dense, optimized Persian (Farsi) summary.
+* **Custom Prompts:** Admins can inject custom contexts or focus areas directly into the AI analysis.
+
+### 📊 3-Tier Coin Tracking System
+* **Tier 1 (Blue Chips):** BTC, ETH, SOL, XRP, BNB, XAUT.
+* **Tier 2 (Utility & L2s):** ADA, LINK, AVAX, SUI, HBAR, POL, INJ, ARB, OP, ATOM, TON, DOT, LTC, NEAR, APT, UNI, TRX, HYPE.
+* **Tier 3 (Meme & AI):** SHIB, DOGE, PEPE, WIF, BONK, TAO, FET, RENDER.
+
+### 🎭 Proprietary Emotion Engine
+Calculates real-time market psychology based on BTC/ETH price action, Fear & Greed Index, and BTC Dominance.
+* **States:** 💀 PANIC · 😰 FEAR · 😐 NEUTRAL · 🔥 MOMENTUM · 🚀 BREAKOUT · 🧨 FOMO
+* Dynamically adjusts AI tone, risk warnings, and visual indicators based on the calculated emotion.
+
+### 🔄 Bulletproof Architecture
+* **Multi-API Failover:** CoinGecko → CoinMarketCap → Binance for price data.
+* **Smart Deduplication (v3):** Prevents spam with a 10-minute gap, 5-minute lock, and race-condition proofing.
+* **Circuit Breakers:** Automatically trips and bypasses failing AI models to prevent quota exhaustion.
+* **Serverless:** Runs entirely on Cloudflare Workers with KV storage for state management.
 
 ---
 
-## 🏗️ Architecture
+## 🛠️ Tech Stack
 
-| Component | Technology |
-| :--- | :--- |
-| **Runtime** | Cloudflare Workers (Edge) |
-| **Database** | Cloudflare KV (Key-Value) |
-| **AI Engine** | Google Gemini 2.0 Flash Lite |
-| **Data Sources** | CoinGecko, CoinMarketCap, Binance, CoinCap |
-| **Messaging** | Telegram Bot API |
+* **Runtime:** Cloudflare Workers (JavaScript/ES Modules)
+* **Storage:** Cloudflare KV (Snapshots, Dedup locks, AI Cache, User States)
+* **Data Providers:** CoinGecko API, CoinMarketCap API, Binance API, Alternative.me (F&G)
+* **AI Providers:** Google Gemini API, OpenRouter API
+* **Messaging:** Telegram Bot API (HTML Parse Mode, Inline Keyboards, Webhooks)
 
 ---
 
 ## ⚙️ Environment Variables
 
-Set these in your Cloudflare Worker settings:
+To deploy, configure the following variables and bindings in your Cloudflare Worker settings:
 
-| Variable | Description | Required? |
-| :--- | :--- | :--- |
-| `TELEGRAM_BOT_TOKEN` | Your Telegram Bot Token from @BotFather | ✅ Yes |
-| `TELEGRAM_CHANNEL_ID` | The ID of your Telegram Channel (e.g., `@mychannel`) | ✅ Yes |
-| `ADMIN_ID` | Your Telegram User ID (for admin access) | ✅ Yes |
-| `ADMIN_SECRET` | A secret string for HTTP admin routes | ✅ Yes |
-| `GEMINI_API_KEY` | Google AI API Key for Gemini | ⚠️ Optional (Falls back to standard report) |
-| `COINGECKO_API_KEY` | CoinGecko Demo API Key | ⚠️ Optional |
-| `CMC_API_KEY` | CoinMarketCap Pro API Key | ⚠️ Optional |
-| `ALERTS_KV` | **KV Namespace Binding** (Name it `ALERTS_KV`) | ✅ Yes |
+### Secrets & API Keys
+| Variable | Description |
+| :--- | :--- |
+| `TELEGRAM_BOT_TOKEN` | Your Telegram Bot API token. |
+| `TELEGRAM_CHANNEL_ID` | The ID of the target Telegram channel (e.g., `@mychannel` or `-100...`). |
+| `ADMIN_ID` | Your Telegram User ID (for admin panel access). |
+| `ADMIN_SECRET` | A secure string for authenticating `/admin` HTTP requests. |
+| `COINGECKO_API_KEY` | CoinGecko Demo/Pro API key. |
+| `CMC_API_KEY` | CoinMarketCap Pro API key. |
+| `GEMINI_API_KEY` | Google AI Studio API key for Gemini models. |
+| `OPENROUTER_API_KEY` | OpenRouter API key for fallback free models. |
 
----
-
-## 🚀 Setup & Deployment
-
-1. **Clone the repo:**
-   ```bash
-   git clone https://github.com/ILIV007/TradeAgentIV.git
-   cd TradeAgentIV
-   ```
-
-2. **Install Wrangler CLI:**
-   ```bash
-   npm install -g wrangler
-   ```
-
-3. **Create a KV Namespace:**
-   ```bash
-   wrangler kv:namespace create ALERTS_KV
-   ```
-   *Copy the `id` from the output.*
-
-4. **Update `wrangler.toml`:**
-   Add the KV binding and your secrets:
-   ```toml
-   [[kv_namespaces]]
-   binding = "ALERTS_KV"
-   id = "your-kv-namespace-id-here"
-
-   [triggers]
-   crons = ["*/30 * * * *", "0 15 * * *", "0 21 * * *"]
-   ```
-
-5. **Deploy:**
-   ```bash
-   wrangler deploy
-   ```
-
-6. **Set Webhook:**
-   Visit: `https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://your-worker.workers.dev/webhook`
+### KV Namespace Binding
+| Binding Name | Description |
+| :--- | :--- |
+| `ALERTS_KV` | Cloudflare KV Namespace used for caching, deduplication, and state storage. |
 
 ---
 
 ## 🤖 Bot Commands
 
-### 📱 User Commands
+### 👤 User Commands
 | Command | Description |
 | :--- | :--- |
-| `/start` | Main menu & welcome message |
-| `/price` | Live prices for BTC, ETH, SOL, BNB, XRP, TON |
-| `/volume` | 24h Volume & Market Cap report |
-| `/daily` | Full daily intelligence report |
-| `/trending` | Top 10 trending coins |
-| `/fng` | Fear & Greed Index (Market Sentiment) |
-| `/alerts` | Manage price alerts |
-| `/settings` | View bot configuration |
+| `/start` | Open the main interactive menu. |
+| `/price` | Live 3-Tier market snapshot. |
+| `/volume` | Top 10 coins by 24h trading volume. |
+| `/daily` | Comprehensive daily market report. |
+| `/trending` | Currently trending coins on CoinGecko/CMC. |
+| `/fng` | Fear & Greed Index with visual progress bar. |
+| `/alerts` | Configure custom price alerts (Above/Below). |
+| `/settings` | View current bot configuration and API status. |
+| `/help` | List all available commands. |
 
 ### 🛡️ Admin Commands
 | Command | Description |
 | :--- | :--- |
-| `/admin` | Open the Admin Control Panel |
-| `/sendprice` | Manually send price report to channel |
-| `/sendvolume` | Manually send volume report to channel |
-| `/sendai` | Manually trigger AI analysis |
-| `/senddaily` | Manually send daily report |
-| `/sendall` | Send all reports to channel |
+| `/admin` | Open the interactive Admin Control Panel. |
+| `/sendprice` | Manually push a price snapshot to the channel. |
+| `/sendai` | Generate and push a new AI analysis. |
+| `/sendall` | Push the full bundle (Sticker + AI + F&G + Futures). |
+| `/sendmovers` | Push top gainers and losers. |
+| `/aiprompt` | Inject a custom prompt for the next AI analysis. |
 
 ---
 
-## 🌐 HTTP Endpoints
+## ⏱️ Automated Cron Schedule
 
-| Route | Method | Description |
-| :--- | :--- | :--- |
-| `/webhook` | `POST` | Telegram Webhook receiver |
-| `/admin` | `GET/POST` | Manual trigger (Requires `x-admin-secret` header) |
-| `/debug` | `GET` | Status check & API connectivity test |
-| `/` | `GET` | Welcome page with route info |
+The system utilizes Cloudflare Cron Triggers for fully autonomous operation:
 
-**Example Admin Trigger:**
-```bash
-curl -X GET "https://your-worker.workers.dev/admin?type=ai" \
-  -H "x-admin-secret: YOUR_SECRET"
+* **Every 30 Minutes (`*/30 * * * *`):** Fetches prices, checks custom user alerts, and posts the Market Snapshot.
+* **Every 8 Hours (`0 */8 * * *`):** Posts the "Bundle" — Starts with a custom Sticker, followed by AI Analysis, Fear & Greed, and Futures Funding Rates.
+* **3 Times Daily (`0 9,15,21 * * *`):** Posts Top Movers (Gainers & Losers) based on Binance 24h ticker data.
+
+---
+
+## 🚀 Deployment
+
+1. **Install Wrangler CLI:**
+   ```bash
+   npm install -g wrangler
+   ```
+2. **Login to Cloudflare:**
+   ```bash
+   wrangler login
+   ```
+3. **Create KV Namespace:**
+   ```bash
+   wrangler kv:namespace create ALERTS_KV
+   ```
+   *(Add the output to your `wrangler.toml`)*
+4. **Deploy the Worker:**
+   ```bash
+   wrangler deploy
+   ```
+5. **Set Telegram Webhook:**
+   ```bash
+   curl -F "url=https://your-worker.subdomain.workers.dev/webhook" https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook
+   ```
+
+---
+
+## 📡 HTTP Endpoints
+
+* `POST /webhook` — Receives Telegram updates.
+* `POST /admin` — Manual trigger endpoint (Requires `x-admin-secret` header).
+  * Example: `curl -X POST -H "x-admin-secret: YOUR_SECRET" "https://your-worker.workers.dev/admin?type=ai"`
+* `GET /debug` — System health check and API diagnostics (Requires `x-admin-secret` header).
+
+---
+
+## 📜 License
+
+Distributed under the MIT License. See `LICENSE` for more information.
+
+---
+<p align="center">
+  <i>TradeAgent IV · AI Crypto Intelligence · Built for the decentralized future.</i>
+</p>
 ```
-
----
-
-## ⏰ Cron Schedule
-
-| Schedule | Task |
-| :--- | :--- |
-| `*/30 * * * *` | Every 30 minutes: Price Report + Alert Check |
-| `0 15 * * *` | Daily at 15:00 UTC: AI Market Analysis |
-| `0 21 * * *` | Daily at 21:00 UTC: Fear & Greed Index |
-
----
 
 ## 📝 License
 
