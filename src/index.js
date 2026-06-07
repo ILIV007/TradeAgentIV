@@ -1,8 +1,9 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV HYBRID v4.2.1 — Timeout Fix + Sticker + Parallel Safety
+//  TRADEAGENT IV HYBRID v4.2.2 — AI Fix + Keyboard Update + Sticker + Timeout
 //  Backend: v4.2 (3-Tier, Emotion, Futures, HYPE, Dedup v3, Modern UI)
-//  FIXES: fetchWithTimeout, sendChannelAll sequential timeout,
-//         dedupSend no infinite retry, sticker after bundle
+//  FIXES: buildAIPrompt Persian structure, cleanMarkdown HTML-safe,
+//         dedupSend no infinite retry, sendChannelAll timeout,
+//         Keyboard updated to v4.2 layout
 // ═══════════════════════════════════════════════════════════════
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -58,7 +59,7 @@ const COIN_IDS = Object.keys(COINS).join(',');
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const CRON_PRICE   = '*/30 * * * *';
-const CRON_BUNDLE  = '0 */4 * * *';   // [FIX v4.2.1] Changed to 4h for user config
+const CRON_BUNDLE  = '0 */8 * * *';   // [MATCH wrangler.toml] 8 hours
 const CRON_MOVERS  = '0 9,15,21 * * *';
 
 const ALERT_PRESETS = {
@@ -111,7 +112,7 @@ const EMOTION_STATES = {
   FOMO:     { emoji: '🧨📊', color: '🔴', tone: 'Warning with urgency. Extreme greed. Emphasize FOMO danger.' },
 };
 
-const STICKER_SET_NAME = 'TradeAgentIVstickers'; // [FIX v4.2.1] Sticker set name
+const STICKER_SET_NAME = 'TradeAgentIVstickers';
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 4. SECURITY & UTILS
@@ -130,13 +131,14 @@ function esc(text) {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-// [FIX v4.2.1] Global fetch timeout helper to prevent hanging
+// [FIX v4.2.2] Global fetch timeout helper
 function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timeoutId));
 }
 
+// [FIX v4.2.2] Only clean markdown syntax, preserve HTML tags
 function cleanMarkdown(text) {
   if (!text) return '';
   return text
@@ -250,7 +252,7 @@ async function api(url, opts = {}, retries = 3) {
       const r = await fetchWithTimeout(url, {
         ...opts,
         headers: { Accept: 'application/json', 'User-Agent': 'TradeAgentIV/4.2', ...opts.headers },
-      }, 15000); // [FIX v4.2.1] 15s timeout per attempt
+      }, 15000);
       if (!r.ok) {
         const txt = await r.text().catch(() => '');
         throw new Error(`HTTP ${r.status} ${txt.slice(0, 100)}`);
@@ -557,7 +559,7 @@ async function tryGeminiDirect(env, prompt, modelUrl, name) {
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: { temperature: 0.3, maxOutputTokens: 900 }
       }),
-    }, 20000); // [FIX v4.2.1] 20s timeout
+    }, 20000);
     
     if (!res.ok) {
       const txt = await res.text().catch(() => '');
@@ -649,7 +651,7 @@ async function getAIAnalysis(env, prompt) {
           max_tokens: 900,
           temperature: 0.3
         }),
-      }, 20000); // [FIX v4.2.1] 20s timeout
+      }, 20000);
       
       if (!res.ok) {
         const errText = await res.text().catch(() => '');
@@ -686,7 +688,7 @@ async function testGeminiConnection(env) {
         contents: [{ parts: [{ text: 'Reply with exactly: OK' }] }],
         generationConfig: { temperature: 0, maxOutputTokens: 10 }
       })
-    }, 10000); // [FIX v4.2.1] 10s timeout
+    }, 10000);
     if (res.status === 429) return { ok: false, error: 'Rate limited (429)', source: 'Gemini' };
     if (res.status === 400) {
       const txt = await res.text().catch(() => '');
@@ -702,6 +704,7 @@ async function testGeminiConnection(env) {
   }
 }
 
+// [FIX v4.2.2] Complete buildAIPrompt with exact Persian structure
 function buildAIPrompt(today, yesterday, mode, scenario, emotion) {
   const t = today, y = yesterday || {};
   const emo = emotion || { state: 'NEUTRAL', intensity: 50, tone: 'Neutral, factual.' };
@@ -757,6 +760,7 @@ function buildAIPrompt(today, yesterday, mode, scenario, emotion) {
     volatile: 'High volatility expected. Emphasize risk management and wide ranges.',
   };
 
+  // [FIX v4.2.2] Exact Persian structure specified in prompt
   return `You are "TradeAgent IV", a professional bilingual crypto market intelligence analyst.
 
 CURRENT MODE: ${mode} — ${modeDesc[mode] || modeDesc.normal}
@@ -929,7 +933,7 @@ async function dedupSend(env, type, fn) {
   } catch (e) {
     console.log(`[DEDUP] Error for ${type}: ${e.message}`);
     try { await env.ALERTS_KV.delete(lockKey); } catch (e2) {}
-    // [FIX v4.2.1] Removed automatic retry to prevent infinite hang loops
+    // [FIX v4.2.2] No automatic retry — throw to prevent infinite hang
     throw e;
   }
 }
@@ -946,7 +950,7 @@ async function tgMethod(token, method, body) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
-      }, 15000); // [FIX v4.2.1] 15s timeout per TG attempt
+      }, 15000);
       const d = await r.json();
       if (!d.ok) {
         const err = new Error(d.description || `TG ${method} error`);
@@ -967,7 +971,6 @@ async function sendMessage(env, chatId, text, markup = null) {
 }
 
 async function sendSticker(env, chatId, stickerFileId) {
-  // [FIX v4.2.1] Sticker sender helper
   return tgMethod(env.TELEGRAM_BOT_TOKEN, 'sendSticker', { chat_id: chatId, sticker: stickerFileId });
 }
 
@@ -988,7 +991,7 @@ async function editMessage(env, chatId, messageId, text, markup = null) {
   return tgMethod(env.TELEGRAM_BOT_TOKEN, 'editMessageText', body);
 }
 
-// [FIX v4.2.1] Sticker cache and channel sender
+// [FIX v4.2.2] Sticker cache and sender
 async function getStickerFileId(env) {
   if (!env.ALERTS_KV) return null;
   try {
@@ -998,7 +1001,7 @@ async function getStickerFileId(env) {
     const set = await tgMethod(env.TELEGRAM_BOT_TOKEN, 'getStickerSet', { name: STICKER_SET_NAME });
     if (set.result?.stickers?.length > 0) {
       const fileId = set.result.stickers[0].file_id;
-      await env.ALERTS_KV.put('sticker:file_id', fileId, { expirationTtl: 2592000 }); // 30 days
+      await env.ALERTS_KV.put('sticker:file_id', fileId, { expirationTtl: 2592000 });
       console.log('[STICKER] Cached file_id:', fileId);
       return fileId;
     }
@@ -1024,7 +1027,7 @@ async function sendChannelSticker(env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 14. KEYBOARDS — MODERN RE-LAYOUT (v4.2)
+// 14. KEYBOARDS — [FIX v4.2.2] Updated to v4.2 layout
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function mainKeyboard(isAdmin) {
@@ -1347,7 +1350,7 @@ async function buildAIAnalysis(aiResult, todayData, emotion) {
     m += `<blockquote>\n${cleanMarkdown(englishText)}\n</blockquote>\n\n`;
   }
   
-  // Persian: no flag, exact translation, collapsible (blockquote expandable)
+  // [FIX v4.2.2] Persian: no flag, exact translation, collapsible (blockquote expandable)
   if (persianText) {
     m += `<b>📋 خلاصه بازار</b>\n`;
     m += `<blockquote expandable>\n${cleanMarkdown(persianText)}\n</blockquote>\n\n`;
@@ -1691,7 +1694,7 @@ async function sendChannelMovers(env) {
   });
 }
 
-// [FIX v4.2.1] Timeout wrapper for sequential sends so one hang doesn't block all
+// [FIX v4.2.2] Timeout wrapper for sequential sends so one hang doesn't block all
 async function sendWithTimeout(fn, env, name, timeoutMs = 35000) {
   return Promise.race([
     fn(env),
@@ -1710,7 +1713,7 @@ async function sendChannelAll(env) {
     ];
     for (const s of senders) {
       try { 
-        await sendWithTimeout(s.fn, env, s.name, 35000); // [FIX v4.2.1] 35s timeout per sender
+        await sendWithTimeout(s.fn, env, s.name, 35000);
         results.push(`✅ ${s.name}`); 
       }
       catch (e) { 
@@ -2116,7 +2119,7 @@ async function processWebhook(update, env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 21. CRON HANDLER — v4.2.1 (Staggered + Dedup + Sticker)
+// 21. CRON HANDLER — v4.2.2 (Staggered + Dedup + Sticker)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleCron(event, env) {
@@ -2135,7 +2138,7 @@ async function handleCron(event, env) {
       await sendChannelPrice(env);
     }
     else if (cron === CRON_BUNDLE) {
-      console.log('[CRON] Bundle: AI + F&G + Funding (4h) + Sticker');
+      console.log('[CRON] Bundle: AI + F&G + Funding (8h) + Sticker');
       const tasks = [
         { name: 'AI', fn: sendChannelAI, delay: 0 },
         { name: 'F&G', fn: sendChannelFng, delay: 5000 },
@@ -2150,7 +2153,7 @@ async function handleCron(event, env) {
           console.error(`[CRON] ❌ ${task.name}: ${e.message}`);
         }
       }
-      // [FIX v4.2.1] Send sticker after bundle to keep channel lively
+      // [FIX v4.2.2] Send sticker after bundle to keep channel lively
       await new Promise(r => setTimeout(r, 3000));
       try {
         await sendChannelSticker(env);
@@ -2235,7 +2238,7 @@ async function handleDebug(env) {
     tier1: Object.keys(TIER_1).length,
     tier2: Object.keys(TIER_2).length,
     tier3: Object.keys(TIER_3).length,
-    version: '4.2.1',
+    version: '4.2.2',
   };
 
   if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHANNEL_ID) {
@@ -2275,7 +2278,7 @@ async function handleDebug(env) {
     checks.movers_status = movers ? `✅ OK (G:${movers.gainers?.length || 0} L:${movers.losers?.length || 0})` : '⚠️ No data';
   } catch (e) { checks.movers_status = `❌ ${e.message}`; }
 
-  // [FIX v4.2.1] Sticker check
+  // [FIX v4.2.2] Sticker check
   try {
     const stickerId = await getStickerFileId(env);
     checks.sticker_status = stickerId ? `✅ OK (${stickerId.slice(0, 20)}...)` : '⚠️ No sticker cached';
@@ -2299,8 +2302,8 @@ async function handleHttp(request, env) {
   }
   if (path === '/' && request.method === 'GET') {
     return new Response(
-      `TradeAgent IV HYBRID v4.2.1 — AI-Powered Crypto Intelligence\n\n` +
-      `Backend: v4.2.1 (3-Tier, Emotion, Futures, HYPE, Dedup v3, Modern UI, Timeout Fix)\n` +
+      `TradeAgent IV HYBRID v4.2.2 — AI-Powered Crypto Intelligence\n\n` +
+      `Backend: v4.2 (3-Tier, Emotion, Futures, HYPE, Dedup v3, Modern UI)\n` +
       `UI: Collapsible Persian (blockquote expandable) + Gemini Priority + Updated Commands\n\n` +
       `Routes:\n` +
       `  POST /webhook  → Telegram webhook\n` +
