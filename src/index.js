@@ -1,8 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV HYBRID v4.3.2-FINAL — Gemini 3 Flash Migration
-//  FIXES: Gemini 2.0 Flash → 3 Flash (deprecated June 2026),
-//         isValidAIResponse simplified, no double cleanMarkdown,
-//         plain <blockquote>, Promise.race timeout, HTML fallback
+//  TRADEAGENT IV HYBRID v4.3.2-FINAL — Gemini Migration
 // ═══════════════════════════════════════════════════════════════
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
