@@ -1,8 +1,7 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV HYBRID v4.2.5 — AI Fix + Sticker First + Stable Prompt
-//  FIXES: Reverted to v3.7 prompt structure (proven working), 
-//         AI fallback to daily restored, sticker FIRST in all sends,
-//         "message not modified" error handled, keyboard variants fixed
+//  TRADEAGENT IV HYBRID v4.2.6 — AI Fallback Fix + Edit Error Fix
+//  FIXES: AI fallback bypasses dedup, "not modified" case-insensitive,
+//         Gemini timeout restored, sticker first in cron
 // ═══════════════════════════════════════════════════════════════
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -58,7 +57,7 @@ const COIN_IDS = Object.keys(COINS).join(',');
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const CRON_PRICE   = '*/30 * * * *';
-const CRON_BUNDLE  = '0 */8 * * *';   // [MATCH wrangler.toml] 8 hours
+const CRON_BUNDLE  = '0 */8 * * *';
 const CRON_MOVERS  = '0 9,15,21 * * *';
 
 const ALERT_PRESETS = {
@@ -73,8 +72,9 @@ const ALERT_PRESETS = {
 
 const COINGECKO_BASE = 'https://api.coingecko.com/api/v3';
 const CMC_BASE = 'https://pro-api.coinmarketcap.com/v1';
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
-const GEMINI_FALLBACK_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+const GEMINI_FALLBACK_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+const GEMINI_FALLBACK_URL_2 = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const FNG_URL = 'https://api.alternative.me/fng/?limit=1';
 
@@ -130,6 +130,7 @@ function esc(text) {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+// [FIX v4.2.6] fetchWithTimeout restored for all API calls
 function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -494,7 +495,7 @@ async function getFearGreed() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 10. AI LAYER — GEMINI DIRECT → OPENROUTER FAILOVER (v4.2.5)
+// 10. AI LAYER — GEMINI DIRECT → OPENROUTER FAILOVER (v4.2.6)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const AI_CACHE_TTL = 3600;
@@ -599,12 +600,17 @@ async function getAIAnalysis(env, prompt) {
     return cached;
   }
 
-  // ── STEP 1: Gemini 2.0 Flash Direct (HIGHEST PRIORITY) ──
-  let text = await tryGeminiDirect(env, prompt, GEMINI_URL, 'gemini-2.0-flash');
+  // ── STEP 1: Gemini 2.5 Flash Direct (NEW PRIMARY) ──
+  let text = await tryGeminiDirect(env, prompt, GEMINI_URL, 'gemini-2.5-flash');
   
-  // ── STEP 2: Gemini 1.5 Flash Fallback ──
+  // ── STEP 2: Gemini 2.0 Flash Fallback ──
   if (!text) {
-    text = await tryGeminiDirect(env, prompt, GEMINI_FALLBACK_URL, 'gemini-1.5-flash');
+    text = await tryGeminiDirect(env, prompt, GEMINI_FALLBACK_URL, 'gemini-2.0-flash');
+  }
+
+  // ── STEP 3: Gemini 1.5 Flash Fallback ──
+  if (!text) {
+    text = await tryGeminiDirect(env, prompt, GEMINI_FALLBACK_URL_2, 'gemini-1.5-flash');
   }
 
   if (text) {
@@ -615,20 +621,20 @@ async function getAIAnalysis(env, prompt) {
     return result;
   }
 
-  // ── STEP 3: OpenRouter Failover (Updated Top 5 Free Ranked) ──
+  // ── STEP 4: OpenRouter Failover ──
   console.log('[AI] Gemini family failed, trying OpenRouter...');
   if (!env.OPENROUTER_API_KEY) {
     console.log('[AI] No OpenRouter key, giving up');
     return null;
   }
 
-  // Updated Top 5 free models by rank on OpenRouter (2026)
   const models = [
-    'google/gemini-2.5-flash-preview:free',
-    'deepseek/deepseek-chat-v3-0324:free',
-    'meta-llama/llama-4-maverick:free',
-    'qwen/qwen3-30b-a3b:free',
-    'mistralai/mistral-small-3.1-24b:free',
+    'google/gemini-2.5-flash-preview',
+    'deepseek/deepseek-chat-v3-0324',
+    'meta-llama/llama-4-maverick',
+    'qwen/qwen3-30b-a3b',
+    'mistralai/mistral-small-3.1-24b',
+    'anthropic/claude-3.5-haiku',
   ];
 
   for (const model of models) {
@@ -701,7 +707,7 @@ async function testGeminiConnection(env) {
   }
 }
 
-// [FIX v4.2.5] Reverted to v3.7 prompt structure — PROVEN WORKING with Gemini
+// [FIX v4.2.6] Reverted to v3.7 prompt structure + typo fix in Yesterday's Data
 function buildAIPrompt(today, yesterday, mode, scenario, emotion) {
   const t = today, y = yesterday || {};
   const emo = emotion || { state: 'NEUTRAL', intensity: 50, tone: 'Neutral, factual.' };
@@ -830,7 +836,7 @@ Trending: ${t.trending.map(x => x.item.symbol).join(', ')}
 YESTERDAY'S DATA:
 ${y.date ? `Date: ${y.date}` : 'No historical data'}
 ${y.btcDominance != null ? `BTC Dominance: ${y.btcDominance}%` : ''}
-${y.fearGreed != null ? `Fear & Greed: ${t.fearGreed}/100` : ''}
+${y.fearGreed != null ? `Fear & Greed: ${y.fearGreed}/100` : ''}
 
 Write the analysis now.`;
 }
@@ -937,6 +943,7 @@ async function dedupSend(env, type, fn) {
 // 13. TELEGRAM API
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+// [FIX v4.2.6] tgMethod now uses fetchWithTimeout and handles "not modified" in retry
 async function tgMethod(token, method, body) {
   const url = `https://api.telegram.org/bot${token}/${method}`;
   for (let i = 0; i < 3; i++) {
@@ -953,6 +960,9 @@ async function tgMethod(token, method, body) {
       }
       return d;
     } catch (e) {
+      // [FIX v4.2.6] Don't retry "not modified" errors
+      const msg = (e.message || '').toLowerCase();
+      if (msg.includes('not modified')) throw e;
       if (i === 2) throw e;
       await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
     }
@@ -980,14 +990,15 @@ async function answerCallback(env, queryId, text = null) {
   }
 }
 
-// [FIX v4.2.5] Handle "message not modified" error gracefully
+// [FIX v4.2.6] Case-insensitive "not modified" check + toLowerCase
 async function editMessage(env, chatId, messageId, text, markup = null) {
   try {
     const body = { chat_id: chatId, message_id: messageId, text, parse_mode: 'HTML', disable_web_page_preview: true };
     if (markup) body.reply_markup = markup;
     return await tgMethod(env.TELEGRAM_BOT_TOKEN, 'editMessageText', body);
   } catch (e) {
-    if (e.message && e.message.includes('message is not modified')) {
+    const msg = (e.message || '').toLowerCase();
+    if (msg.includes('not modified')) {
       console.log(`[EDIT] Ignoring "not modified" for msg ${messageId}`);
       return null;
     }
@@ -995,7 +1006,6 @@ async function editMessage(env, chatId, messageId, text, markup = null) {
   }
 }
 
-// [FIX v4.2.5] Better sticker error logging
 async function getStickerFileId(env) {
   if (!env.ALERTS_KV) return null;
   try {
@@ -1042,7 +1052,7 @@ async function sendChannelSticker(env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 14. KEYBOARDS — [FIX v4.2.5] Updated layout + emoji variants
+// 14. KEYBOARDS — [FIX v4.2.6] Updated layout + emoji variants
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function mainKeyboard(isAdmin) {
@@ -1569,7 +1579,7 @@ async function collectMarketData(env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 18. CHANNEL SENDERS — DEDUP v3 + [FIX v4.2.5] AI Fallback
+// 18. CHANNEL SENDERS — DEDUP v3 + [FIX v4.2.6] AI Fallback Bypass Dedup
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function ensureChannel(env) {
@@ -1623,7 +1633,7 @@ async function sendChannelFng(env) {
   });
 }
 
-// [FIX v4.2.5] AI fallback to Daily Report if AI fails
+// [FIX v4.2.6] AI fallback bypasses dedup — sends Daily Report directly if AI fails
 async function sendChannelAI(env, customPrompt = null) {
   ensureChannel(env);
   await dedupSend(env, 'ai', async () => {
@@ -1648,10 +1658,17 @@ async function sendChannelAI(env, customPrompt = null) {
       aiResult = await getAIAnalysis(env, prompt);
     }
 
-    // [FIX v4.2.5] Fallback to Daily Report if AI completely fails
+    // [FIX v4.2.6] Fallback to Daily Report if AI completely fails — BYPASS DEDUP
     if (!aiResult) {
-      console.log('[AI] Analysis failed, falling back to Daily Report');
-      await sendChannelDaily(env);
+      console.log('[AI] Analysis failed, falling back to Daily Report (bypass dedup)');
+      try {
+        const [{ source, data }, globalData, trending, fear] = await Promise.all([
+          getCoins(env), getGlobal(env), getTrending(env), getFearGreed(),
+        ]);
+        await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildDaily(data, globalData, trending, fear, source));
+      } catch (e) {
+        console.error('[AI] Fallback daily also failed:', e.message);
+      }
       return;
     }
 
@@ -1697,7 +1714,7 @@ async function sendWithTimeout(fn, env, name, timeoutMs = 35000) {
   ]);
 }
 
-// [FIX v4.2.5] Sticker FIRST, then posts with 2s gap
+// [FIX v4.2.6] Sticker FIRST, then posts with 2s gap
 async function sendChannelAll(env, ctx) {
   await dedupSend(env, 'all_bundle', async () => {
     // 1. STICKER FIRST
@@ -1858,7 +1875,7 @@ async function handleAIStatus(chatId, env) {
   const lastTime = await getConfig(env, 'last_ai_time', 'Never');
   
   let text = `🤖 <b>AI System Status</b>\n\n`;
-  text += `<b>Gemini 2.0 Flash:</b> ${geminiTest.ok ? '✅ Active' : `⚠️ ${geminiTest.error}`}\n`;
+  text += `<b>Gemini 2.5 Flash:</b> ${geminiTest.ok ? '✅ Active' : `⚠️ ${geminiTest.error}`}\n`;
   text += `<b>OpenRouter:</b> ${env.OPENROUTER_API_KEY ? '✅ Configured' : '⚠️ No Key'}\n`;
   text += `<b>Last Provider:</b> ${lastProvider}\n`;
   text += `<b>Last Analysis:</b> ${lastTime}\n`;
@@ -2144,7 +2161,7 @@ async function processWebhook(update, env, ctx) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 21. CRON HANDLER — [FIX v4.2.5] Sticker FIRST in bundle
+// 21. CRON HANDLER — [FIX v4.2.6] Sticker FIRST in bundle
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleCron(event, env) {
@@ -2164,7 +2181,7 @@ async function handleCron(event, env) {
     }
     else if (cron === CRON_BUNDLE) {
       console.log('[CRON] Bundle: Sticker + AI + F&G + Funding (8h)');
-      // [FIX v4.2.5] Sticker FIRST
+      // [FIX v4.2.6] Sticker FIRST
       try {
         await sendChannelSticker(env);
         console.log('[CRON] ✅ Sticker sent first');
@@ -2265,7 +2282,7 @@ async function handleDebug(env) {
     tier1: Object.keys(TIER_1).length,
     tier2: Object.keys(TIER_2).length,
     tier3: Object.keys(TIER_3).length,
-    version: '4.2.5',
+    version: '4.2.6',
   };
 
   if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHANNEL_ID) {
@@ -2328,7 +2345,7 @@ async function handleHttp(request, env, ctx) {
   }
   if (path === '/' && request.method === 'GET') {
     return new Response(
-      `TradeAgent IV HYBRID v4.2.5 — AI-Powered Crypto Intelligence\n\n` +
+      `TradeAgent IV HYBRID v4.2.6 — AI-Powered Crypto Intelligence\n\n` +
       `Backend: v4.2 (3-Tier, Emotion, Futures, HYPE, Dedup v3, Modern UI)\n` +
       `UI: Collapsible Persian (blockquote expandable) + Gemini Priority + Updated Commands\n\n` +
       `Routes:\n` +
@@ -2337,7 +2354,7 @@ async function handleHttp(request, env, ctx) {
       `  GET  /debug    → Status check + API tests (admin secret required)\n\n` +
       `Cron: ${CRON_PRICE}, ${CRON_BUNDLE}, ${CRON_MOVERS}\n` +
       `Coins: ${Object.keys(COINS).length} (T1:${Object.keys(TIER_1).length} T2:${Object.keys(TIER_2).length} T3:${Object.keys(TIER_3).length})\n` +
-      `AI: Gemini Direct (priority) → OpenRouter (Top 5 Free Ranked)\n` +
+      `AI: Gemini 2.5 Flash (primary) → Gemini 2.0 → Gemini 1.5 → OpenRouter\n` +
       `Movers: Binance 24h ticker (no CMC required)\n` +
       `Dedup: v3 (10min gap + 5min lock + race-proof)\n` +
       `F&G: Modern visual bar + signal interpretation\n` +
@@ -2345,8 +2362,8 @@ async function handleHttp(request, env, ctx) {
       `Sticker: Auto-send after bundle via getStickerSet\n` +
       `Timeout: All fetches capped at 15-25s to prevent hangs\n` +
       `SendAll/Cron: Sticker FIRST, then posts with 2s gap\n` +
-      `AI Fail: Falls back to Daily Report automatically\n` +
-      `EditMsg: "not modified" errors ignored silently\n`,
+      `AI Fail: Falls back to Daily Report directly (bypass dedup)\n` +
+      `EditMsg: "not modified" errors ignored silently (case-insensitive)\n`,
       { status: 200 }
     );
   }
