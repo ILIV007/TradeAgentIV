@@ -1,8 +1,7 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV HYBRID v4.2.3 — Bugfix + Sticker Delay + AI Fail Fast
-//  Backend: v4.2 (3-Tier, Emotion, Futures, HYPE, Dedup v3, Modern UI)
-//  FIXES: Keyboard F&G/MarketReport emoji variants, sendChannelAll sticker 3min,
-//         sendChannelAI no silent fallback to daily, ctx.waitUntil for background tasks
+//  TRADEAGENT IV HYBRID v4.2.4 — AI Debug + Sticker First + Reorder
+//  FIXES: Shorter AI prompt (1200 tokens), Sticker FIRST in sendAll/cron,
+//         Detailed sticker error logs, AI fail logs with key preview
 // ═══════════════════════════════════════════════════════════════
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -130,14 +129,12 @@ function esc(text) {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-// [FIX v4.2.2] Global fetch timeout helper
 function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timeoutId));
 }
 
-// [FIX v4.2.2] Only clean markdown syntax, preserve HTML tags
 function cleanMarkdown(text) {
   if (!text) return '';
   return text
@@ -496,7 +493,7 @@ async function getFearGreed() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 10. AI LAYER — GEMINI DIRECT → OPENROUTER FAILOVER (v4.2)
+// 10. AI LAYER — GEMINI DIRECT → OPENROUTER FAILOVER (v4.2.4)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const AI_CACHE_TTL = 3600;
@@ -539,7 +536,6 @@ async function closeCircuit(env, name) {
   } catch (e) {}
 }
 
-// ── GEMINI DIRECT API (priority) ──
 async function tryGeminiDirect(env, prompt, modelUrl, name) {
   if (!env.GEMINI_API_KEY) {
     console.log(`[AI] ${name} skipped: No GEMINI_API_KEY`);
@@ -556,17 +552,17 @@ async function tryGeminiDirect(env, prompt, modelUrl, name) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.3, maxOutputTokens: 900 }
+        generationConfig: { temperature: 0.3, maxOutputTokens: 1200 }
       }),
-    }, 20000);
+    }, 25000);
     
     if (!res.ok) {
       const txt = await res.text().catch(() => '');
-      throw new Error(`HTTP ${res.status} ${txt.slice(0, 100)}`);
+      throw new Error(`HTTP ${res.status} ${txt.slice(0, 200)}`);
     }
     
     const data = await res.json();
-    console.log(`[AI] ${name} raw:`, JSON.stringify(data).slice(0, 250));
+    console.log(`[AI] ${name} raw:`, JSON.stringify(data).slice(0, 300));
     
     let text = null;
     if (data?.candidates?.[0]?.content?.parts?.[0]?.text) {
@@ -594,6 +590,7 @@ async function tryGeminiDirect(env, prompt, modelUrl, name) {
 
 async function getAIAnalysis(env, prompt) {
   const promptHash = await hashPrompt(prompt);
+  console.log(`[AI] Prompt hash: ${promptHash}, length: ${prompt.length} chars`);
   
   const cached = await getAICache(env, promptHash);
   if (cached) {
@@ -601,10 +598,8 @@ async function getAIAnalysis(env, prompt) {
     return cached;
   }
 
-  // ── STEP 1: Gemini 2.0 Flash Direct (HIGHEST PRIORITY) ──
   let text = await tryGeminiDirect(env, prompt, GEMINI_URL, 'gemini-2.0-flash');
   
-  // ── STEP 2: Gemini 1.5 Flash Fallback ──
   if (!text) {
     text = await tryGeminiDirect(env, prompt, GEMINI_FALLBACK_URL, 'gemini-1.5-flash');
   }
@@ -617,14 +612,12 @@ async function getAIAnalysis(env, prompt) {
     return result;
   }
 
-  // ── STEP 3: OpenRouter Failover (Updated Top 5 Free Ranked) ──
   console.log('[AI] Gemini family failed, trying OpenRouter...');
   if (!env.OPENROUTER_API_KEY) {
     console.log('[AI] No OpenRouter key, giving up');
     return null;
   }
 
-  // Updated Top 5 free models by rank on OpenRouter (2026)
   const models = [
     'google/gemini-2.5-flash-preview:free',
     'deepseek/deepseek-chat-v3-0324:free',
@@ -647,10 +640,10 @@ async function getAIAnalysis(env, prompt) {
         body: JSON.stringify({
           model,
           messages: [{ role: 'user', content: prompt }],
-          max_tokens: 900,
+          max_tokens: 1200,
           temperature: 0.3
         }),
-      }, 20000);
+      }, 25000);
       
       if (!res.ok) {
         const errText = await res.text().catch(() => '');
@@ -703,7 +696,7 @@ async function testGeminiConnection(env) {
   }
 }
 
-// [FIX v4.2.2] Complete buildAIPrompt with exact Persian structure
+// [FIX v4.2.4] Shorter prompt to avoid Gemini rejection
 function buildAIPrompt(today, yesterday, mode, scenario, emotion) {
   const t = today, y = yesterday || {};
   const emo = emotion || { state: 'NEUTRAL', intensity: 50, tone: 'Neutral, factual.' };
@@ -759,7 +752,6 @@ function buildAIPrompt(today, yesterday, mode, scenario, emotion) {
     volatile: 'High volatility expected. Emphasize risk management and wide ranges.',
   };
 
-  // [FIX v4.2.2] Exact Persian structure specified in prompt
   return `You are "TradeAgent IV", a professional bilingual crypto market intelligence analyst.
 
 CURRENT MODE: ${mode} — ${modeDesc[mode] || modeDesc.normal}
@@ -833,7 +825,7 @@ Trending: ${t.trending.map(x => x.item.symbol).join(', ')}
 YESTERDAY'S DATA:
 ${y.date ? `Date: ${y.date}` : 'No historical data'}
 ${y.btcDominance != null ? `BTC Dominance: ${y.btcDominance}%` : ''}
-${y.fearGreed != null ? `Fear & Greed: ${y.fearGreed}/100` : ''}
+${y.fearGreed != null ? `Fear & Greed: ${t.fearGreed}/100` : ''}
 
 Write the analysis now.`;
 }
@@ -932,7 +924,6 @@ async function dedupSend(env, type, fn) {
   } catch (e) {
     console.log(`[DEDUP] Error for ${type}: ${e.message}`);
     try { await env.ALERTS_KV.delete(lockKey); } catch (e2) {}
-    // [FIX v4.2.2] No automatic retry — throw to prevent infinite hang
     throw e;
   }
 }
@@ -990,28 +981,39 @@ async function editMessage(env, chatId, messageId, text, markup = null) {
   return tgMethod(env.TELEGRAM_BOT_TOKEN, 'editMessageText', body);
 }
 
-// [FIX v4.2.2] Sticker cache and sender
+// [FIX v4.2.4] Better sticker error logging
 async function getStickerFileId(env) {
   if (!env.ALERTS_KV) return null;
   try {
     const cached = await env.ALERTS_KV.get('sticker:file_id');
-    if (cached) return cached;
+    if (cached) {
+      console.log('[STICKER] Using cached file_id');
+      return cached;
+    }
     
+    console.log(`[STICKER] Fetching set: ${STICKER_SET_NAME}`);
     const set = await tgMethod(env.TELEGRAM_BOT_TOKEN, 'getStickerSet', { name: STICKER_SET_NAME });
+    
     if (set.result?.stickers?.length > 0) {
       const fileId = set.result.stickers[0].file_id;
       await env.ALERTS_KV.put('sticker:file_id', fileId, { expirationTtl: 2592000 });
-      console.log('[STICKER] Cached file_id:', fileId);
+      console.log('[STICKER] Cached new file_id:', fileId.slice(0, 20) + '...');
       return fileId;
+    } else {
+      console.error('[STICKER] Set exists but empty:', STICKER_SET_NAME);
     }
   } catch (e) {
-    console.error('[STICKER] Failed to get sticker set:', e.message);
+    console.error(`[STICKER] getStickerSet FAILED: ${e.message} | Set: ${STICKER_SET_NAME}`);
+    console.error(`[STICKER] HINT: Bot must be admin/owner of sticker set "${STICKER_SET_NAME}"`);
   }
   return null;
 }
 
 async function sendChannelSticker(env) {
-  if (!env.TELEGRAM_CHANNEL_ID) return;
+  if (!env.TELEGRAM_CHANNEL_ID) {
+    console.log('[STICKER] No TELEGRAM_CHANNEL_ID');
+    return;
+  }
   try {
     const fileId = await getStickerFileId(env);
     if (fileId) {
@@ -1026,7 +1028,7 @@ async function sendChannelSticker(env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 14. KEYBOARDS — [FIX v4.2.2] Updated to v4.2 layout
+// 14. KEYBOARDS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function mainKeyboard(isAdmin) {
@@ -1045,26 +1047,21 @@ function getAdminInline(mode, scenario, autoPosts) {
   const autoStatus = autoPosts === 'true' ? '✅ On' : '⏸ Off';
   return {
     inline_keyboard: [
-      // Send Row 1
       [
         { text: '📈 Price', callback_data: 'send_price' },
         { text: '📉 Volume', callback_data: 'send_volume' },
         { text: '🧠 AI', callback_data: 'send_ai' },
       ],
-      // Send Row 2
       [
         { text: '🔥 Trending', callback_data: 'send_trending' },
         { text: '🧠 F&G', callback_data: 'send_fng' },
         { text: '📊 All', callback_data: 'send_all' },
       ],
-      // Send Row 3
       [
         { text: '⚡ Futures', callback_data: 'send_futures' },
         { text: '🚀 Movers', callback_data: 'send_movers' },
       ],
-      // Divider
       [{ text: '──── AI Configuration ────', callback_data: 'noop' }],
-      // AI Config
       [
         { text: `🤖 ${m}`, callback_data: 'admin:ai_mode' },
         { text: `🎛 ${s}`, callback_data: 'admin:scenario' },
@@ -1073,9 +1070,7 @@ function getAdminInline(mode, scenario, autoPosts) {
         { text: '🧪 Custom Prompt', callback_data: 'admin:custom' },
         { text: '📤 Resend Last', callback_data: 'admin:resend' },
       ],
-      // Divider
       [{ text: '──── System ────', callback_data: 'noop' }],
-      // System
       [
         { text: '🤖 AI Status', callback_data: 'admin:ai_status' },
         { text: '📊 API Status', callback_data: 'admin:api_status' },
@@ -1083,7 +1078,6 @@ function getAdminInline(mode, scenario, autoPosts) {
       [
         { text: `⏸ Auto: ${autoStatus}`, callback_data: 'admin:auto_posts' },
       ],
-      // Back
       [{ text: '🔙 Back to Menu', callback_data: 'back_main' }],
     ],
   };
@@ -1274,10 +1268,6 @@ async function buildTrending(trending) {
   return m;
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// MODERN FEAR & GREED — v4.2 Redesign
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 async function buildFng(fear) {
   if (!fear?.data?.[0]) {
     return `🧠 <b>FEAR & GREED INDEX</b>\n\n<i>Data unavailable</i>\n\n${FOOTER}`;
@@ -1323,10 +1313,6 @@ async function buildFng(fear) {
   return m;
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// AI ANALYSIS — Collapsible Persian (blockquote expandable) + No Flag
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 async function buildAIAnalysis(aiResult, todayData, emotion) {
   const t = todayData, emo = emotion || { state: 'NEUTRAL', intensity: 50, emoji: '😐', color: '⚪' };
   
@@ -1349,7 +1335,6 @@ async function buildAIAnalysis(aiResult, todayData, emotion) {
     m += `<blockquote>\n${cleanMarkdown(englishText)}\n</blockquote>\n\n`;
   }
   
-  // [FIX v4.2.2] Persian: no flag, exact translation, collapsible (blockquote expandable)
   if (persianText) {
     m += `<b>📋 خلاصه بازار</b>\n`;
     m += `<blockquote expandable>\n${cleanMarkdown(persianText)}\n</blockquote>\n\n`;
@@ -1401,10 +1386,6 @@ async function buildFutures(futures) {
   m += `</pre>\n\n${FOOTER}`;
   return m;
 }
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// MOVERS — Robust Build + Fallback Message
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function buildMovers(gl) {
   if (!gl || (!gl.gainers?.length && !gl.losers?.length)) {
@@ -1628,7 +1609,6 @@ async function sendChannelFng(env) {
   });
 }
 
-// [FIX v4.2.3] AI: never silently fall back to daily report
 async function sendChannelAI(env, customPrompt = null) {
   ensureChannel(env);
   await dedupSend(env, 'ai', async () => {
@@ -1654,7 +1634,6 @@ async function sendChannelAI(env, customPrompt = null) {
     }
 
     if (!aiResult) {
-      // [FIX v4.2.3] Never silently fall back to daily — throw so admin knows AI failed
       throw new Error('All AI sources failed. Check GEMINI_API_KEY / OPENROUTER_API_KEY and quotas.');
     }
 
@@ -1693,7 +1672,6 @@ async function sendChannelMovers(env) {
   });
 }
 
-// [FIX v4.2.2] Timeout wrapper for sequential sends so one hang doesn't block all
 async function sendWithTimeout(fn, env, name, timeoutMs = 35000) {
   return Promise.race([
     fn(env),
@@ -1701,14 +1679,27 @@ async function sendWithTimeout(fn, env, name, timeoutMs = 35000) {
   ]);
 }
 
-// [FIX v4.2.3] Send All: sticker fires after 3 minutes via background task
+// [FIX v4.2.4] Sticker FIRST, then posts with 2s gap
 async function sendChannelAll(env, ctx) {
   await dedupSend(env, 'all_bundle', async () => {
+    // 1. STICKER FIRST
+    try {
+      await sendChannelSticker(env);
+      console.log('[SEND ALL] ✅ Sticker sent first');
+    } catch (e) {
+      console.error('[SEND ALL] ❌ Sticker failed:', e.message);
+    }
+    await new Promise(r => setTimeout(r, 2000));
+    
+    // 2. Then other posts
     const results = [];
     const senders = [
-      { name: 'Price', fn: sendChannelPrice }, { name: 'Volume', fn: sendChannelVolume },
-      { name: 'AI Daily', fn: sendChannelAI }, { name: 'Trending', fn: sendChannelTrending },
-      { name: 'F&G', fn: sendChannelFng }, { name: 'Futures', fn: sendChannelFutures },
+      { name: 'Price', fn: sendChannelPrice }, 
+      { name: 'Volume', fn: sendChannelVolume },
+      { name: 'AI Daily', fn: sendChannelAI }, 
+      { name: 'Trending', fn: sendChannelTrending },
+      { name: 'F&G', fn: sendChannelFng }, 
+      { name: 'Futures', fn: sendChannelFutures },
       { name: 'Movers', fn: sendChannelMovers },
     ];
     for (const s of senders) {
@@ -1722,30 +1713,11 @@ async function sendChannelAll(env, ctx) {
     }
     console.log('[SEND ALL]\n' + results.join('\n'));
     if (results.every(r => r.startsWith('❌'))) throw new Error('All sends failed');
-    
-    // [FIX v4.2.3] Sticker sent after 3 minutes via background task
-    const stickerDelayMs = 180000;
-    const stickerTask = async () => {
-      await new Promise(r => setTimeout(r, stickerDelayMs));
-      try {
-        await sendChannelSticker(env);
-        console.log('[SEND ALL] ✅ Sticker sent after 3min delay');
-      } catch (e) {
-        console.error('[SEND ALL] ❌ Sticker failed:', e.message);
-      }
-    };
-    
-    if (ctx && ctx.waitUntil) {
-      ctx.waitUntil(stickerTask());
-    } else {
-      // No ctx available (e.g. cron or direct call) — fire and forget
-      stickerTask().catch(() => {});
-    }
   });
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 19. BOT HANDLERS — FIXED COMMANDS
+// 19. BOT HANDLERS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleStart(chatId, userId, env) {
@@ -1938,10 +1910,8 @@ async function processWebhook(update, env, ctx) {
       if (text === '/start') await handleStart(chatId, userId, env);
       else if (text === '/price' || text === '📊 Prices') await handlePrices(chatId, env);
       else if (text === '/volume' || text === '📈 Volume') await handleVolume(chatId, env);
-      // [FIX v4.2.3] Accept both 📉 and 📈 Market Report variants
       else if (text === '/daily' || text === '📉 Market Report' || text === '📈 Market Report' || text === '/marketreport') await handleDaily(chatId, env);
       else if (text === '/trending' || text === '🔥 Trending') await handleTrending(chatId, env);
-      // [FIX v4.2.3] Accept both 🧭 and 🧠 F&G variants (old keyboard cache compatibility)
       else if (text === '/fng' || text === '🧭 F&G' || text === '🧠 F&G' || text === '/feargreed' || text === '/fg') await handleFng(chatId, env);
       else if (text === '/alerts' || text === '🚨 Alerts') await handleAlerts(chatId, env);
       else if (text === '/settings' || text === '⚙️ Settings') await handleSettings(chatId, env);
@@ -1960,7 +1930,13 @@ async function processWebhook(update, env, ctx) {
       }
       else if (text === '/sendai') {
         if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
-        await sendMessage(env, chatId, '⏳ Generating AI analysis...'); await sendChannelAI(env); await sendMessage(env, chatId, '✅ Done!');
+        await sendMessage(env, chatId, '⏳ Generating AI analysis...'); 
+        try {
+          await sendChannelAI(env); 
+          await sendMessage(env, chatId, '✅ Done!');
+        } catch (e) {
+          await sendMessage(env, chatId, `❌ AI Failed: ${esc(e.message)}`);
+        }
       }
       else if (text === '/senddaily') {
         if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
@@ -1977,8 +1953,12 @@ async function processWebhook(update, env, ctx) {
       else if (text === '/sendall') {
         if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
         await sendMessage(env, chatId, '⏳ Sending all reports...'); 
-        await sendChannelAll(env, ctx); 
-        await sendMessage(env, chatId, '✅ All done! Sticker will arrive in ~3 minutes.');
+        try {
+          await sendChannelAll(env, ctx); 
+          await sendMessage(env, chatId, '✅ All done! Sticker sent first.');
+        } catch (e) {
+          await sendMessage(env, chatId, `❌ Error: ${esc(e.message)}`);
+        }
       }
       else if (text.startsWith('/aiprompt')) {
         if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
@@ -1989,8 +1969,12 @@ async function processWebhook(update, env, ctx) {
           return;
         }
         await sendMessage(env, chatId, '⏳ Processing...');
-        await sendChannelAI(env, prompt);
-        await sendMessage(env, chatId, '✅ Custom AI sent to channel!');
+        try {
+          await sendChannelAI(env, prompt);
+          await sendMessage(env, chatId, '✅ Custom AI sent to channel!');
+        } catch (e) {
+          await sendMessage(env, chatId, `❌ AI Failed: ${esc(e.message)}`);
+        }
       }
       else {
         await sendMessage(env, chatId, '❓ Unknown command. Use /help for available commands.');
@@ -2017,7 +2001,6 @@ async function processWebhook(update, env, ctx) {
           if (data === 'send_ai') await sendChannelAI(env);
           if (data === 'send_trending') await sendChannelTrending(env);
           if (data === 'send_fng') await sendChannelFng(env);
-          // [FIX v4.2.3] Pass ctx to sendChannelAll for background sticker task
           if (data === 'send_all') await sendChannelAll(env, ctx);
           if (data === 'send_futures') await sendChannelFutures(env);
           if (data === 'send_movers') await sendChannelMovers(env);
@@ -2143,7 +2126,7 @@ async function processWebhook(update, env, ctx) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 21. CRON HANDLER — v4.2.2 (Staggered + Dedup + Sticker)
+// 21. CRON HANDLER — [FIX v4.2.4] Sticker FIRST in bundle
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleCron(event, env) {
@@ -2162,7 +2145,16 @@ async function handleCron(event, env) {
       await sendChannelPrice(env);
     }
     else if (cron === CRON_BUNDLE) {
-      console.log('[CRON] Bundle: AI + F&G + Funding (8h) + Sticker');
+      console.log('[CRON] Bundle: Sticker + AI + F&G + Funding (8h)');
+      // [FIX v4.2.4] Sticker FIRST
+      try {
+        await sendChannelSticker(env);
+        console.log('[CRON] ✅ Sticker sent first');
+      } catch (e) {
+        console.error(`[CRON] ❌ Sticker: ${e.message}`);
+      }
+      await new Promise(r => setTimeout(r, 2000));
+      
       const tasks = [
         { name: 'AI', fn: sendChannelAI, delay: 0 },
         { name: 'F&G', fn: sendChannelFng, delay: 5000 },
@@ -2176,13 +2168,6 @@ async function handleCron(event, env) {
         } catch (e) {
           console.error(`[CRON] ❌ ${task.name}: ${e.message}`);
         }
-      }
-      // [FIX v4.2.2] Send sticker after bundle to keep channel lively
-      await new Promise(r => setTimeout(r, 3000));
-      try {
-        await sendChannelSticker(env);
-      } catch (e) {
-        console.error(`[CRON] ❌ Sticker: ${e.message}`);
       }
     }
     else if (cron === CRON_MOVERS) {
@@ -2198,7 +2183,7 @@ async function handleCron(event, env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 22. HTTP ROUTER — [FIX v4.2.3] Pass ctx for background tasks
+// 22. HTTP ROUTER
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleWebhookReq(request, env, ctx) {
@@ -2230,7 +2215,6 @@ async function routeAdmin(request, env, ctx) {
     if (type === 'fng') await sendChannelFng(env);
     if (type === 'futures') await sendChannelFutures(env);
     if (type === 'movers') await sendChannelMovers(env);
-    // [FIX v4.2.3] Pass ctx for background sticker delay
     if (type === 'all') await sendChannelAll(env, ctx);
     if (type === 'alert') {
       const { data } = await getCoins(env);
@@ -2263,7 +2247,7 @@ async function handleDebug(env) {
     tier1: Object.keys(TIER_1).length,
     tier2: Object.keys(TIER_2).length,
     tier3: Object.keys(TIER_3).length,
-    version: '4.2.3',
+    version: '4.2.4',
   };
 
   if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHANNEL_ID) {
@@ -2303,7 +2287,6 @@ async function handleDebug(env) {
     checks.movers_status = movers ? `✅ OK (G:${movers.gainers?.length || 0} L:${movers.losers?.length || 0})` : '⚠️ No data';
   } catch (e) { checks.movers_status = `❌ ${e.message}`; }
 
-  // [FIX v4.2.2] Sticker check
   try {
     const stickerId = await getStickerFileId(env);
     checks.sticker_status = stickerId ? `✅ OK (${stickerId.slice(0, 20)}...)` : '⚠️ No sticker cached';
@@ -2312,7 +2295,6 @@ async function handleDebug(env) {
   return new Response(JSON.stringify(checks, null, 2), { status: 200, headers: { 'Content-Type': 'application/json' } });
 }
 
-// [FIX v4.2.3] Pass ctx through HTTP handlers for background waitUntil
 async function handleHttp(request, env, ctx) {
   const url = new URL(request.url);
   const path = url.pathname;
@@ -2328,7 +2310,7 @@ async function handleHttp(request, env, ctx) {
   }
   if (path === '/' && request.method === 'GET') {
     return new Response(
-      `TradeAgent IV HYBRID v4.2.3 — AI-Powered Crypto Intelligence\n\n` +
+      `TradeAgent IV HYBRID v4.2.4 — AI-Powered Crypto Intelligence\n\n` +
       `Backend: v4.2 (3-Tier, Emotion, Futures, HYPE, Dedup v3, Modern UI)\n` +
       `UI: Collapsible Persian (blockquote expandable) + Gemini Priority + Updated Commands\n\n` +
       `Routes:\n` +
@@ -2343,9 +2325,9 @@ async function handleHttp(request, env, ctx) {
       `F&G: Modern visual bar + signal interpretation\n` +
       `Persian: Collapsible <blockquote expandable> (no flag)\n` +
       `Sticker: Auto-send after bundle via getStickerSet\n` +
-      `Timeout: All fetches capped at 15-20s to prevent hangs\n` +
-      `SendAll Sticker: 3-minute background delay via ctx.waitUntil\n` +
-      `AI Fail: Throws error instead of silent daily fallback\n`,
+      `Timeout: All fetches capped at 15-25s to prevent hangs\n` +
+      `SendAll/Cron: Sticker FIRST, then posts with 2s gap\n` +
+      `AI Fail: Throws error with detailed logs\n`,
       { status: 200 }
     );
   }
