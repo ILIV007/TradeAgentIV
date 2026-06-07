@@ -1,8 +1,8 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV HYBRID v4.2.7-FINAL — getAICache Fix + Circuit Breaker
-//  FIXES: Added missing getAICache/setAICache, circuit breaker helpers,
-//         Gemini 2.0 Flash as primary (proven), shorter prompt,
-//         stronger validation, cleaner scope
+//  TRADEAGENT IV HYBRID v4.2.9-FINAL — AI Analysis Fix (Complete)
+//  FIXES: isValidAIResponse simplified, no double cleanMarkdown,
+//         plain <blockquote>, Promise.race timeout (no AbortController),
+//         HTML fallback, complete file, proven v3.7 prompt
 // ═══════════════════════════════════════════════════════════════
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -135,9 +135,21 @@ function esc(text) {
 }
 
 function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-  return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timeoutId));
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(new Error(`Timeout after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    fetch(url, options)
+      .then(response => {
+        clearTimeout(timeoutId);
+        resolve(response);
+      })
+      .catch(error => {
+        clearTimeout(timeoutId);
+        reject(error);
+      });
+  });
 }
 
 function cleanMarkdown(text) {
@@ -554,15 +566,9 @@ async function closeCircuit(env, name) {
 function isValidAIResponse(text) {
   if (!text || typeof text !== 'string') return false;
   const trimmed = text.trim();
-  const hasContent = trimmed.length > 80 && (
-    trimmed.includes('<b>') || 
-    trimmed.includes('Market') ||
-    trimmed.includes('Bullish') ||
-    trimmed.includes('Bearish') ||
-    trimmed.includes('---PERSIAN---') ||
-    trimmed.includes('خلاصه')
-  );
-  return hasContent;
+  // Just check minimum length - AI might use markdown ** instead of <b>
+  // or might not include keywords like "Market" in every response
+  return trimmed.length > 50;
 }
 
 async function tryGeminiDirect(env, prompt, modelUrl, name) {
@@ -1002,7 +1008,24 @@ async function tgMethod(token, method, body) {
 async function sendMessage(env, chatId, text, markup = null) {
   const body = { chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true };
   if (markup) body.reply_markup = markup;
-  return tgMethod(env.TELEGRAM_BOT_TOKEN, 'sendMessage', body);
+
+  try {
+    return await tgMethod(env.TELEGRAM_BOT_TOKEN, 'sendMessage', body);
+  } catch (e) {
+    // If HTML parsing fails, retry without parse_mode
+    const msg = (e.message || '').toLowerCase();
+    if (msg.includes('can't parse entities') || msg.includes('bad request') || msg.includes('html')) {
+      console.log('[TG] HTML parse failed, retrying without parse_mode');
+      const fallbackBody = { 
+        chat_id: chatId, 
+        text: text.replace(/<[^>]*>/g, ''), 
+        disable_web_page_preview: true 
+      };
+      if (markup) fallbackBody.reply_markup = markup;
+      return await tgMethod(env.TELEGRAM_BOT_TOKEN, 'sendMessage', fallbackBody);
+    }
+    throw e;
+  }
 }
 
 async function sendSticker(env, chatId, stickerFileId) {
@@ -1389,7 +1412,7 @@ async function buildAIAnalysis(aiResult, todayData, emotion) {
   
   if (persianText) {
     m += `<b>📋 خلاصه بازار</b>\n`;
-    m += `<blockquote expandable>\n${persianText}\n</blockquote>\n\n`;
+    m += `<blockquote>\n${persianText}\n</blockquote>\n\n`;
   }
 
   m += `<b>📊 Key Metrics</b>\n<pre>`;
@@ -2304,7 +2327,7 @@ async function handleDebug(env) {
     tier1: Object.keys(TIER_1).length,
     tier2: Object.keys(TIER_2).length,
     tier3: Object.keys(TIER_3).length,
-    version: '4.2.7-FINAL',
+    version: '4.2.9-FINAL',
   };
 
   if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHANNEL_ID) {
@@ -2367,9 +2390,9 @@ async function handleHttp(request, env, ctx) {
   }
   if (path === '/' && request.method === 'GET') {
     return new Response(
-      `TradeAgent IV HYBRID v4.2.7-FINAL — AI-Powered Crypto Intelligence\n\n` +
-      `Backend: v4.2 (3-Tier, Emotion, Futures, HYPE, Dedup v3, Modern UI)\n` +
-      `UI: Collapsible Persian (blockquote expandable) + Gemini Priority + Updated Commands\n\n` +
+      `TradeAgent IV HYBRID v4.2.9-FINAL — AI-Powered Crypto Intelligence\n\n` +
+      `Backend: v4.2.9 (3-Tier, Emotion, Futures, HYPE, Dedup v3, Modern UI)\n` +
+      `UI: Plain <blockquote> for all sections + Gemini Priority + Updated Commands\n\n` +
       `Routes:\n` +
       `  POST /webhook  → Telegram webhook\n` +
       `  POST /admin    → Manual trigger (x-admin-secret required)\n` +
@@ -2380,12 +2403,14 @@ async function handleHttp(request, env, ctx) {
       `Movers: Binance 24h ticker (no CMC required)\n` +
       `Dedup: v3 (10min gap + 5min lock + race-proof)\n` +
       `F&G: Modern visual bar + signal interpretation\n` +
-      `Persian: Collapsible <blockquote expandable> (no flag)\n` +
+      `Persian: Plain <blockquote> (stable across all clients)\n` +
       `Sticker: Auto-send after bundle via getStickerSet\n` +
       `Timeout: All fetches capped at 15-25s to prevent hangs\n` +
       `SendAll/Cron: Sticker FIRST, then posts with 2s gap\n` +
       `AI Fail: Falls back to Daily Report directly (bypass dedup)\n` +
-      `EditMsg: "not modified" errors ignored silently (case-insensitive)\n` +
+      `EditMsg: "not modified" errors ignored silently (case-insensitive)
+  AI Validation: Length-only check (no keyword requirements)
+  Timeout: Promise.race (no AbortController issues in Workers)\n` +
       `Cost: 100% FREE — All AI models use :free tier or Gemini free tier\n`,
       { status: 200 }
     );
