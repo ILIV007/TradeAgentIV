@@ -1,9 +1,8 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV HYBRID v4.2.2 — AI Fix + Keyboard Update + Sticker + Timeout
+//  TRADEAGENT IV HYBRID v4.2.3 — Bugfix + Sticker Delay + AI Fail Fast
 //  Backend: v4.2 (3-Tier, Emotion, Futures, HYPE, Dedup v3, Modern UI)
-//  FIXES: buildAIPrompt Persian structure, cleanMarkdown HTML-safe,
-//         dedupSend no infinite retry, sendChannelAll timeout,
-//         Keyboard updated to v4.2 layout
+//  FIXES: Keyboard F&G/MarketReport emoji variants, sendChannelAll sticker 3min,
+//         sendChannelAI no silent fallback to daily, ctx.waitUntil for background tasks
 // ═══════════════════════════════════════════════════════════════
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1629,6 +1628,7 @@ async function sendChannelFng(env) {
   });
 }
 
+// [FIX v4.2.3] AI: never silently fall back to daily report
 async function sendChannelAI(env, customPrompt = null) {
   ensureChannel(env);
   await dedupSend(env, 'ai', async () => {
@@ -1654,9 +1654,8 @@ async function sendChannelAI(env, customPrompt = null) {
     }
 
     if (!aiResult) {
-      console.log('[AI] All AI sources failed, falling back to daily');
-      await sendChannelDaily(env);
-      return;
+      // [FIX v4.2.3] Never silently fall back to daily — throw so admin knows AI failed
+      throw new Error('All AI sources failed. Check GEMINI_API_KEY / OPENROUTER_API_KEY and quotas.');
     }
 
     if (env.ALERTS_KV) {
@@ -1702,7 +1701,8 @@ async function sendWithTimeout(fn, env, name, timeoutMs = 35000) {
   ]);
 }
 
-async function sendChannelAll(env) {
+// [FIX v4.2.3] Send All: sticker fires after 3 minutes via background task
+async function sendChannelAll(env, ctx) {
   await dedupSend(env, 'all_bundle', async () => {
     const results = [];
     const senders = [
@@ -1722,6 +1722,25 @@ async function sendChannelAll(env) {
     }
     console.log('[SEND ALL]\n' + results.join('\n'));
     if (results.every(r => r.startsWith('❌'))) throw new Error('All sends failed');
+    
+    // [FIX v4.2.3] Sticker sent after 3 minutes via background task
+    const stickerDelayMs = 180000;
+    const stickerTask = async () => {
+      await new Promise(r => setTimeout(r, stickerDelayMs));
+      try {
+        await sendChannelSticker(env);
+        console.log('[SEND ALL] ✅ Sticker sent after 3min delay');
+      } catch (e) {
+        console.error('[SEND ALL] ❌ Sticker failed:', e.message);
+      }
+    };
+    
+    if (ctx && ctx.waitUntil) {
+      ctx.waitUntil(stickerTask());
+    } else {
+      // No ctx available (e.g. cron or direct call) — fire and forget
+      stickerTask().catch(() => {});
+    }
   });
 }
 
@@ -1885,10 +1904,10 @@ async function handleAutoPosts(chatId, env, msgId = null) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 20. WEBHOOK PROCESSOR — FIXED COMMAND ROUTING
+// 20. WEBHOOK PROCESSOR — FIXED COMMAND ROUTING + KEYBOARD EMOJI VARIANTS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-async function processWebhook(update, env) {
+async function processWebhook(update, env, ctx) {
   try {
     if (update.message) {
       const msg = update.message;
@@ -1919,9 +1938,11 @@ async function processWebhook(update, env) {
       if (text === '/start') await handleStart(chatId, userId, env);
       else if (text === '/price' || text === '📊 Prices') await handlePrices(chatId, env);
       else if (text === '/volume' || text === '📈 Volume') await handleVolume(chatId, env);
-      else if (text === '/daily' || text === '📉 Market Report' || text === '/marketreport') await handleDaily(chatId, env);
+      // [FIX v4.2.3] Accept both 📉 and 📈 Market Report variants
+      else if (text === '/daily' || text === '📉 Market Report' || text === '📈 Market Report' || text === '/marketreport') await handleDaily(chatId, env);
       else if (text === '/trending' || text === '🔥 Trending') await handleTrending(chatId, env);
-      else if (text === '/fng' || text === '🧭 F&G' || text === '/feargreed' || text === '/fg') await handleFng(chatId, env);
+      // [FIX v4.2.3] Accept both 🧭 and 🧠 F&G variants (old keyboard cache compatibility)
+      else if (text === '/fng' || text === '🧭 F&G' || text === '🧠 F&G' || text === '/feargreed' || text === '/fg') await handleFng(chatId, env);
       else if (text === '/alerts' || text === '🚨 Alerts') await handleAlerts(chatId, env);
       else if (text === '/settings' || text === '⚙️ Settings') await handleSettings(chatId, env);
       else if (text === '/help' || text === '❓ Help') await handleHelp(chatId, env, userId);
@@ -1955,7 +1976,9 @@ async function processWebhook(update, env) {
       }
       else if (text === '/sendall') {
         if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
-        await sendMessage(env, chatId, '⏳ Sending all reports...'); await sendChannelAll(env); await sendMessage(env, chatId, '✅ All done!');
+        await sendMessage(env, chatId, '⏳ Sending all reports...'); 
+        await sendChannelAll(env, ctx); 
+        await sendMessage(env, chatId, '✅ All done! Sticker will arrive in ~3 minutes.');
       }
       else if (text.startsWith('/aiprompt')) {
         if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
@@ -1994,7 +2017,8 @@ async function processWebhook(update, env) {
           if (data === 'send_ai') await sendChannelAI(env);
           if (data === 'send_trending') await sendChannelTrending(env);
           if (data === 'send_fng') await sendChannelFng(env);
-          if (data === 'send_all') await sendChannelAll(env);
+          // [FIX v4.2.3] Pass ctx to sendChannelAll for background sticker task
+          if (data === 'send_all') await sendChannelAll(env, ctx);
           if (data === 'send_futures') await sendChannelFutures(env);
           if (data === 'send_movers') await sendChannelMovers(env);
           const mode = await getConfig(env, 'ai_mode', 'normal');
@@ -2174,14 +2198,14 @@ async function handleCron(event, env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 22. HTTP ROUTER
+// 22. HTTP ROUTER — [FIX v4.2.3] Pass ctx for background tasks
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-async function handleWebhookReq(request, env) {
+async function handleWebhookReq(request, env, ctx) {
   try {
     const update = await request.json();
     if (update?.update_id) {
-      await processWebhook(update, env);
+      await processWebhook(update, env, ctx);
       return new Response('OK', { status: 200 });
     }
     return new Response('Not a Telegram update', { status: 200 });
@@ -2191,7 +2215,7 @@ async function handleWebhookReq(request, env) {
   }
 }
 
-async function routeAdmin(request, env) {
+async function routeAdmin(request, env, ctx) {
   if (!checkSecret(request, env)) {
     return new Response('Forbidden: x-admin-secret header missing or invalid', { status: 403 });
   }
@@ -2206,7 +2230,8 @@ async function routeAdmin(request, env) {
     if (type === 'fng') await sendChannelFng(env);
     if (type === 'futures') await sendChannelFutures(env);
     if (type === 'movers') await sendChannelMovers(env);
-    if (type === 'all') await sendChannelAll(env);
+    // [FIX v4.2.3] Pass ctx for background sticker delay
+    if (type === 'all') await sendChannelAll(env, ctx);
     if (type === 'alert') {
       const { data } = await getCoins(env);
       await checkAlerts(env, data);
@@ -2238,7 +2263,7 @@ async function handleDebug(env) {
     tier1: Object.keys(TIER_1).length,
     tier2: Object.keys(TIER_2).length,
     tier3: Object.keys(TIER_3).length,
-    version: '4.2.2',
+    version: '4.2.3',
   };
 
   if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHANNEL_ID) {
@@ -2287,13 +2312,14 @@ async function handleDebug(env) {
   return new Response(JSON.stringify(checks, null, 2), { status: 200, headers: { 'Content-Type': 'application/json' } });
 }
 
-async function handleHttp(request, env) {
+// [FIX v4.2.3] Pass ctx through HTTP handlers for background waitUntil
+async function handleHttp(request, env, ctx) {
   const url = new URL(request.url);
   const path = url.pathname;
   console.log(`[HTTP] ${request.method} ${path}`);
 
-  if (path === '/webhook' && request.method === 'POST') return handleWebhookReq(request, env);
-  if (path === '/admin' && request.method === 'POST') return routeAdmin(request, env);
+  if (path === '/webhook' && request.method === 'POST') return handleWebhookReq(request, env, ctx);
+  if (path === '/admin' && request.method === 'POST') return routeAdmin(request, env, ctx);
   if (path === '/debug' && request.method === 'GET') {
     if (!checkSecret(request, env)) {
       return new Response('Forbidden: x-admin-secret required', { status: 403 });
@@ -2302,7 +2328,7 @@ async function handleHttp(request, env) {
   }
   if (path === '/' && request.method === 'GET') {
     return new Response(
-      `TradeAgent IV HYBRID v4.2.2 — AI-Powered Crypto Intelligence\n\n` +
+      `TradeAgent IV HYBRID v4.2.3 — AI-Powered Crypto Intelligence\n\n` +
       `Backend: v4.2 (3-Tier, Emotion, Futures, HYPE, Dedup v3, Modern UI)\n` +
       `UI: Collapsible Persian (blockquote expandable) + Gemini Priority + Updated Commands\n\n` +
       `Routes:\n` +
@@ -2317,7 +2343,9 @@ async function handleHttp(request, env) {
       `F&G: Modern visual bar + signal interpretation\n` +
       `Persian: Collapsible <blockquote expandable> (no flag)\n` +
       `Sticker: Auto-send after bundle via getStickerSet\n` +
-      `Timeout: All fetches capped at 15-20s to prevent hangs\n`,
+      `Timeout: All fetches capped at 15-20s to prevent hangs\n` +
+      `SendAll Sticker: 3-minute background delay via ctx.waitUntil\n` +
+      `AI Fail: Throws error instead of silent daily fallback\n`,
       { status: 200 }
     );
   }
@@ -2331,7 +2359,7 @@ async function handleHttp(request, env) {
 export default {
   async fetch(request, env, ctx) {
     try {
-      return await handleHttp(request, env);
+      return await handleHttp(request, env, ctx);
     } catch (err) {
       console.error('[FETCH] FATAL:', err.message);
       return new Response(`❌ ERROR: ${err.message}\n\n📍 STACK:\n${err.stack}`, { status: 500, headers: { 'Content-Type': 'text/plain' } });
