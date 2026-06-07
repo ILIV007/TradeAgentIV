@@ -1,11 +1,11 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV HYBRID v3.6.0 — Best of v3.5 Backend + v2 UI
+//  TRADEAGENT IV HYBRID v3.7.0 — Tier UI + Gemini Fix + Movers Fix
 //  Backend: v3.5 (3-Tier, Emotion, Futures, HYPE, Dedup Fix)
-//  UI: v2.3 (Dry, pre blocks, clean layout, less emoji)
+//  UI: Tiered blocks with emoji + compact pre tables
 // ═══════════════════════════════════════════════════════════════
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 1. CONFIG — 3-TIER COIN SYSTEM (from v3.5)
+// 1. CONFIG — 3-TIER COIN SYSTEM
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const TIER_1 = {
@@ -53,7 +53,7 @@ const COINS = { ...TIER_1, ...TIER_2, ...TIER_3 };
 const COIN_IDS = Object.keys(COINS).join(',');
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 2. CRON CONFIG — 3 CLEAN TRIGGERS (from v3.5)
+// 2. CRON CONFIG
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const CRON_PRICE   = '*/30 * * * *';
@@ -67,7 +67,7 @@ const ALERT_PRESETS = {
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 3. API ENDPOINTS (from v3.5)
+// 3. API ENDPOINTS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const COINGECKO_BASE = 'https://api.coingecko.com/api/v3';
@@ -111,7 +111,7 @@ const EMOTION_STATES = {
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 4. SECURITY & UTILS (from v3.5)
+// 4. SECURITY & UTILS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function isAdmin(userId, env) {
@@ -206,7 +206,7 @@ async function hashPrompt(prompt) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 5. EMOTION ENGINE (from v3.5)
+// 5. EMOTION ENGINE
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function calculateEmotionState(data) {
@@ -230,7 +230,7 @@ function calculateEmotionState(data) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 6. API HELPERS (from v3.5)
+// 6. API HELPERS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function api(url, opts = {}, retries = 3) {
@@ -238,7 +238,7 @@ async function api(url, opts = {}, retries = 3) {
     try {
       const r = await fetch(url, {
         ...opts,
-        headers: { Accept: 'application/json', 'User-Agent': 'TradeAgentIV/3.6', ...opts.headers },
+        headers: { Accept: 'application/json', 'User-Agent': 'TradeAgentIV/3.7', ...opts.headers },
       });
       if (!r.ok) {
         const txt = await r.text().catch(() => '');
@@ -253,7 +253,7 @@ async function api(url, opts = {}, retries = 3) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 7. PRICE API — FAILOVER: CG → CMC → Binance (from v3.5)
+// 7. PRICE API — FAILOVER: CG → CMC → Binance
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function normalizeCG(coins) {
@@ -326,16 +326,46 @@ async function getCoins(env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 8. ENHANCED DATA APIs (from v3.5)
+// 8. ENHANCED DATA APIs
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-async function getTopGainersLosers(env) {
+async function getTopGainersLosersCG(env) {
   const key = env.COINGECKO_API_KEY;
   if (!key) return null;
   try {
     const data = await api(`${COINGECKO_BASE}/coins/top_gainers_losers?vs_currency=usd&duration=24h`, { headers: { 'x-cg-demo-api-key': key } });
     return { gainers: (data.top_gainers || []).slice(0, 5), losers: (data.top_losers || []).slice(0, 5) };
-  } catch (e) { console.error('[API] Gainers fail:', e.message); return null; }
+  } catch (e) { console.error('[API] CG Gainers fail:', e.message); return null; }
+}
+
+async function getTopGainersLosersBinance() {
+  try {
+    const data = await api('https://api.binance.com/api/v3/ticker/24hr');
+    const mapped = data
+      .filter(t => Object.values(BINANCE_MAP).includes(t.symbol))
+      .map(t => {
+        const id = Object.keys(BINANCE_MAP).find(k => BINANCE_MAP[k] === t.symbol);
+        return {
+          symbol: COINS[id]?.symbol || id,
+          current_price: parseFloat(t.lastPrice),
+          price_change_percentage_24h: parseFloat(t.priceChangePercent),
+        };
+      })
+      .sort((a, b) => b.price_change_percentage_24h - a.price_change_percentage_24h);
+    
+    return {
+      gainers: mapped.slice(0, 5),
+      losers: mapped.slice(-5).reverse(),
+    };
+  } catch (e) { console.error('[API] Binance Movers fail:', e.message); return null; }
+}
+
+async function getTopGainersLosers(env) {
+  if (env.COINGECKO_API_KEY) {
+    const cg = await getTopGainersLosersCG(env);
+    if (cg) return cg;
+  }
+  return await getTopGainersLosersBinance();
 }
 
 async function getCategories(env) {
@@ -375,7 +405,7 @@ async function getBinanceFutures(symbol) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 9. GLOBAL & TRENDING — FAILOVER (from v3.5)
+// 9. GLOBAL & TRENDING — FAILOVER
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function getGlobalCG(env) {
@@ -433,7 +463,7 @@ async function getFearGreed() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 10. AI LAYER — GEMINI PRIORITY + OPENROUTER FAILOVER (from v3.5)
+// 10. AI LAYER — GEMINI DIRECT + OPENROUTER FAILOVER (REWRITTEN)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const AI_CACHE_TTL = 3600;
@@ -476,7 +506,8 @@ async function closeCircuit(env, name) {
   } catch (e) {}
 }
 
-async function tryGemini(env, prompt, url, name) {
+// ── GEMINI DIRECT API (not via OpenRouter) ──
+async function tryGeminiDirect(env, prompt, modelUrl, name) {
   if (!env.GEMINI_API_KEY) {
     console.log(`[AI] ${name} skipped: No GEMINI_API_KEY`);
     return null;
@@ -486,8 +517,8 @@ async function tryGemini(env, prompt, url, name) {
     return null;
   }
   try {
-    console.log(`[AI] Trying ${name}...`);
-    const res = await fetch(`${url}?key=${env.GEMINI_API_KEY}`, {
+    console.log(`[AI] Trying Gemini direct: ${name}...`);
+    const res = await fetch(`${modelUrl}?key=${env.GEMINI_API_KEY}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -537,10 +568,12 @@ async function getAIAnalysis(env, prompt) {
     return cached;
   }
 
-  let text = await tryGemini(env, prompt, GEMINI_URL, 'gemini-2.0-flash');
+  // ── STEP 1: Gemini 2.0 Flash Direct ──
+  let text = await tryGeminiDirect(env, prompt, GEMINI_URL, 'gemini-2.0-flash');
   
+  // ── STEP 2: Gemini 1.5 Flash Fallback ──
   if (!text) {
-    text = await tryGemini(env, prompt, GEMINI_FALLBACK_URL, 'gemini-1.5-flash');
+    text = await tryGeminiDirect(env, prompt, GEMINI_FALLBACK_URL, 'gemini-1.5-flash');
   }
 
   if (text) {
@@ -551,6 +584,7 @@ async function getAIAnalysis(env, prompt) {
     return result;
   }
 
+  // ── STEP 3: OpenRouter Failover ──
   console.log('[AI] Gemini family failed, trying OpenRouter...');
   if (!env.OPENROUTER_API_KEY) {
     console.log('[AI] No OpenRouter key, giving up');
@@ -763,7 +797,7 @@ Write the analysis now.`;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 11. SNAPSHOT & CONFIG KV (from v3.5)
+// 11. SNAPSHOT & CONFIG KV
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function storeSnapshot(env, data) {
@@ -812,7 +846,7 @@ async function setUserState(env, userId, value) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 12. DEDUP — FIXED DOUBLE-POST BUG (from v3.5)
+// 12. DEDUP — FIXED DOUBLE-POST BUG
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function dedupSend(env, type, fn) {
@@ -853,7 +887,7 @@ async function dedupSend(env, type, fn) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 13. TELEGRAM API (from v3.5)
+// 13. TELEGRAM API
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function tgMethod(token, method, body) {
@@ -902,7 +936,7 @@ async function editMessage(env, chatId, messageId, text, markup = null) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 14. KEYBOARDS — HYBRID: v2 compact layout + v3 labels
+// 14. KEYBOARDS — FIXED ADMIN PANEL
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function mainKeyboard(isAdmin) {
@@ -916,9 +950,10 @@ function mainKeyboard(isAdmin) {
   return { keyboard: kb, resize_keyboard: true };
 }
 
-function getAdminInline(mode, scenario) {
+function getAdminInline(mode, scenario, autoPosts) {
   const m = AI_MODES[mode] || AI_MODES.normal;
   const s = SCENARIOS[scenario] || SCENARIOS.neutral;
+  const autoStatus = autoPosts === 'true' ? '✅ On' : '⏸ Off';
   return {
     inline_keyboard: [
       [{ text: '📈 Send Price', callback_data: 'send_price' }, { text: '📉 Send Volume', callback_data: 'send_volume' }],
@@ -932,7 +967,7 @@ function getAdminInline(mode, scenario) {
       [{ text: '──── System ────', callback_data: 'noop' }],
       [{ text: '🤖 AI Status', callback_data: 'admin:ai_status' }],
       [{ text: '📊 API Status', callback_data: 'admin:api_status' }],
-      [{ text: '⏸ Auto Posts', callback_data: 'admin:auto_posts' }],
+      [{ text: `⏸ Auto Posts: ${autoStatus}`, callback_data: 'admin:auto_posts' }],
       [{ text: '🔙 Back', callback_data: 'back_main' }],
     ],
   };
@@ -970,39 +1005,78 @@ function alertsInline(states) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 15. MESSAGE BUILDERS — HYBRID: v2 dry UI + v3 data richness
+// 15. MESSAGE BUILDERS — TIERED WITH EMOJI
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function buildPrice(coins, source = '') {
-  let m = `📊 <b>LIVE MARKET</b>${source ? ` <i>via ${esc(source)}</i>` : ''}\n`;
-  m += `<i>${fmt.time()} UTC</i>\n\n<pre>`;
-  for (const c of coins) {
-    const i = COINS[c.id]; if (!i) continue;
-    const ch = c.price_change_percentage_24h || 0;
-    const ch7d = c.price_change_percentage_7d_in_currency || 0;
-    const sym = i.symbol.padEnd(6, ' ');
-    const pr = ('$' + fmt.price(c.current_price)).padStart(12, ' ');
-    const ch24 = ((ch >= 0 ? '🟢' : '🔴') + (ch >= 0 ? '+' : '') + ch.toFixed(2) + '%').padStart(10, ' ');
-    const ch7 = (ch7d >= 0 ? '+' : '') + ch7d.toFixed(1) + '%';
-    m += `${sym} ${pr}  ${ch24}  7d:${ch7}\n`;
+  const tier1 = coins.filter(c => COINS[c.id]?.tier === 1);
+  const tier2 = coins.filter(c => COINS[c.id]?.tier === 2);
+  const tier3 = coins.filter(c => COINS[c.id]?.tier === 3);
+  
+  let m = `📊 <b>MARKET SNAPSHOT</b>${source ? ` <i>· ${esc(source)}</i>` : ''}\n`;
+  m += `<i>${fmt.time()} UTC</i>\n\n`;
+  
+  if (tier1.length) {
+    m += `<b>🏆 Tier 1 — Blue Chips</b>\n<pre>`;
+    for (const c of tier1) {
+      const i = COINS[c.id];
+      const ch = c.price_change_percentage_24h || 0;
+      const ch7d = c.price_change_percentage_7d_in_currency || 0;
+      const sym = i.symbol.padEnd(6, ' ');
+      const pr = ('$' + fmt.price(c.current_price)).padStart(12, ' ');
+      const ch24 = ((ch >= 0 ? '🟢' : '🔴') + (ch >= 0 ? '+' : '') + ch.toFixed(2) + '%').padStart(10, ' ');
+      const ch7 = (ch7d >= 0 ? '+' : '') + ch7d.toFixed(1) + '%';
+      m += `${sym} ${pr}  ${ch24}  7d:${ch7}\n`;
+    }
+    m += `</pre>\n\n`;
   }
-  m += `</pre>\n\n${FOOTER}`;
+  
+  if (tier2.length) {
+    m += `<b>🔷 Tier 2 — Utility</b>\n<pre>`;
+    for (const c of tier2) {
+      const i = COINS[c.id];
+      const ch = c.price_change_percentage_24h || 0;
+      const sym = i.symbol.padEnd(6, ' ');
+      const pr = ('$' + fmt.price(c.current_price)).padStart(12, ' ');
+      const ch24 = ((ch >= 0 ? '🟢' : '🔴') + (ch >= 0 ? '+' : '') + ch.toFixed(2) + '%').padStart(10, ' ');
+      m += `${sym} ${pr}  ${ch24}\n`;
+    }
+    m += `</pre>\n\n`;
+  }
+  
+  if (tier3.length) {
+    m += `<b>🐸 Tier 3 — Meme & AI</b>\n<pre>`;
+    for (const c of tier3) {
+      const i = COINS[c.id];
+      const ch = c.price_change_percentage_24h || 0;
+      const sym = i.symbol.padEnd(6, ' ');
+      const pr = ('$' + fmt.price(c.current_price)).padStart(12, ' ');
+      const ch24 = ((ch >= 0 ? '🟢' : '🔴') + (ch >= 0 ? '+' : '') + ch.toFixed(2) + '%').padStart(10, ' ');
+      m += `${sym} ${pr}  ${ch24}\n`;
+    }
+    m += `</pre>\n\n`;
+  }
+  
+  m += `${FOOTER}`;
   return m;
 }
 
 async function buildVolume(coins, source = '') {
   const sorted = [...coins].sort((a, b) => (b.total_volume || 0) - (a.total_volume || 0));
-  let m = `📈 <b>VOLUME LEADERS</b>${source ? ` <i>via ${esc(source)}</i>` : ''}\n`;
+  
+  let m = `📈 <b>VOLUME LEADERS</b>${source ? ` <i>· ${esc(source)}</i>` : ''}\n`;
   m += `<i>${fmt.time()} UTC</i>\n\n<pre>`;
+  
   for (const c of sorted.slice(0, 10)) {
     const i = COINS[c.id]; if (!i) continue;
+    const vol = c.total_volume || 0;
+    const mc = c.market_cap || 0;
+    const ratio = mc > 0 ? ((vol / mc) * 100).toFixed(1) : '?';
     const sym = i.symbol.padEnd(6, ' ');
-    const pr = ('$' + fmt.price(c.current_price)).padStart(12, ' ');
-    const vol = fmt.vol(c.total_volume).padStart(12, ' ');
-    let line = `${sym} ${pr}  Vol:${vol}`;
-    if (c.market_cap) line += `  Cap:${fmt.cap(c.market_cap)}`;
-    m += line + '\n';
+    const volStr = fmt.vol(vol).padStart(12, ' ');
+    m += `${sym} Vol:${volStr}  Ratio:${ratio}%\n`;
   }
+  
   m += `</pre>\n\n${FOOTER}`;
   return m;
 }
@@ -1011,19 +1085,23 @@ async function buildDaily(coins, globalData, trending, fear, source = '') {
   const sorted = [...coins].sort((a, b) => (b.price_change_percentage_24h || 0) - (a.price_change_percentage_24h || 0));
   const best = sorted[0], worst = sorted[sorted.length - 1];
   
-  let m = `📉 <b>DAILY INTELLIGENCE</b>${source ? ` <i>via ${esc(source)}</i>` : ''}\n`;
+  let m = `📉 <b>DAILY INTELLIGENCE</b>${source ? ` <i>· ${esc(source)}</i>` : ''}\n`;
   m += `<i>${fmt.date()}</i>\n\n`;
 
   if (globalData?.data) {
     const g = globalData.data;
-    m += `<b>Global</b>  Cap: ${fmt.cap(g.total_market_cap?.usd || 0)} | Vol: ${fmt.vol(g.total_volume?.usd || 0)} | BTC Dom: ${g.market_cap_percentage?.btc?.toFixed(1) || '?'}%\n\n`;
+    m += `<b>🌍 Global Market</b>\n`;
+    m += `Cap: ${fmt.cap(g.total_market_cap?.usd || 0)} | Vol: ${fmt.vol(g.total_volume?.usd || 0)} | BTC Dom: ${g.market_cap_percentage?.btc?.toFixed(1) || '?'}%\n\n`;
   }
   
   if (fear?.data?.[0]) {
-    m += `<b>Sentiment</b>  ${getBias(parseInt(fear.data[0].value))}\n\n`;
+    const f = fear.data[0], v = parseInt(f.value);
+    m += `<b>🧠 Market Sentiment</b>\n`;
+    m += `${progressBar(v)} <b>${v}/100</b>\n`;
+    m += `${getBias(v)}\n\n`;
   }
 
-  m += `<pre>`;
+  m += `<b>📋 Performance Board</b>\n<pre>`;
   for (const c of sorted) {
     const i = COINS[c.id]; if (!i) continue;
     const ch = c.price_change_percentage_24h || 0;
@@ -1039,39 +1117,60 @@ async function buildDaily(coins, globalData, trending, fear, source = '') {
   m += `</pre>\n\n`;
 
   if (best && COINS[best.id]) {
-    m += `<b>Leader:</b> ${COINS[best.id].emoji} ${COINS[best.id].symbol}  ${fmt.change(best.price_change_percentage_24h)}\n`;
+    m += `<b>🏆 Top Performer</b>\n`;
+    m += `${COINS[best.id].emoji} ${COINS[best.id].symbol}  ${fmt.change(best.price_change_percentage_24h)}\n\n`;
   }
   if (worst && COINS[worst.id]) {
-    m += `<b>Weakest:</b> ${COINS[worst.id].emoji} ${COINS[worst.id].symbol}  ${fmt.change(worst.price_change_percentage_24h)}\n`;
-  }
-  if (trending?.coins?.length) {
-    m += `\n<b>Trending:</b> ${trending.coins.slice(0, 5).map(t => esc(t.item.symbol)).join(', ')}\n`;
+    m += `<b>⚠️ Weakest Link</b>\n`;
+    m += `${COINS[worst.id].emoji} ${COINS[worst.id].symbol}  ${fmt.change(worst.price_change_percentage_24h)}\n\n`;
   }
   
-  m += `\n${FOOTER}`;
+  if (trending?.coins?.length) {
+    m += `<b>🔥 Trending Now</b>\n`;
+    for (const t of trending.coins.slice(0, 5)) {
+      m += `   ${esc(t.item.symbol)} — ${esc(t.item.name)}\n`;
+    }
+    m += `\n`;
+  }
+  
+  m += `${FOOTER}`;
   return m;
 }
 
 async function buildTrending(trending) {
   let m = `🔥 <b>TRENDING COINS</b>\n`;
   m += `<i>${fmt.time()} UTC</i>\n\n<pre>`;
+  
   if (trending?.coins?.length) {
+    let rank = 1;
     for (const t of trending.coins.slice(0, 10)) {
+      const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '🔹';
       const sym = esc(t.item.symbol).padEnd(6, ' ');
-      const rank = ('#' + (t.item.market_cap_rank || '?')).padStart(4, ' ');
-      m += `${sym} ${rank}  ${esc(t.item.name)}\n`;
+      const rankStr = ('#' + (t.item.market_cap_rank || '?')).padStart(4, ' ');
+      m += `${medal} ${sym} ${rankStr}  ${esc(t.item.name)}\n`;
+      rank++;
     }
   } else {
     m += `No trending data available.\n`;
   }
+  
   m += `</pre>\n\n${FOOTER}`;
   return m;
 }
 
 async function buildFng(fear) {
-  if (!fear?.data?.[0]) return `🧠 <b>MARKET SENTIMENT</b>\n\nData unavailable.\n\n${FOOTER}`;
+  if (!fear?.data?.[0]) return `🧠 <b>FEAR & GREED INDEX</b>\n\n<i>Data unavailable</i>\n\n${FOOTER}`;
   const f = fear.data[0], v = parseInt(f.value);
-  return `🧠 <b>MARKET SENTIMENT</b>\n\n${progressBar(v)} <b>${v}/100</b>\n${getBias(v)}\n\n${FOOTER}`;
+  const classification = f.value_classification || 'Neutral';
+  
+  let m = `🧠 <b>FEAR & GREED INDEX</b>\n`;
+  m += `<i>${f.timestamp ? new Date(f.timestamp * 1000).toISOString().slice(0, 10) : fmt.date()}</i>\n\n`;
+  m += `${progressBar(v)} <b>${v}/100</b>\n\n`;
+  m += `<b>${classification.toUpperCase()}</b>\n`;
+  m += `${getBias(v)}\n\n`;
+  m += `<i>Updated: ${fmt.time()} UTC</i>\n\n`;
+  m += `${FOOTER}`;
+  return m;
 }
 
 async function buildAIAnalysis(aiResult, todayData, emotion) {
@@ -1086,7 +1185,9 @@ async function buildAIAnalysis(aiResult, todayData, emotion) {
     englishText = englishText.substring(0, separatorIndex).trim();
   }
   
-  let m = `${emo.emoji} <b>MARKET STATE: ${emo.state}</b> | Intensity: ${emo.intensity}/100\n\n`;
+  let m = `${emo.emoji} <b>MARKET STATE: ${emo.state}</b>\n`;
+  m += `${emo.color} Intensity: ${emo.intensity}/100  ·  ${t.mode || 'Normal'} Mode\n\n`;
+  
   m += `🧠 <b>AI MARKET INTELLIGENCE</b>\n`;
   m += `<i>${t.date} · ${aiResult.source || 'AI'} · ${t.mode || 'Normal'}</i>\n\n`;
   
@@ -1094,26 +1195,28 @@ async function buildAIAnalysis(aiResult, todayData, emotion) {
     m += `<blockquote>\n${cleanMarkdown(englishText)}\n</blockquote>\n\n`;
   }
   
+  // Compact Persian — no flag, just translation
   if (persianText) {
-    m += `<blockquote>\n<b>🇮🇷 تحلیل فارسی</b>\n\n${cleanMarkdown(persianText)}\n</blockquote>\n\n`;
+    m += `<blockquote>\n<b>خلاصه تحلیل بازار</b>\n\n`;
+    m += `${cleanMarkdown(persianText)}\n</blockquote>\n\n`;
   }
 
-  m += `<pre>`;
+  m += `<b>📊 Key Metrics</b>\n<pre>`;
   m += `BTC  $${fmt.price(t.btcPrice).padStart(12)}  ${fmt.change(t.btcChange)}\n`;
   m += `ETH  $${fmt.price(t.ethPrice).padStart(12)}  ${fmt.change(t.ethChange)}\n`;
   m += `SOL  $${fmt.price(t.solPrice).padStart(12)}  ${fmt.change(t.solChange)}\n`;
   m += `</pre>\n\n`;
 
-  m += `<b>Global:</b> Cap ${fmt.cap(t.totalMarketCap)} | Vol ${fmt.vol(t.totalVolume)}\n`;
-  m += `BTC Dom: ${t.btcDominance}% | F&G: ${t.fearGreed}/100\n\n`;
+  m += `<b>🌍 Global:</b> Cap ${fmt.cap(t.totalMarketCap)} | Vol ${fmt.vol(t.totalVolume)}\n`;
+  m += `<b>₿ Dom:</b> ${t.btcDominance}% | <b>🧠 F&G:</b> ${t.fearGreed}/100\n\n`;
 
   if (t.futures?.BTCUSDT) {
     const f = t.futures.BTCUSDT;
-    m += `<b>Futures:</b> `;
+    m += `<b>⚡ Futures Pulse</b>\n`;
     const parts = [];
-    if (f.fundingRate != null) parts.push(`Funding ${f.fundingRate.toFixed(4)}%`);
-    if (f.openInterest != null) parts.push(`OI ${fmt.vol(f.openInterest)}`);
-    if (f.longShortRatio != null) parts.push(`L/S ${f.longShortRatio.toFixed(2)}`);
+    if (f.fundingRate != null) parts.push(`Funding: ${f.fundingRate.toFixed(4)}%`);
+    if (f.openInterest != null) parts.push(`OI: ${fmt.vol(f.openInterest)}`);
+    if (f.longShortRatio != null) parts.push(`L/S: ${f.longShortRatio.toFixed(2)}`);
     m += parts.join(' | ') + '\n\n';
   }
 
@@ -1130,12 +1233,17 @@ function buildAlert(coinId, price, type) {
 async function buildFutures(futures) {
   let m = `⚡ <b>FUNDING RATES & FUTURES</b>\n`;
   m += `<i>${fmt.time()} UTC</i>\n\n<pre>`;
+  
   for (const [sym, f] of Object.entries(futures)) {
     const coinId = Object.keys(BINANCE_MAP).find(k => BINANCE_MAP[k] === sym);
     const info = coinId ? COINS[coinId] : { symbol: sym.replace('USDT', ''), emoji: '•' };
-    const line = `${info.emoji} ${info.symbol.padEnd(6)} Funding: ${f.fundingRate !== null ? f.fundingRate.toFixed(4) + '%' : 'N/A'} | OI: ${f.openInterest !== null ? fmt.vol(f.openInterest) : 'N/A'} | L/S: ${f.longShortRatio !== null ? f.longShortRatio.toFixed(2) : 'N/A'}`;
-    m += line + '\n';
+    const fundingEmoji = f.fundingRate > 0.05 ? '🔴' : f.fundingRate < -0.05 ? '🟢' : '⚪';
+    m += `${info.emoji} ${info.symbol.padEnd(6)} `;
+    m += `${fundingEmoji} Funding: ${f.fundingRate !== null ? f.fundingRate.toFixed(4) + '%' : 'N/A'} `;
+    m += `| OI: ${f.openInterest !== null ? fmt.vol(f.openInterest) : 'N/A'} `;
+    m += `| L/S: ${f.longShortRatio !== null ? f.longShortRatio.toFixed(2) : 'N/A'}\n`;
   }
+  
   m += `</pre>\n\n${FOOTER}`;
   return m;
 }
@@ -1149,7 +1257,7 @@ async function buildMovers(gl) {
     for (const g of gl.gainers.slice(0, 5)) {
       const sym = (g.symbol || '?').toUpperCase().padEnd(6);
       const ch = ((g.price_change_percentage_24h >= 0 ? '+' : '') + (g.price_change_percentage_24h || 0).toFixed(2) + '%').padStart(10);
-      m += `${sym} ${ch}  $${fmt.price(g.current_price || 0)}\n`;
+      m += `   🟢 ${sym} ${ch}  $${fmt.price(g.current_price || 0)}\n`;
     }
     m += `</pre>\n\n`;
   }
@@ -1159,7 +1267,7 @@ async function buildMovers(gl) {
     for (const l of gl.losers.slice(0, 5)) {
       const sym = (l.symbol || '?').toUpperCase().padEnd(6);
       const ch = ((l.price_change_percentage_24h >= 0 ? '+' : '') + (l.price_change_percentage_24h || 0).toFixed(2) + '%').padStart(10);
-      m += `${sym} ${ch}  $${fmt.price(l.current_price || 0)}\n`;
+      m += `   🔴 ${sym} ${ch}  $${fmt.price(l.current_price || 0)}\n`;
     }
     m += `</pre>\n\n`;
   }
@@ -1169,7 +1277,7 @@ async function buildMovers(gl) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 16. ALERTS KV & LOGIC (from v3.5)
+// 16. ALERTS KV & LOGIC
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function getAlertState(env, key) {
@@ -1248,7 +1356,7 @@ async function checkAlerts(env, coins) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 17. DATA COLLECTOR (from v3.5)
+// 17. DATA COLLECTOR
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function collectMarketData(env) {
@@ -1300,7 +1408,7 @@ async function collectMarketData(env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 18. CHANNEL SENDERS (from v3.5)
+// 18. CHANNEL SENDERS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function ensureChannel(env) {
@@ -1438,7 +1546,7 @@ async function sendChannelAll(env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 19. BOT HANDLERS — HYBRID: v2 dry text + v3 logic
+// 19. BOT HANDLERS — FIXED ADMIN PANEL CALLBACKS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleStart(chatId, userId, env) {
@@ -1520,7 +1628,8 @@ async function handleSettings(chatId, env) {
 async function showAdminPanel(chatId, env) {
   const mode = await getConfig(env, 'ai_mode', 'normal');
   const scenario = await getConfig(env, 'scenario', 'neutral');
-  await sendMessage(env, chatId, `📣 <b>Admin Control Panel</b>\n\nManage posts, AI config, and system status:`, getAdminInline(mode, scenario));
+  const autoPosts = await getConfig(env, 'auto_posts', 'true');
+  await sendMessage(env, chatId, `📣 <b>Admin Control Panel</b>\n\nManage posts, AI config, and system status:`, getAdminInline(mode, scenario, autoPosts));
 }
 
 async function handleHelp(chatId, env, userId) {
@@ -1576,15 +1685,23 @@ async function handleAPIStatus(chatId, env) {
   await sendMessage(env, chatId, text);
 }
 
-async function handleAutoPosts(chatId, env) {
+async function handleAutoPosts(chatId, env, msgId = null) {
   const current = await getConfig(env, 'auto_posts', 'true');
   const newVal = current === 'true' ? 'false' : 'true';
   await setConfig(env, 'auto_posts', newVal);
-  await sendMessage(env, chatId, `⏸ <b>Auto Posts</b>\n\nStatus: ${newVal === 'true' ? '✅ Enabled' : '⏸ Disabled'}\n\nCron jobs will ${newVal === 'true' ? 'run normally' : 'be skipped'}.`);
+  const statusText = `⏸ <b>Auto Posts</b>\n\nStatus: ${newVal === 'true' ? '✅ Enabled' : '⏸ Disabled'}\n\nCron jobs will ${newVal === 'true' ? 'run normally' : 'be skipped'}.`;
+  
+  if (msgId) {
+    const mode = await getConfig(env, 'ai_mode', 'normal');
+    const scenario = await getConfig(env, 'scenario', 'neutral');
+    await editMessage(env, chatId, msgId, statusText, getAdminInline(mode, scenario, newVal));
+  } else {
+    await sendMessage(env, chatId, statusText);
+  }
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 20. WEBHOOK PROCESSOR (from v3.5)
+// 20. WEBHOOK PROCESSOR — FIXED CALLBACKS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function processWebhook(update, env) {
@@ -1696,9 +1813,15 @@ async function processWebhook(update, env) {
           if (data === 'send_all') await sendChannelAll(env);
           if (data === 'send_futures') await sendChannelFutures(env);
           if (data === 'send_movers') await sendChannelMovers(env);
-          await editMessage(env, chatId, msgId, `✅ <b>Sent!</b>\n🕒 ${fmt.time()}`, getAdminInline(await getConfig(env, 'ai_mode', 'normal'), await getConfig(env, 'scenario', 'neutral')));
+          const mode = await getConfig(env, 'ai_mode', 'normal');
+          const scenario = await getConfig(env, 'scenario', 'neutral');
+          const autoPosts = await getConfig(env, 'auto_posts', 'true');
+          await editMessage(env, chatId, msgId, `✅ <b>Sent!</b>\n🕒 ${fmt.time()}`, getAdminInline(mode, scenario, autoPosts));
         } catch (e) {
-          await editMessage(env, chatId, msgId, `❌ <b>Error:</b> ${esc(e.message)}`, getAdminInline(await getConfig(env, 'ai_mode', 'normal'), await getConfig(env, 'scenario', 'neutral')));
+          const mode = await getConfig(env, 'ai_mode', 'normal');
+          const scenario = await getConfig(env, 'scenario', 'neutral');
+          const autoPosts = await getConfig(env, 'auto_posts', 'true');
+          await editMessage(env, chatId, msgId, `❌ <b>Error:</b> ${esc(e.message)}`, getAdminInline(mode, scenario, autoPosts));
         }
         return;
       }
@@ -1719,7 +1842,9 @@ async function processWebhook(update, env) {
         if (!isAdmin(userId, env)) return;
         const mode = data.replace('set_mode:', '');
         await setConfig(env, 'ai_mode', mode);
-        await editMessage(env, chatId, msgId, `📣 <b>Admin Panel</b>\n\n✅ AI Mode: <b>${AI_MODES[mode]}</b>`, getAdminInline(mode, await getConfig(env, 'scenario', 'neutral')));
+        const scenario = await getConfig(env, 'scenario', 'neutral');
+        const autoPosts = await getConfig(env, 'auto_posts', 'true');
+        await editMessage(env, chatId, msgId, `📣 <b>Admin Panel</b>\n\n✅ AI Mode: <b>${AI_MODES[mode]}</b>`, getAdminInline(mode, scenario, autoPosts));
         return;
       }
 
@@ -1727,7 +1852,9 @@ async function processWebhook(update, env) {
         if (!isAdmin(userId, env)) return;
         const scenario = data.replace('set_scenario:', '');
         await setConfig(env, 'scenario', scenario);
-        await editMessage(env, chatId, msgId, `📣 <b>Admin Panel</b>\n\n✅ Scenario: <b>${SCENARIOS[scenario]}</b>`, getAdminInline(await getConfig(env, 'ai_mode', 'normal'), scenario));
+        const mode = await getConfig(env, 'ai_mode', 'normal');
+        const autoPosts = await getConfig(env, 'auto_posts', 'true');
+        await editMessage(env, chatId, msgId, `📣 <b>Admin Panel</b>\n\n✅ Scenario: <b>${SCENARIOS[scenario]}</b>`, getAdminInline(mode, scenario, autoPosts));
         return;
       }
 
@@ -1769,15 +1896,19 @@ async function processWebhook(update, env) {
         return;
       }
 
+      // ── FIXED: Auto Posts toggle with inline refresh ──
       if (data === 'admin:auto_posts') {
         if (!isAdmin(userId, env)) return;
-        await handleAutoPosts(chatId, env);
+        await handleAutoPosts(chatId, env, msgId);
         return;
       }
 
       if (data === 'admin:page:main') {
         if (!isAdmin(userId, env)) return;
-        await editMessage(env, chatId, msgId, `📣 <b>Admin Control Panel</b>\n\nManage posts, AI config, and system status:`, getAdminInline(await getConfig(env, 'ai_mode', 'normal'), await getConfig(env, 'scenario', 'neutral')));
+        const mode = await getConfig(env, 'ai_mode', 'normal');
+        const scenario = await getConfig(env, 'scenario', 'neutral');
+        const autoPosts = await getConfig(env, 'auto_posts', 'true');
+        await editMessage(env, chatId, msgId, `📣 <b>Admin Control Panel</b>\n\nManage posts, AI config, and system status:`, getAdminInline(mode, scenario, autoPosts));
         return;
       }
 
@@ -1805,7 +1936,7 @@ async function processWebhook(update, env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 21. CRON HANDLER — 3 CLEAN TRIGGERS (from v3.5)
+// 21. CRON HANDLER
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleCron(event, env) {
@@ -1852,10 +1983,10 @@ async function handleCron(event, env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 22. HTTP ROUTER (from v3.5)
+// 22. HTTP ROUTER
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-async function handleWebhook(request, env) {
+async function handleWebhookReq(request, env) {
   try {
     const update = await request.json();
     if (update?.update_id) {
@@ -1913,7 +2044,7 @@ async function handleDebug(env) {
     tier1: Object.keys(TIER_1).length,
     tier2: Object.keys(TIER_2).length,
     tier3: Object.keys(TIER_3).length,
-    version: '3.6.0',
+    version: '3.7.0',
   };
 
   if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHANNEL_ID) {
@@ -1956,7 +2087,7 @@ async function handleHttp(request, env) {
   const path = url.pathname;
   console.log(`[HTTP] ${request.method} ${path}`);
 
-  if (path === '/webhook' && request.method === 'POST') return handleWebhook(request, env);
+  if (path === '/webhook' && request.method === 'POST') return handleWebhookReq(request, env);
   if (path === '/admin' && request.method === 'POST') return routeAdmin(request, env);
   if (path === '/debug' && request.method === 'GET') {
     if (!checkSecret(request, env)) {
@@ -1966,16 +2097,17 @@ async function handleHttp(request, env) {
   }
   if (path === '/' && request.method === 'GET') {
     return new Response(
-      `TradeAgent IV HYBRID v3.6.0 — AI-Powered Crypto Intelligence\n\n` +
+      `TradeAgent IV HYBRID v3.7.0 — AI-Powered Crypto Intelligence\n\n` +
       `Backend: v3.5 (3-Tier, Emotion, Futures, HYPE, Dedup Fix)\n` +
-      `UI: v2.3 (Dry pre blocks, compact layout, less emoji)\n\n` +
+      `UI: Tiered blocks with emoji + compact pre tables\n\n` +
       `Routes:\n` +
       `  POST /webhook  → Telegram webhook\n` +
       `  POST /admin    → Manual trigger (x-admin-secret required)\n` +
       `  GET  /debug    → Status check + API tests (admin secret required)\n\n` +
       `Cron: ${CRON_PRICE}, ${CRON_BUNDLE}, ${CRON_MOVERS}\n` +
       `Coins: ${Object.keys(COINS).length} (T1:${Object.keys(TIER_1).length} T2:${Object.keys(TIER_2).length} T3:${Object.keys(TIER_3).length})\n` +
-      `AI: Gemini (priority) → OpenRouter (DeepSeek/Llama/Qwen/Gemma/Kimi failover)\n`,
+      `AI: Gemini Direct (priority) → OpenRouter (DeepSeek/Llama/Qwen/Gemma/Kimi failover)\n` +
+      `Movers: Binance 24h ticker fallback (no CMC required)\n`,
       { status: 200 }
     );
   }
