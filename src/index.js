@@ -667,11 +667,12 @@ async function getAIAnalysis(env, prompt) {
 
   const models = [
     'google/gemini-2.5-flash-exp:free',
-    'deepseek/deepseek-chat-v3-0324:free',
-    'meta-llama/llama-4-maverick:free',
-    'qwen/qwen3-235b-a22b:free',
+    'deepseek/deepseek-chat:free',
+    'meta-llama/llama-3.3-70b-instruct:free',
+    'qwen/qwen2.5-72b-instruct:free',
     'mistralai/mistral-small-3.1-24b-instruct:free',
     'google/gemma-3-27b-it:free',
+    'openrouter/free',  // Last resort: auto-select any available free model
   ];
 
   for (const model of models) {
@@ -691,11 +692,15 @@ async function getAIAnalysis(env, prompt) {
           max_tokens: 900,
           temperature: 0.3
         }),
-      }, 20000);
+      }, 30000);
       
       if (!res.ok) {
         const errText = await res.text().catch(() => '');
-        console.log(`[AI] ${model} HTTP ${res.status}: ${errText.slice(0, 100)}`);
+        console.log(`[AI] ${model} HTTP ${res.status}: ${errText.slice(0, 200)}`);
+        if (res.status === 429) {
+          console.log(`[AI] ${model} rate limited - waiting 3s before next model...`);
+          await new Promise(r => setTimeout(r, 3000));
+        }
         continue;
       }
       
