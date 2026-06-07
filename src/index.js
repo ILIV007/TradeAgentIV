@@ -1,8 +1,8 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV HYBRID v4.2.9-FINAL — AI Analysis Fix (Complete)
-//  FIXES: isValidAIResponse simplified, no double cleanMarkdown,
-//         plain <blockquote>, Promise.race timeout (no AbortController),
-//         HTML fallback, complete file, proven v3.7 prompt
+//  TRADEAGENT IV HYBRID v4.3.0-FINAL — Gemini 3 Flash Migration
+//  FIXES: Gemini 2.0 Flash → 3 Flash (deprecated June 2026),
+//         isValidAIResponse simplified, no double cleanMarkdown,
+//         plain <blockquote>, Promise.race timeout, HTML fallback
 // ═══════════════════════════════════════════════════════════════
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -74,10 +74,13 @@ const ALERT_PRESETS = {
 const COINGECKO_BASE = 'https://api.coingecko.com/api/v3';
 const CMC_BASE = 'https://pro-api.coinmarketcap.com/v1';
 
-// [FIX v4.2.7] Gemini 2.0 Flash as PRIMARY (proven working)
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
-const GEMINI_FALLBACK_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
-const GEMINI_FALLBACK_URL_2 = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent';
+// [FIX v4.2.9] Updated models - Gemini 2.0 Flash deprecated June 1, 2026
+// Primary: Gemini 3 Flash (latest free tier model)
+// Fallback: Gemini 2.5 Flash (previous generation, still free)
+// Fallback 2: Gemini 1.5 Flash (oldest but stable)
+const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:generateContent';
+const GEMINI_FALLBACK_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+const GEMINI_FALLBACK_URL_2 = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const FNG_URL = 'https://api.alternative.me/fng/?limit=1';
@@ -662,7 +665,7 @@ async function getAIAnalysis(env, prompt) {
   }
 
   const models = [
-    'google/gemini-2.0-flash-exp:free',
+    'google/gemini-2.5-flash-exp:free',
     'deepseek/deepseek-chat-v3-0324:free',
     'meta-llama/llama-4-maverick:free',
     'qwen/qwen3-235b-a22b:free',
@@ -2327,7 +2330,7 @@ async function handleDebug(env) {
     tier1: Object.keys(TIER_1).length,
     tier2: Object.keys(TIER_2).length,
     tier3: Object.keys(TIER_3).length,
-    version: '4.2.9-FINAL',
+    version: '4.3.0-FINAL',
   };
 
   if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHANNEL_ID) {
@@ -2390,8 +2393,8 @@ async function handleHttp(request, env, ctx) {
   }
   if (path === '/' && request.method === 'GET') {
     return new Response(
-      `TradeAgent IV HYBRID v4.2.9-FINAL — AI-Powered Crypto Intelligence\n\n` +
-      `Backend: v4.2.9 (3-Tier, Emotion, Futures, HYPE, Dedup v3, Modern UI)\n` +
+      `TradeAgent IV HYBRID v4.3.0-FINAL — AI-Powered Crypto Intelligence\n\n` +
+      `Backend: v4.3.0 (3-Tier, Emotion, Futures, HYPE, Dedup v3, Modern UI)\n` +
       `UI: Plain <blockquote> for all sections + Gemini Priority + Updated Commands\n\n` +
       `Routes:\n` +
       `  POST /webhook  → Telegram webhook\n` +
@@ -2399,7 +2402,7 @@ async function handleHttp(request, env, ctx) {
       `  GET  /debug    → Status check + API tests (admin secret required)\n\n` +
       `Cron: ${CRON_PRICE}, ${CRON_BUNDLE}, ${CRON_MOVERS}\n` +
       `Coins: ${Object.keys(COINS).length} (T1:${Object.keys(TIER_1).length} T2:${Object.keys(TIER_2).length} T3:${Object.keys(TIER_3).length})\n` +
-      `AI: Gemini 2.0 Flash (primary) → Gemini 1.5 Flash → Gemini 1.5 Flash-8b → OpenRouter :FREE\n` +
+      `AI: Gemini 3 Flash (primary) → Gemini 1.5 Flash → Gemini 1.5 Flash-8b → OpenRouter :FREE\n` +
       `Movers: Binance 24h ticker (no CMC required)\n` +
       `Dedup: v3 (10min gap + 5min lock + race-proof)\n` +
       `F&G: Modern visual bar + signal interpretation\n` +
