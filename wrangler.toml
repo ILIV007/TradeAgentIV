@@ -2,11 +2,5 @@ name = "tradeagent-iv"
 main = "src/index.js"
 compatibility_date = "2025-06-01"
 
-[[triggers]]
-cron = "*/30 * * * *"
-
-[[triggers]]
-cron = "0 */4 * * *"  
-
-[[triggers]]
-cron = "0 9,15,21 * * *"
+[triggers]
+crons = ["*/30 * * * *", "0 */8 * * *", "0 9,15,21 * * *"]
