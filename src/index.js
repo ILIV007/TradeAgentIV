@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV HYBRID v4.3.1-FINAL — Gemini 3 Flash Migration
+//  TRADEAGENT IV HYBRID v4.3.2-FINAL — Gemini 3 Flash Migration
 //  FIXES: Gemini 2.0 Flash → 3 Flash (deprecated June 2026),
 //         isValidAIResponse simplified, no double cleanMarkdown,
 //         plain <blockquote>, Promise.race timeout, HTML fallback
@@ -2336,7 +2336,7 @@ async function handleDebug(env) {
     tier1: Object.keys(TIER_1).length,
     tier2: Object.keys(TIER_2).length,
     tier3: Object.keys(TIER_3).length,
-    version: '4.3.1-FINAL',
+    version: '4.3.2-FINAL',
   };
 
   if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHANNEL_ID) {
@@ -2399,8 +2399,8 @@ async function handleHttp(request, env, ctx) {
   }
   if (path === '/' && request.method === 'GET') {
     return new Response(
-      `TradeAgent IV HYBRID v4.3.1-FINAL — AI-Powered Crypto Intelligence\n\n` +
-      `Backend: v4.3.0 (3-Tier, Emotion, Futures, HYPE, Dedup v3, Modern UI)\n` +
+      `TradeAgent IV HYBRID v4.3.2-FINAL — AI-Powered Crypto Intelligence\n\n` +
+      `Backend: v4.3.2 (3-Tier, Emotion, Futures, HYPE, Dedup v3, Modern UI)\n` +
       `UI: Plain <blockquote> for all sections + Gemini Priority + Updated Commands\n\n` +
       `Routes:\n` +
       `  POST /webhook  → Telegram webhook\n` +
