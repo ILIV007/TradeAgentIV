@@ -71,11 +71,15 @@ const ALERT_PRESETS = {
 // 3. API ENDPOINTS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 const COINGECKO_BASE = 'https://api.coingecko.com/api/v3';
 const CMC_BASE = 'https://pro-api.coinmarketcap.com/v1';
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
-const GEMINI_FALLBACK_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
-const GEMINI_FALLBACK_URL_2 = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+
+// [FIX] Gemini 2.5 Flash doesn't exist in free tier — use 2.0 as primary
+const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+const GEMINI_FALLBACK_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+const GEMINI_FALLBACK_URL_2 = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent';
+
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const FNG_URL = 'https://api.alternative.me/fng/?limit=1';
 
@@ -496,47 +500,23 @@ async function getFearGreed() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 10. AI LAYER — GEMINI DIRECT → OPENROUTER :FREE FAILOVER (v4.2.6-FINAL)
+// 10. AI LAYER — [FIX] Strict validation + correct Gemini models
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-const AI_CACHE_TTL = 3600;
-const CIRCUIT_TTL = 300;
-
-async function getAICache(env, promptHash) {
-  if (!env.ALERTS_KV) return null;
-  try {
-    const cached = await env.ALERTS_KV.get(`ai:cache:${promptHash}`);
-    return cached ? JSON.parse(cached) : null;
-  } catch (e) { return null; }
-}
-
-async function setAICache(env, promptHash, result) {
-  if (!env.ALERTS_KV) return;
-  try {
-    await env.ALERTS_KV.put(`ai:cache:${promptHash}`, JSON.stringify(result), { expirationTtl: AI_CACHE_TTL });
-  } catch (e) {}
-}
-
-async function isCircuitOpen(env, name) {
-  if (!env.ALERTS_KV) return false;
-  try {
-    const state = await env.ALERTS_KV.get(`circuit:${name}`);
-    return state === 'open';
-  } catch (e) { return false; }
-}
-
-async function tripCircuit(env, name) {
-  if (!env.ALERTS_KV) return;
-  try {
-    await env.ALERTS_KV.put(`circuit:${name}`, 'open', { expirationTtl: CIRCUIT_TTL });
-  } catch (e) {}
-}
-
-async function closeCircuit(env, name) {
-  if (!env.ALERTS_KV) return;
-  try {
-    await env.ALERTS_KV.delete(`circuit:${name}`);
-  } catch (e) {}
+// [FIX] Validate response actually contains analysis, not just whitespace
+function isValidAIResponse(text) {
+  if (!text || typeof text !== 'string') return false;
+  const trimmed = text.trim();
+  // Must have actual content markers
+  const hasContent = trimmed.length > 100 && (
+    trimmed.includes('<b>') || 
+    trimmed.includes('Market') ||
+    trimmed.includes('Bullish') ||
+    trimmed.includes('Bearish') ||
+    trimmed.includes('---PERSIAN---') ||
+    trimmed.includes('خلاصه')
+  );
+  return hasContent;
 }
 
 // ── GEMINI DIRECT API (priority) ──
@@ -575,12 +555,14 @@ async function tryGeminiDirect(env, prompt, modelUrl, name) {
       text = data.candidates[0].content.parts.map(p => p.text).join('');
     }
     
-    if (text && text.length > 30) {
+    // [FIX] Strict validation — must contain actual analysis
+    if (isValidAIResponse(text)) {
       console.log(`[AI] ${name} SUCCESS, length:`, text.length);
       await closeCircuit(env, name);
       return cleanMarkdown(text.trim());
     }
-    console.log(`[AI] ${name} returned empty/short text`);
+    
+    console.log(`[AI] ${name} returned empty/invalid text:`, text ? `"${text.slice(0, 50)}..."` : 'null');
     return null;
   } catch (e) {
     console.error(`[AI] ${name} fail:`, e.message);
@@ -601,17 +583,17 @@ async function getAIAnalysis(env, prompt) {
     return cached;
   }
 
-  // ── STEP 1: Gemini 2.5 Flash Direct (PRIMARY) ──
-  let text = await tryGeminiDirect(env, prompt, GEMINI_URL, 'gemini-2.5-flash');
+  // ── STEP 1: Gemini 2.0 Flash Direct (PRIMARY — proven working) ──
+  let text = await tryGeminiDirect(env, prompt, GEMINI_URL, 'gemini-2.0-flash');
   
-  // ── STEP 2: Gemini 2.0 Flash Fallback ──
+  // ── STEP 2: Gemini 1.5 Flash Fallback ──
   if (!text) {
-    text = await tryGeminiDirect(env, prompt, GEMINI_FALLBACK_URL, 'gemini-2.0-flash');
+    text = await tryGeminiDirect(env, prompt, GEMINI_FALLBACK_URL, 'gemini-1.5-flash');
   }
 
-  // ── STEP 3: Gemini 1.5 Flash Fallback ──
+  // ── STEP 3: Gemini 1.5 Flash-8b Fallback (lighter, more reliable) ──
   if (!text) {
-    text = await tryGeminiDirect(env, prompt, GEMINI_FALLBACK_URL_2, 'gemini-1.5-flash');
+    text = await tryGeminiDirect(env, prompt, GEMINI_FALLBACK_URL_2, 'gemini-1.5-flash-8b');
   }
 
   if (text) {
@@ -629,9 +611,8 @@ async function getAIAnalysis(env, prompt) {
     return null;
   }
 
-  // [FIX v4.2.6-FINAL] ALL models must have :free suffix for zero cost
   const models = [
-    'google/gemini-2.5-flash-preview:free',
+    'google/gemini-2.0-flash-exp:free',
     'deepseek/deepseek-chat-v3-0324:free',
     'meta-llama/llama-4-maverick:free',
     'qwen/qwen3-235b-a22b:free',
@@ -666,7 +647,9 @@ async function getAIAnalysis(env, prompt) {
       
       const data = await res.json();
       const text = data.choices?.[0]?.message?.content;
-      if (text) {
+      
+      // [FIX] Validate OpenRouter response too
+      if (isValidAIResponse(text)) {
         const result = { text: cleanMarkdown(text.trim()), source: getShortModelName(model) };
         await setAICache(env, promptHash, result);
         await setConfig(env, 'last_ai_provider', getShortModelName(model));
@@ -674,18 +657,20 @@ async function getAIAnalysis(env, prompt) {
         console.log(`[AI] ✅ ${getShortModelName(model)} SUCCESS`);
         return result;
       }
+      console.log(`[AI] ${model} returned invalid content`);
     } catch (e) { 
       console.error(`[AI] ${model} fail:`, e.message); 
     }
   }
 
-  console.log('[AI] All OpenRouter FREE models failed');
+  console.log('[AI] All AI sources failed');
   return null;
 }
 
 async function testGeminiConnection(env) {
   if (!env.GEMINI_API_KEY) return { ok: false, error: 'No API key configured' };
   try {
+    // [FIX] Test with actual working model (2.0 flash)
     const res = await fetchWithTimeout(`${GEMINI_URL}?key=${env.GEMINI_API_KEY}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -702,12 +687,13 @@ async function testGeminiConnection(env) {
     if (!res.ok) return { ok: false, error: `HTTP ${res.status}`, source: 'Gemini' };
     const data = await res.json();
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (text && text.toLowerCase().includes('ok')) return { ok: true, source: 'Gemini' };
+    if (text && text.toLowerCase().includes('ok')) return { ok: true, source: 'Gemini 2.0' };
     return { ok: false, error: `Unexpected: ${text || 'empty'}`, source: 'Gemini' };
   } catch (e) {
     return { ok: false, error: e.message, source: 'Gemini' };
   }
 }
+
 
 // [FIX v4.2.6-FINAL] PROVEN v3.7 prompt structure + correct yesterday data
 function buildAIPrompt(today, yesterday, mode, scenario, emotion) {
