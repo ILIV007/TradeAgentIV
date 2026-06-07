@@ -6,7 +6,7 @@ compatibility_date = "2025-06-01"
 cron = "*/30 * * * *"
 
 [[triggers]]
-cron = "0 */8 * * *"
+cron = "0 */4 * * *"  
 
 [[triggers]]
 cron = "0 9,15,21 * * *"
