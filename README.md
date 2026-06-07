@@ -1,5 +1,9 @@
 - https://t.me/TradeAgentIV
-```markdown
+
+- https://t.me/ILIVIR3 our channel
+
+
+
 # 🚀 TradeAgent IV HYBRID
 
 > **AI-Powered Cryptocurrency Market Intelligence System**
