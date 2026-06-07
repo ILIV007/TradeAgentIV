@@ -1023,7 +1023,7 @@ async function sendMessage(env, chatId, text, markup = null) {
   } catch (e) {
     // If HTML parsing fails, retry without parse_mode
     const msg = (e.message || '').toLowerCase();
-    if (msg.includes('can't parse entities') || msg.includes('bad request') || msg.includes('html')) {
+    if (msg.includes("can't parse entities") || msg.includes("bad request") || msg.includes("html")) {
       console.log('[TG] HTML parse failed, retrying without parse_mode');
       const fallbackBody = { 
         chat_id: chatId, 
