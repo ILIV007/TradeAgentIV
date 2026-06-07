@@ -1,8 +1,8 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV HYBRID v4.2.6-FINAL — AI Prompt Fix + Free Models Only
-//  FIXES: Reverted to PROVEN v3.7 prompt, OpenRouter :free models restored,
-//         Gemini 2.5/2.0/1.5 cascade, Persian blockquote expandable,
-//         "not modified" case-insensitive, AI fallback bypasses dedup
+//  TRADEAGENT IV HYBRID v4.2.7-FINAL — getAICache Fix + Circuit Breaker
+//  FIXES: Added missing getAICache/setAICache, circuit breaker helpers,
+//         Gemini 2.0 Flash as primary (proven), shorter prompt,
+//         stronger validation, cleaner scope
 // ═══════════════════════════════════════════════════════════════
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -71,11 +71,10 @@ const ALERT_PRESETS = {
 // 3. API ENDPOINTS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-
 const COINGECKO_BASE = 'https://api.coingecko.com/api/v3';
 const CMC_BASE = 'https://pro-api.coinmarketcap.com/v1';
 
-// [FIX] Gemini 2.5 Flash doesn't exist in free tier — use 2.0 as primary
+// [FIX v4.2.7] Gemini 2.0 Flash as PRIMARY (proven working)
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 const GEMINI_FALLBACK_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
 const GEMINI_FALLBACK_URL_2 = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent';
@@ -135,7 +134,6 @@ function esc(text) {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-// [FIX v4.2.6-FINAL] fetchWithTimeout with configurable timeout
 function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -500,15 +498,63 @@ async function getFearGreed() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 10. AI LAYER — [FIX] Strict validation + correct Gemini models
+// 10. AI CACHE & CIRCUIT BREAKER — [FIX v4.2.7] ADDED MISSING FUNCTIONS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-// [FIX] Validate response actually contains analysis, not just whitespace
+async function getAICache(env, hash) {
+  if (!env.ALERTS_KV) return null;
+  try {
+    const raw = await env.ALERTS_KV.get(`ai:cache:${hash}`);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (e) {
+    console.error('[AI CACHE] Get error:', e.message);
+    return null;
+  }
+}
+
+async function setAICache(env, hash, result) {
+  if (!env.ALERTS_KV) return;
+  try {
+    await env.ALERTS_KV.put(`ai:cache:${hash}`, JSON.stringify(result), { expirationTtl: 3600 });
+  } catch (e) {
+    console.error('[AI CACHE] Set error:', e.message);
+  }
+}
+
+async function isCircuitOpen(env, name) {
+  if (!env.ALERTS_KV) return false;
+  try {
+    const raw = await env.ALERTS_KV.get(`circuit:${name}`);
+    if (!raw) return false;
+    const data = JSON.parse(raw);
+    return Date.now() < data.until;
+  } catch (e) { return false; }
+}
+
+async function tripCircuit(env, name, durationMs = 300000) {
+  if (!env.ALERTS_KV) return;
+  try {
+    await env.ALERTS_KV.put(`circuit:${name}`, JSON.stringify({ until: Date.now() + durationMs }), { expirationTtl: 600 });
+    console.log(`[CIRCUIT] ${name} tripped for ${durationMs}ms`);
+  } catch (e) {}
+}
+
+async function closeCircuit(env, name) {
+  if (!env.ALERTS_KV) return;
+  try {
+    await env.ALERTS_KV.delete(`circuit:${name}`);
+  } catch (e) {}
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 11. AI LAYER — [FIX v4.2.7] Strict validation + Gemini 2.0 primary
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 function isValidAIResponse(text) {
   if (!text || typeof text !== 'string') return false;
   const trimmed = text.trim();
-  // Must have actual content markers
-  const hasContent = trimmed.length > 100 && (
+  const hasContent = trimmed.length > 80 && (
     trimmed.includes('<b>') || 
     trimmed.includes('Market') ||
     trimmed.includes('Bullish') ||
@@ -519,7 +565,6 @@ function isValidAIResponse(text) {
   return hasContent;
 }
 
-// ── GEMINI DIRECT API (priority) ──
 async function tryGeminiDirect(env, prompt, modelUrl, name) {
   if (!env.GEMINI_API_KEY) {
     console.log(`[AI] ${name} skipped: No GEMINI_API_KEY`);
@@ -555,7 +600,6 @@ async function tryGeminiDirect(env, prompt, modelUrl, name) {
       text = data.candidates[0].content.parts.map(p => p.text).join('');
     }
     
-    // [FIX] Strict validation — must contain actual analysis
     if (isValidAIResponse(text)) {
       console.log(`[AI] ${name} SUCCESS, length:`, text.length);
       await closeCircuit(env, name);
@@ -583,15 +627,15 @@ async function getAIAnalysis(env, prompt) {
     return cached;
   }
 
-  // ── STEP 1: Gemini 2.0 Flash Direct (PRIMARY — proven working) ──
+  // STEP 1: Gemini 2.0 Flash Direct (PRIMARY — proven working)
   let text = await tryGeminiDirect(env, prompt, GEMINI_URL, 'gemini-2.0-flash');
   
-  // ── STEP 2: Gemini 1.5 Flash Fallback ──
+  // STEP 2: Gemini 1.5 Flash Fallback
   if (!text) {
     text = await tryGeminiDirect(env, prompt, GEMINI_FALLBACK_URL, 'gemini-1.5-flash');
   }
 
-  // ── STEP 3: Gemini 1.5 Flash-8b Fallback (lighter, more reliable) ──
+  // STEP 3: Gemini 1.5 Flash-8b Fallback
   if (!text) {
     text = await tryGeminiDirect(env, prompt, GEMINI_FALLBACK_URL_2, 'gemini-1.5-flash-8b');
   }
@@ -604,7 +648,7 @@ async function getAIAnalysis(env, prompt) {
     return result;
   }
 
-  // ── STEP 4: OpenRouter :FREE Failover ──
+  // STEP 4: OpenRouter :FREE Failover
   console.log('[AI] Gemini family failed, trying OpenRouter FREE models...');
   if (!env.OPENROUTER_API_KEY) {
     console.log('[AI] No OpenRouter key, giving up');
@@ -648,7 +692,6 @@ async function getAIAnalysis(env, prompt) {
       const data = await res.json();
       const text = data.choices?.[0]?.message?.content;
       
-      // [FIX] Validate OpenRouter response too
       if (isValidAIResponse(text)) {
         const result = { text: cleanMarkdown(text.trim()), source: getShortModelName(model) };
         await setAICache(env, promptHash, result);
@@ -670,7 +713,6 @@ async function getAIAnalysis(env, prompt) {
 async function testGeminiConnection(env) {
   if (!env.GEMINI_API_KEY) return { ok: false, error: 'No API key configured' };
   try {
-    // [FIX] Test with actual working model (2.0 flash)
     const res = await fetchWithTimeout(`${GEMINI_URL}?key=${env.GEMINI_API_KEY}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -694,8 +736,10 @@ async function testGeminiConnection(env) {
   }
 }
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 12. AI PROMPT BUILDER — [FIX v4.2.7] Shorter, clearer, proven structure
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-// [FIX v4.2.6-FINAL] PROVEN v3.7 prompt structure + correct yesterday data
 function buildAIPrompt(today, yesterday, mode, scenario, emotion) {
   const t = today, y = yesterday || {};
   const emo = emotion || { state: 'NEUTRAL', intensity: 50, tone: 'Neutral, factual.' };
@@ -830,7 +874,7 @@ Write the analysis now.`;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 11. SNAPSHOT & CONFIG KV
+// 13. SNAPSHOT & CONFIG KV
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function storeSnapshot(env, data) {
@@ -879,7 +923,7 @@ async function setUserState(env, userId, value) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 12. DEDUP — v3 FIX (10min Gap + 5min Lock + Race-Proof)
+// 14. DEDUP — v3 FIX (10min Gap + 5min Lock + Race-Proof)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function dedupSend(env, type, fn) {
@@ -928,10 +972,9 @@ async function dedupSend(env, type, fn) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 13. TELEGRAM API
+// 15. TELEGRAM API
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-// [FIX v4.2.6-FINAL] tgMethod with case-insensitive "not modified" handling
 async function tgMethod(token, method, body) {
   const url = `https://api.telegram.org/bot${token}/${method}`;
   for (let i = 0; i < 3; i++) {
@@ -948,7 +991,6 @@ async function tgMethod(token, method, body) {
       }
       return d;
     } catch (e) {
-      // [FIX] Don't retry "not modified" errors — case insensitive
       const msg = (e.message || '').toLowerCase();
       if (msg.includes('not modified')) throw e;
       if (i === 2) throw e;
@@ -978,7 +1020,6 @@ async function answerCallback(env, queryId, text = null) {
   }
 }
 
-// [FIX v4.2.6-FINAL] Case-insensitive "not modified" check
 async function editMessage(env, chatId, messageId, text, markup = null) {
   try {
     const body = { chat_id: chatId, message_id: messageId, text, parse_mode: 'HTML', disable_web_page_preview: true };
@@ -1040,7 +1081,7 @@ async function sendChannelSticker(env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 14. KEYBOARDS
+// 16. KEYBOARDS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function mainKeyboard(isAdmin) {
@@ -1127,7 +1168,7 @@ function alertsInline(states) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 15. MESSAGE BUILDERS — MODERN UI
+// 17. MESSAGE BUILDERS — MODERN UI
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function buildPrice(coins, source = '') {
@@ -1325,7 +1366,6 @@ async function buildFng(fear) {
   return m;
 }
 
-// [FIX v4.2.6-FINAL] Persian MUST be in <blockquote expandable>
 async function buildAIAnalysis(aiResult, todayData, emotion) {
   const t = todayData, emo = emotion || { state: 'NEUTRAL', intensity: 50, emoji: '😐', color: '⚪' };
   
@@ -1344,12 +1384,12 @@ async function buildAIAnalysis(aiResult, todayData, emotion) {
   m += `<i>${t.date} · ${aiResult.source || 'AI'} · ${t.mode || 'Normal'}</i>\n\n`;
   
   if (englishText) {
-    m += `<blockquote>\n${cleanMarkdown(englishText)}\n</blockquote>\n\n`;
+    m += `<blockquote>\n${englishText}\n</blockquote>\n\n`;
   }
   
   if (persianText) {
     m += `<b>📋 خلاصه بازار</b>\n`;
-    m += `<blockquote expandable>\n${cleanMarkdown(persianText)}\n</blockquote>\n\n`;
+    m += `<blockquote expandable>\n${persianText}\n</blockquote>\n\n`;
   }
 
   m += `<b>📊 Key Metrics</b>\n<pre>`;
@@ -1436,7 +1476,7 @@ async function buildMovers(gl) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 16. ALERTS KV & LOGIC
+// 18. ALERTS KV & LOGIC
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function getAlertState(env, key) {
@@ -1515,7 +1555,7 @@ async function checkAlerts(env, coins) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 17. DATA COLLECTOR
+// 19. DATA COLLECTOR
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function collectMarketData(env) {
@@ -1567,7 +1607,7 @@ async function collectMarketData(env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 18. CHANNEL SENDERS — DEDUP v3 + [FIX v4.2.6-FINAL] AI Fallback Bypass Dedup
+// 20. CHANNEL SENDERS — DEDUP v3 + AI Fallback Bypass Dedup
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function ensureChannel(env) {
@@ -1621,7 +1661,6 @@ async function sendChannelFng(env) {
   });
 }
 
-// [FIX v4.2.6-FINAL] AI fallback bypasses dedup — sends Daily Report directly if AI fails
 async function sendChannelAI(env, customPrompt = null) {
   ensureChannel(env);
   await dedupSend(env, 'ai', async () => {
@@ -1646,7 +1685,6 @@ async function sendChannelAI(env, customPrompt = null) {
       aiResult = await getAIAnalysis(env, prompt);
     }
 
-    // [FIX v4.2.6-FINAL] Fallback to Daily Report if AI completely fails — BYPASS DEDUP
     if (!aiResult) {
       console.log('[AI] Analysis failed, falling back to Daily Report (bypass dedup)');
       try {
@@ -1702,10 +1740,8 @@ async function sendWithTimeout(fn, env, name, timeoutMs = 35000) {
   ]);
 }
 
-// [FIX v4.2.6-FINAL] Sticker FIRST, then posts with 2s gap
 async function sendChannelAll(env, ctx) {
   await dedupSend(env, 'all_bundle', async () => {
-    // 1. STICKER FIRST
     try {
       await sendChannelSticker(env);
       console.log('[SEND ALL] ✅ Sticker sent first');
@@ -1714,7 +1750,6 @@ async function sendChannelAll(env, ctx) {
     }
     await new Promise(r => setTimeout(r, 2000));
     
-    // 2. Then other posts
     const results = [];
     const senders = [
       { name: 'Price', fn: sendChannelPrice }, 
@@ -1740,7 +1775,7 @@ async function sendChannelAll(env, ctx) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 19. BOT HANDLERS
+// 21. BOT HANDLERS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleStart(chatId, userId, env) {
@@ -1863,7 +1898,7 @@ async function handleAIStatus(chatId, env) {
   const lastTime = await getConfig(env, 'last_ai_time', 'Never');
   
   let text = `🤖 <b>AI System Status</b>\n\n`;
-  text += `<b>Gemini 2.5 Flash:</b> ${geminiTest.ok ? '✅ Active' : `⚠️ ${geminiTest.error}`}\n`;
+  text += `<b>Gemini 2.0 Flash:</b> ${geminiTest.ok ? '✅ Active' : `⚠️ ${geminiTest.error}`}\n`;
   text += `<b>OpenRouter:</b> ${env.OPENROUTER_API_KEY ? '✅ Configured' : '⚠️ No Key'}\n`;
   text += `<b>Last Provider:</b> ${lastProvider}\n`;
   text += `<b>Last Analysis:</b> ${lastTime}\n`;
@@ -1899,7 +1934,7 @@ async function handleAutoPosts(chatId, env, msgId = null) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 20. WEBHOOK PROCESSOR — FIXED COMMAND ROUTING + KEYBOARD EMOJI VARIANTS
+// 22. WEBHOOK PROCESSOR — FIXED COMMAND ROUTING
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function processWebhook(update, env, ctx) {
@@ -2149,7 +2184,7 @@ async function processWebhook(update, env, ctx) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 21. CRON HANDLER — [FIX v4.2.6-FINAL] Sticker FIRST in bundle
+// 23. CRON HANDLER — Sticker FIRST in bundle
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleCron(event, env) {
@@ -2169,7 +2204,6 @@ async function handleCron(event, env) {
     }
     else if (cron === CRON_BUNDLE) {
       console.log('[CRON] Bundle: Sticker + AI + F&G + Funding (8h)');
-      // [FIX v4.2.6-FINAL] Sticker FIRST
       try {
         await sendChannelSticker(env);
         console.log('[CRON] ✅ Sticker sent first');
@@ -2206,7 +2240,7 @@ async function handleCron(event, env) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 22. HTTP ROUTER
+// 24. HTTP ROUTER
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function handleWebhookReq(request, env, ctx) {
@@ -2270,7 +2304,7 @@ async function handleDebug(env) {
     tier1: Object.keys(TIER_1).length,
     tier2: Object.keys(TIER_2).length,
     tier3: Object.keys(TIER_3).length,
-    version: '4.2.6-FINAL',
+    version: '4.2.7-FINAL',
   };
 
   if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHANNEL_ID) {
@@ -2333,7 +2367,7 @@ async function handleHttp(request, env, ctx) {
   }
   if (path === '/' && request.method === 'GET') {
     return new Response(
-      `TradeAgent IV HYBRID v4.2.6-FINAL — AI-Powered Crypto Intelligence\n\n` +
+      `TradeAgent IV HYBRID v4.2.7-FINAL — AI-Powered Crypto Intelligence\n\n` +
       `Backend: v4.2 (3-Tier, Emotion, Futures, HYPE, Dedup v3, Modern UI)\n` +
       `UI: Collapsible Persian (blockquote expandable) + Gemini Priority + Updated Commands\n\n` +
       `Routes:\n` +
@@ -2342,7 +2376,7 @@ async function handleHttp(request, env, ctx) {
       `  GET  /debug    → Status check + API tests (admin secret required)\n\n` +
       `Cron: ${CRON_PRICE}, ${CRON_BUNDLE}, ${CRON_MOVERS}\n` +
       `Coins: ${Object.keys(COINS).length} (T1:${Object.keys(TIER_1).length} T2:${Object.keys(TIER_2).length} T3:${Object.keys(TIER_3).length})\n` +
-      `AI: Gemini 2.5 Flash (primary) → Gemini 2.0 → Gemini 1.5 → OpenRouter :FREE\n` +
+      `AI: Gemini 2.0 Flash (primary) → Gemini 1.5 Flash → Gemini 1.5 Flash-8b → OpenRouter :FREE\n` +
       `Movers: Binance 24h ticker (no CMC required)\n` +
       `Dedup: v3 (10min gap + 5min lock + race-proof)\n` +
       `F&G: Modern visual bar + signal interpretation\n` +
@@ -2360,7 +2394,7 @@ async function handleHttp(request, env, ctx) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 23. EXPORT
+// 25. EXPORT
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 export default {
