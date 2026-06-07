@@ -570,9 +570,37 @@ async function closeCircuit(env, name) {
 function isValidAIResponse(text) {
   if (!text || typeof text !== 'string') return false;
   const trimmed = text.trim();
-  // Just check minimum length - AI might use markdown ** instead of <b>
-  // or might not include keywords like "Market" in every response
-  return trimmed.length > 50;
+
+  // Must be reasonably long (AI often returns short garbage on errors)
+  if (trimmed.length < 200) {
+    console.log('[AI] Response too short:', trimmed.length, 'chars');
+    return false;
+  }
+
+  // Must have at least 3 sections (Market Overview + 2 more)
+  const sectionCount = (trimmed.match(/<b>[^<]+<\/b>/g) || []).length;
+  if (sectionCount < 3) {
+    console.log('[AI] Not enough sections:', sectionCount);
+    return false;
+  }
+
+  // Must have Persian separator OR Persian content
+  const hasPersian = trimmed.includes('---PERSIAN---') || 
+                     trimmed.includes('خلاصه') || 
+                     /[؀-ۿ]/.test(trimmed);
+  if (!hasPersian) {
+    console.log('[AI] No Persian section found');
+    return false;
+  }
+
+  // Must have conclusion
+  const hasConclusion = trimmed.includes('Conclusion') || trimmed.includes('نتیجه');
+  if (!hasConclusion) {
+    console.log('[AI] No conclusion found');
+    return false;
+  }
+
+  return true;
 }
 
 async function tryGeminiDirect(env, prompt, modelUrl, name) {
@@ -591,7 +619,7 @@ async function tryGeminiDirect(env, prompt, modelUrl, name) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.3, maxOutputTokens: 900 }
+        generationConfig: { temperature: 0.3, maxOutputTokens: 1500 }
       }),
     }, 20000);
     
@@ -689,7 +717,7 @@ async function getAIAnalysis(env, prompt) {
         body: JSON.stringify({
           model,
           messages: [{ role: 'user', content: prompt }],
-          max_tokens: 900,
+          max_tokens: 1500,
           temperature: 0.3
         }),
       }, 30000);
@@ -862,6 +890,7 @@ RULES:
 - Emphasize opportunity in Fear states
 - Mention funding rates and open interest if abnormal
 - Compare 7D/30D trends vs 24h
+- CRITICAL: Write ALL sections completely. Do NOT truncate or skip any section.
 - End with: "⚠️ This analysis is for informational purposes only and is not financial advice."
 
 TODAY'S DATA:
