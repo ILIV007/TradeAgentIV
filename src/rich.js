@@ -65,7 +65,7 @@ function buildRichSnapshot(coins, source = '', ctx = null, lang = 'en') {
   const btc = coins.find((c) => c.id === 'bitcoin');
   const moodKey = !btc ? '' : btc.price_change_percentage_24h >= 1 ? 'risk-on' : btc.price_change_percentage_24h <= -1 ? 'risk-off' : Math.abs(btc.price_change_percentage_24h) < 0.3 ? 'flat and indecisive' : 'mixed';
   const mood = t.mood[moodKey] || moodKey;
-  const verdict = btc ? `BTC $${fmt.price(btc.current_price)} — ${mood}` : t.snapshot;
+  const verdict = btc ? (lang === 'fa' ? `${mood} — BTC $${fmt.price(btc.current_price)}` : `BTC $${fmt.price(btc.current_price)} — ${mood}`) : t.snapshot;
   const green = coins.filter((c) => c.price_change_percentage_24h > 0).length;
   const chart = chartUrl(ctx?.btcSpark);
 

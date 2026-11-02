@@ -31,10 +31,6 @@ async function tgMethod(token, method, body) {
 }
 
 async function sendRich(env, chatId, richHtml, fallbackText, markup = null, lang = 'en') {
-  // Persian renders badly inside rich blocks (tables/grids stay LTR and
-  // lines starting with Latin tokens never right-align), so FA always
-  // uses the classic message, whose paragraphs auto-detect RTL.
-  if (lang === 'fa') return sendMessage(env, chatId, fallbackText, markup);
   const body = { chat_id: chatId, rich_message: { html: richHtml } };
   if (markup) body.reply_markup = markup;
   try {
