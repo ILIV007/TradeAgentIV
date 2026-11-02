@@ -3,6 +3,12 @@
 All notable changes to TradeAgent IV are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.1.0] — 2026-11-02
+
+Final release of the 5.x line — ships the full overhaul described under 5.0.0 below (developed as 5.0.0, released as 5.1.0).
+
+The channel-strategy expansion — Macro Watch (ForexFactory calendar), market-moving RSS news, event-anchored polls, chart images, on-chain context, and a redesigned AI analysis system that reasons over a unified market-state — is planned as **v6.0.0** (see the v6 plan).
+
 ## [5.0.0] — 2026-11-02
 
 Full overhaul (repo, code, and posts).
