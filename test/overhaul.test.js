@@ -61,8 +61,8 @@ test('snapshot v2: context line, best/weakest, tier-2 7d', async () => {
     { id: 'chainlink', current_price: 11, price_change_percentage_24h: -4, price_change_percentage_7d_in_currency: -9.5 },
   ];
   const msg = await buildPrice(coins, 'CoinGecko', { btcDominance: '60.0', fearGreed: 37 });
-  assert.ok(msg.includes('₿ Dom: 60.0%'));
-  assert.ok(msg.includes('🧠 F&G: 37/100'));
+  assert.ok(msg.includes('₿ Dominance: 60.0%'));
+  assert.ok(msg.includes('🧠 Fear & Greed: 37/100'));
   assert.ok(msg.includes('Tehran'));
   assert.ok(msg.includes('Best:</b> BTC'));
   assert.ok(msg.includes('Weakest:</b> LINK'));
@@ -364,4 +364,56 @@ test('v6.2 movers fallback is market-wide: top-250 scan, stables excluded, shape
     assert.ok(typeof gl.gainers[0].current_price === 'number');
     assert.equal(gl.losers[0].symbol, 'C0');
   } finally { globalThis.fetch = realFetch; }
+});
+
+const flagshipFaDraft = `===VERDICT===
+بیت‌کوین روی $77,900 در محدوده $76,800 تا $81,500 نوسان می‌کند و بازار آرام است
+===OVERVIEW===
+بیت‌کوین روی $77,900 معامله می‌شود؛ فاندینگ 0.01% و شاخص نوسان 38.5 هر دو آرام‌اند. عرضه استیبل‌کوین $298.7B است.
+===DRIVERS===
+1. خروجی استیبل‌کوین — عرضه $298.7B و افت 1.39% در ۷ روز
+2. اهرم آرام — فاندینگ 0.01% و DVOL روی 38.5
+3. شبکه خلوت — کارمزد 2 sat/vB و قیمت بالای کف ۲۴ ساعته $77,200
+===SCENARIOS===
+===SCENARIO:BASE===
+Lean: FLAT
+Level: NONE
+Side: NONE
+Text: تا وقتی قیمت بین $76,800 و $81,500 است، رنج ادامه دارد
+===SCENARIO:BULL===
+Lean: UP
+Level: 81500
+Side: ABOVE
+Text: بسته‌شدن روزانه بالای $81,500 روند صعودی را فعال می‌کند
+===SCENARIO:BEAR===
+Lean: DOWN
+Level: 76800
+Side: BELOW
+Text: شکست $76,800 اصلاح عمیق‌تر را فعال می‌کند
+===WATCH===
+داده PMI امروز ساعت 17:00 تهران با پیش‌بینی 48.5 منتشر می‌شود
+===INVALIDATION===
+بسته‌شدن روزانه بیرون از محدوده $76,800 تا $81,500 این خوانش را باطل می‌کند`;
+
+test('v6.1 language: FA flagship validates without a summary section; FA builders render Persian; panel has the switch', async () => {
+  const { validateFlagship, buildFlagshipPrompt } = await import('../src/ai.js');
+  const { buildRichFlagship, buildRichMorningBrief, buildRichMacroCalendar, buildRichMovers } = await import('../src/rich.js');
+  const { buildFng } = await import('../src/posts.js');
+  const { getAdminInline } = await import('../src/telegram.js');
+  const s = v6State();
+  const okFa = validateFlagship(flagshipFaDraft, s, 'fa');
+  assert.ok(okFa.ok, 'FA draft errors: ' + (okFa.errors || []).join('; '));
+  assert.ok(!validateFlagship(flagshipFaDraft, s, 'en').ok, 'same draft must fail EN mode (no English + no summary section)');
+  assert.ok(buildFlagshipPrompt(s, 'fa').includes('LANGUAGE'));
+  const flag = buildRichFlagship(s, okFa.parsed, 'fa');
+  assert.ok(flag.includes('تحلیل بازار') && flag.includes('سناریوی پایه') && !flag.includes('blockquote expandable') && flag.includes('ابطال تحلیل'));
+  const brief = buildRichMorningBrief(s, 'دوشنبه', 'fa');
+  assert.ok(brief.includes('گزارش صبحگاهی') && brief.includes('سطوح کلیدی بیت‌کوین') && brief.includes('وسعت بازار'));
+  const cal = buildRichMacroCalendar(s, 'دوشنبه', 'fa');
+  assert.ok(cal.includes('تقویم اقتصادی') && cal.includes('پیش‌بینی'));
+  const fng = await buildFng({ data: [{ value: '37', value_classification: 'Fear', timestamp: 1762000000 }, { value: '34' }] }, 'fa');
+  assert.ok(fng.includes('شاخص ترس و طمع') && fng.includes('ترس'));
+  const kb = getAdminInline('normal', 'neutral', 'true', 'fa');
+  const flat = JSON.stringify(kb);
+  assert.ok(flat.includes('admin:lang:fa') && flat.includes('فارسی ✓') && flat.includes('send_flagship') && flat.includes('send_brief') && flat.includes('send_macro') && flat.includes('send_weekly'));
 });

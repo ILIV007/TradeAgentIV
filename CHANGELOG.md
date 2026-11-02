@@ -3,6 +3,17 @@
 All notable changes to TradeAgent IV are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [6.1.0] — 2026-11-02
+
+### Added
+- **Channel language switch (English / فارسی)**: a language section at the top of the bot's admin panel (config key `lang`) switches EVERY channel post between English and full Persian — snapshot, brief, flagship (the AI writes the entire analysis natively in Persian), movers, macro calendar, event flash + polls, weekly, F&G, futures, alerts and the legacy AI post. Dates and the PV keyboards follow the selected language. Chart images keep English labels (QuickChart's font cannot shape Persian script).
+
+### Changed
+- **Admin panel rebuilt**: status header (version, channel language, auto-posts), the language switch, send-now buttons for every product (Price, Brief, Flagship, Macro Calendar, Movers, Weekly, Volume, Trending, F&G, Futures, legacy AI, All), plus the existing AI configuration and system sections. New admin commands: `/sendbrief`, `/sendflagship`, `/sendmacro`, `/sendweekly`. The main-menu "🧠 AI Analysis" button now returns a real flagship analysis in PV (it was dead).
+
+### Fixed
+- Alert toggle buttons in PV crashed on a missing import (`getAlertState`/`setAlertState` now exported from senders and imported by the bot).
+
 ## [6.0.0] — 2026-11-02
 
 The market-desk release: the bot now builds one unified picture of the market and reasons over it.

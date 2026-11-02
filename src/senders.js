@@ -1,5 +1,5 @@
 // TradeAgent IV — alert logic, market-data collection, channel senders.
-import { COINS, ALERT_PRESETS, FOOTER } from './config.js';
+import { COINS, ALERT_PRESETS } from './config.js';
 import { fmt, esc } from './utils.js';
 import { getCoins, getGlobal, getTrending, getFearGreed, getTopGainersLosers, getCategories, getMarketChart, getBinanceFutures, calculateEmotionState } from './data.js';
 import { getAIAnalysis, buildAIPrompt, buildFlagshipPrompt, buildFlashPrompt, validateFlagship, validateGrounded } from './ai.js';
@@ -8,6 +8,9 @@ import { sendMessage, sendRich, sendPoll, sendChannelSticker } from './telegram.
 import { dedupSend, DEDUP_SKIPPED, getConfig, getSnapshot, storeSnapshot, getMarketState, putMarketState, kvGetJSON, kvPutJSON } from './store.js';
 import { buildMarketState, getMacroEvents, sparkLevels } from './state.js';
 import { buildRichSnapshot, buildRichMorningBrief, buildRichFlagship, buildRichEventFlash, buildRichMacroWatch, buildRichWeekly, buildRichMovers, buildRichMacroCalendar, tehranTime } from './rich.js';
+import { L, footerClassic, regimeName, dateStr } from './i18n.js';
+
+async function getLang(env) { const l = await getConfig(env, 'lang', 'en'); return l === 'fa' ? 'fa' : 'en'; }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 18. ALERTS KV & LOGIC
@@ -77,7 +80,7 @@ async function checkAlerts(env, coins) {
       if (dir === 'below' && ch <= -cfg.pct) triggered = true;
 
       if (triggered && last !== 'triggered') {
-        await sendMessage(env, env.TELEGRAM_CHANNEL_ID, buildAlert(c.id, c.current_price, dir, ch));
+        await sendMessage(env, env.TELEGRAM_CHANNEL_ID, buildAlert(c.id, c.current_price, dir, ch, await getLang(env)));
         await setAlertLast(env, key, 'triggered');
       } else if (!triggered && last) {
         await clearAlertLast(env, key);
@@ -164,7 +167,8 @@ async function sendChannelPrice(env) {
       btcSpark: s.btcSpark,
       regime: s.regime,
     };
-    await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichSnapshot(s.prices, s.source, ctx), await buildPrice(s.prices, s.source, ctx));
+    const lang = await getLang(env);
+    await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichSnapshot(s.prices, s.source, ctx, lang), await buildPrice(s.prices, s.source, ctx, lang));
   });
 }
 
@@ -172,7 +176,7 @@ async function sendChannelVolume(env) {
   ensureChannel(env);
   return await dedupSend(env, 'volume', async () => {
     const { source, data } = await getCoins(env);
-    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildVolume(data, source));
+    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildVolume(data, source, await getLang(env)));
   });
 }
 
@@ -182,7 +186,7 @@ async function sendChannelDaily(env) {
     const [{ source, data }, globalData, trending, fear] = await Promise.all([
       getCoins(env), getGlobal(env), getTrending(env), getFearGreed(),
     ]);
-    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildDaily(data, globalData, trending, fear, source));
+    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildDaily(data, globalData, trending, fear, source, await getLang(env)));
   });
 }
 
@@ -191,7 +195,7 @@ async function sendChannelTrending(env) {
   return await dedupSend(env, 'trending', async () => {
     const trending = await getTrending(env);
     if (!trending) { console.log('[TRENDING] No data, staying silent'); return; }
-    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildTrending(trending, await trendingPriceMap(env)));
+    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildTrending(trending, await trendingPriceMap(env), await getLang(env)));
   });
 }
 
@@ -199,7 +203,7 @@ async function sendChannelFng(env) {
   ensureChannel(env);
   return await dedupSend(env, 'fng', async () => {
     const fear = await getFearGreed();
-    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildFng(fear));
+    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildFng(fear, await getLang(env)));
   });
 }
 
@@ -223,7 +227,7 @@ async function sendChannelAI(env, customPrompt = null) {
       const fullPrompt = `${customPrompt}\n\nDATA:\n${JSON.stringify(today, null, 2)}`;
       aiResult = await getAIAnalysis(env, fullPrompt);
     } else {
-      const prompt = buildAIPrompt(today, yesterday, mode, scenario, emotion);
+      const prompt = buildAIPrompt(today, yesterday, mode, scenario, emotion, await getLang(env));
       aiResult = await getAIAnalysis(env, prompt);
     }
 
@@ -243,7 +247,7 @@ async function sendChannelAI(env, customPrompt = null) {
       } catch (e) {}
     }
 
-    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildAIAnalysis(aiResult, today, emotion));
+    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildAIAnalysis(aiResult, today, emotion, await getLang(env)));
     await storeSnapshot(env, today);
   });
 }
@@ -259,7 +263,7 @@ async function sendChannelFutures(env) {
     const hasData = Object.values(futures).some(f => f && (f.fundingRate != null || f.openInterest != null));
     if (!hasData) { console.log('[FUTURES] No data, staying silent'); return; }
     const snap = await getSnapshot(env);
-    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildFutures(futures, snap?.futures || {}));
+    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildFutures(futures, snap?.futures || {}, await getLang(env)));
   });
 }
 
@@ -270,7 +274,8 @@ async function sendChannelMovers(env) {
     const gl = await getTopGainersLosers(env);
     console.log('[MOVERS] Data:', gl ? `G:${gl.gainers?.length} L:${gl.losers?.length}` : 'null');
     if (!gl || (!gl.gainers?.length && !gl.losers?.length)) { console.log('[MOVERS] No data, staying silent'); return; }
-    await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichMovers(gl), await buildMovers(gl));
+    const lang = await getLang(env);
+    await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichMovers(gl, lang), await buildMovers(gl, lang));
   });
 }
 
@@ -324,7 +329,7 @@ async function trendingPriceMap(env) {
   } catch (e) { return {}; }
 }
 
-export { trendingPriceMap, getAllAlertStates, checkAlerts, collectMarketData, sendChannelPrice, sendChannelVolume, sendChannelDaily, sendChannelTrending, sendChannelFng, sendChannelAI, sendChannelFutures, sendChannelMovers, sendChannelAll, sendChannelMorningBrief, sendChannelFlagship, sendChannelWeekly, sendChannelMacroCalendar, checkMacroEvents, evaluateScorecard, getFreshState, tehranParts, cronDispatch };
+export { trendingPriceMap, getAllAlertStates, getAlertState, setAlertState, getLang, checkAlerts, collectMarketData, sendChannelPrice, sendChannelVolume, sendChannelDaily, sendChannelTrending, sendChannelFng, sendChannelAI, sendChannelFutures, sendChannelMovers, sendChannelAll, sendChannelMorningBrief, sendChannelFlagship, sendChannelWeekly, sendChannelMacroCalendar, checkMacroEvents, evaluateScorecard, getFreshState, tehranParts, cronDispatch };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // v6 SENDERS — Morning Brief, Flagship, Weekly, Macro Watcher
@@ -346,8 +351,9 @@ async function sendChannelMorningBrief(env) {
   ensureChannel(env);
   return await dedupSend(env, 'brief', async () => {
     const s = await getFreshState(env);
-    const dateStr = new Date().toLocaleDateString('en-GB', { timeZone: 'Asia/Tehran', weekday: 'long', day: 'numeric', month: 'long' });
-    await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichMorningBrief(s, dateStr), buildBriefClassic(s, dateStr));
+    const lang = await getLang(env);
+    const ds = dateStr(lang);
+    await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichMorningBrief(s, ds, lang), buildBriefClassic(s, ds, lang));
   });
 }
 
@@ -355,20 +361,21 @@ async function sendChannelFlagship(env) {
   ensureChannel(env);
   return await dedupSend(env, 'flagship', async () => {
     const s = await getFreshState(env);
-    const prompt = buildFlagshipPrompt(s);
+    const lang = await getLang(env);
+    const prompt = buildFlagshipPrompt(s, lang);
     let text = await getAIAnalysis(env, prompt);
-    let v = text ? validateFlagship(text, s) : null;
+    let v = text ? validateFlagship(text, s, lang) : null;
     if (!v?.ok) {
       const errs = v ? v.errors.join('; ') : 'AI unavailable';
       console.error('[FLAGSHIP] draft rejected:', errs);
       text = await getAIAnalysis(env, `${prompt}\n\nIMPORTANT: a previous draft was rejected (${errs}). Rewrite completely, fixing every issue.`);
-      v = text ? validateFlagship(text, s) : null;
+      v = text ? validateFlagship(text, s, lang) : null;
     }
     if (!v?.ok) {
       await notifyAdmin(env, '⚠️ <b>Flagship analysis failed validation</b> — no post was sent to the channel.');
       return;
     }
-    await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichFlagship(s, v.parsed), buildFlagshipClassic(s, v.parsed));
+    await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichFlagship(s, v.parsed, lang), buildFlagshipClassic(s, v.parsed, lang));
     const recs = (await kvGetJSON(env, 'scen:records')) || [];
     recs.push({ ts: Date.now(), btc: s.prices.find((c) => c.id === 'bitcoin')?.current_price || 0, scenarios: v.parsed.scenarios.map(({ kind, lean, level, side }) => ({ kind, lean, level, side })) });
     await kvPutJSON(env, 'scen:records', recs.slice(-40));
@@ -410,14 +417,16 @@ async function sendChannelWeekly(env) {
         path = states.map((st) => ({ ts: st.ts, btc: st.prices?.find((c) => c.id === 'bitcoin')?.current_price || 0 })).filter((p) => p.btc > 0);
         const byDay = {};
         for (const st of states) { const day = new Date(st.ts).toLocaleDateString('en-GB', { timeZone: 'Asia/Tehran', weekday: 'short' }); if (!byDay[day] && st.regime) byDay[day] = st.regime; }
-        regimePath = Object.entries(byDay).map(([d, r]) => `${d} ${r.label.replace(/_/g, ' ')} ${r.score}`).join(' → ');
+        const lang0 = await getLang(env);
+        regimePath = Object.entries(byDay).map(([d, r]) => `${d} ${regimeName(r.label, lang0)} ${r.score}`).join(' → ');
       }
     } catch (e) { console.error('[WEEKLY] history read fail:', e.message); }
     const now = Date.now();
     path.push({ ts: now, btc: s.prices.find((c) => c.id === 'bitcoin')?.current_price || 0 });
     const recs = ((await kvGetJSON(env, 'scen:records')) || []).filter((r) => now - r.ts <= 7 * 86400000);
     const week = { regimePath, scorecard: evaluateScorecard(recs, path) };
-    await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichWeekly(s, week), buildWeeklyClassic(s, week));
+    const lang = await getLang(env);
+    await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichWeekly(s, week, lang), buildWeeklyClassic(s, week, lang));
   });
 }
 
@@ -425,6 +434,8 @@ const macroKey = (e) => `${e.title}|${e.ts}`;
 
 async function checkMacroEvents(env) {
   ensureChannel(env);
+  const lang = await getLang(env);
+  const T = L(lang);
   const macro = await getMacroEvents().catch(() => null);
   if (!macro) return;
   const now = Date.now();
@@ -437,19 +448,24 @@ async function checkMacroEvents(env) {
     if (seen.has(key)) continue;
     seen.add(key);
     if (e.ts > now && e.ts - now <= 75 * 60000 && !markers.watched.includes(key)) {
-      await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichMacroWatch(e), `👀 <b>Macro Watch — ${esc(e.title)}</b>\nForecast ${esc(e.forecast || '—')} · Previous ${esc(e.previous || '—')}\n\n${FOOTER}`);
-      await sendPoll(env, env.TELEGRAM_CHANNEL_ID, `📊 ${e.title} (${e.country}) prints at ${tehranTime(e.ts)} Tehran — beat or miss?`, ['Beat expectations 📈', 'In line ⚖️', 'Miss expectations 📉']).catch(() => {});
+      await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichMacroWatch(e, lang), `👀 <b>${T.watchTitle} — ${esc(e.title)}</b>\n${T.forecast} ${esc(e.forecast || '—')} · ${T.previous} ${esc(e.previous || '—')}\n\n${footerClassic(lang)}`);
+      await sendPoll(env, env.TELEGRAM_CHANNEL_ID, lang === 'fa'
+        ? `📊 ${e.title} (${e.country}) ساعت ${tehranTime(e.ts)} تهران منتشر می‌شود — بالاتر از انتظار یا پایین‌تر؟`
+        : `📊 ${e.title} (${e.country}) prints at ${tehranTime(e.ts)} Tehran — beat or miss?`,
+        lang === 'fa' ? ['بالاتر از انتظار 📈', 'مطابق انتظار ⚖️', 'پایین‌تر از انتظار 📉'] : ['Beat expectations 📈', 'In line ⚖️', 'Miss expectations 📉']).catch(() => {});
       markers.watched.push(key); dirty = true;
     }
     if (e.actual && e.ts <= now && now - e.ts <= 3 * 3600000 && !markers.flashed.includes(key)) {
       const s = await getFreshState(env);
-      let aiText = await getAIAnalysis(env, buildFlashPrompt(s, e));
+      let aiText = await getAIAnalysis(env, buildFlashPrompt(s, e, lang));
       if (aiText && !validateGrounded(aiText, s, [e]).ok) aiText = null;
       if (!aiText) {
         const btc = s.prices.find((c) => c.id === 'bitcoin') || {};
-        aiText = `${e.title} printed at ${e.actual} versus ${e.forecast || '—'} expected (previous ${e.previous || '—'}). Bitcoin trades at $${fmt.price(btc.current_price)} (${fmt.pct(btc.price_change_percentage_24h)} on the day) as the market digests the release.`;
+        aiText = lang === 'fa'
+          ? `${e.title} با عدد ${e.actual} منتشر شد؛ پیش‌بینی ${e.forecast || '—'} و مقدار قبلی ${e.previous || '—'} بود. بیت‌کوین روی $${fmt.price(btc.current_price)} (${fmt.pct(btc.price_change_percentage_24h)} روزانه) معامله می‌شود و بازار در حال هضم این خبر است.`
+          : `${e.title} printed at ${e.actual} versus ${e.forecast || '—'} expected (previous ${e.previous || '—'}). Bitcoin trades at $${fmt.price(btc.current_price)} (${fmt.pct(btc.price_change_percentage_24h)} on the day) as the market digests the release.`;
       }
-      await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichEventFlash(s, e, aiText), buildFlashClassic(s, e, aiText));
+      await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichEventFlash(s, e, aiText, lang), buildFlashClassic(s, e, aiText, lang));
       markers.flashed.push(key); dirty = true;
     }
   }
@@ -458,9 +474,15 @@ async function checkMacroEvents(env) {
     const s = await getMarketState(env);
     const btc = s?.prices?.find((c) => c.id === 'bitcoin');
     if (s && btc && Math.abs(btc.price_change_percentage_24h || 0) >= 5) {
-      const dir = btc.price_change_percentage_24h > 0 ? 'surged' : 'dropped';
-      await sendMessage(env, env.TELEGRAM_CHANNEL_ID, `🎯 <b>Sharp move:</b> BTC has ${dir} ${fmt.pct(btc.price_change_percentage_24h)} in 24h to $${fmt.price(btc.current_price)}. One question for the channel 👇`);
-      await sendPoll(env, env.TELEGRAM_CHANNEL_ID, `BTC ${fmt.pct(btc.price_change_percentage_24h)} in 24h — what is this move?`, ['The start of a real trend 🚀', 'A trap — reversal coming 🪤', 'Noise — range continues ⚖️']).catch(() => {});
+      const up = btc.price_change_percentage_24h > 0;
+      const dir = up ? 'surged' : 'dropped';
+      await sendMessage(env, env.TELEGRAM_CHANNEL_ID, lang === 'fa'
+        ? `🎯 <b>حرکت تند:</b> بیت‌کوین در ۲۴ ساعت ${fmt.pct(btc.price_change_percentage_24h)} ${up ? 'جهش' : 'ریزش'} کرده و به $${fmt.price(btc.current_price)} رسیده. یک سؤال برای کانال 👇`
+        : `🎯 <b>Sharp move:</b> BTC has ${dir} ${fmt.pct(btc.price_change_percentage_24h)} in 24h to $${fmt.price(btc.current_price)}. One question for the channel 👇`);
+      await sendPoll(env, env.TELEGRAM_CHANNEL_ID, lang === 'fa'
+        ? `بیت‌کوین ${fmt.pct(btc.price_change_percentage_24h)} در ۲۴ ساعت — این حرکت چیه؟`
+        : `BTC ${fmt.pct(btc.price_change_percentage_24h)} in 24h — what is this move?`,
+        lang === 'fa' ? ['شروع یک روند واقعی 🚀', 'تله است — برگشت در راهه 🪤', 'نویزه — رنج ادامه داره ⚖️'] : ['The start of a real trend 🚀', 'A trap — reversal coming 🪤', 'Noise — range continues ⚖️']).catch(() => {});
       markers.spikeDay = todayStr; dirty = true;
     }
   }
@@ -471,8 +493,9 @@ async function sendChannelMacroCalendar(env) {
   ensureChannel(env);
   return await dedupSend(env, 'macro', async () => {
     const s = await getFreshState(env);
-    const dateStr = new Date().toLocaleDateString('en-GB', { timeZone: 'Asia/Tehran', weekday: 'long', day: 'numeric', month: 'long' });
-    await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichMacroCalendar(s, dateStr), buildMacroCalendarClassic(s, dateStr));
+    const lang = await getLang(env);
+    const ds = dateStr(lang);
+    await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichMacroCalendar(s, ds, lang), buildMacroCalendarClassic(s, ds, lang));
   });
 }
 

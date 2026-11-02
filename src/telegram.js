@@ -148,35 +148,52 @@ async function sendChannelSticker(env) {
 // 16. KEYBOARDS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-function mainKeyboard(isAdmin) {
-  const kb = [
+function mainKeyboard(isAdminUser, lang = 'en') {
+  const fa = lang === 'fa';
+  const kb = fa ? [
+    [{ text: '📊 قیمت‌ها' }, { text: '📈 حجم' }, { text: '🔥 ترند' }],
+    [{ text: '🧠 تحلیل AI' }, { text: '🧭 ترس و طمع' }, { text: '📉 گزارش بازار' }],
+    [{ text: '🚨 هشدارها' }, { text: '⚙️ تنظیمات' }, { text: '❓ راهنما' }],
+  ] : [
     [{ text: '📊 Prices' }, { text: '📈 Volume' }, { text: '🔥 Trending' }],
     [{ text: '🧠 AI Analysis' }, { text: '🧭 F&G' }, { text: '📉 Market Report' }],
     [{ text: '🚨 Alerts' }, { text: '⚙️ Settings' }, { text: '❓ Help' }],
   ];
-  if (isAdmin) kb.push([{ text: '📣 Admin Panel' }]);
+  if (isAdminUser) kb.push([{ text: fa ? '📣 پنل ادمین' : '📣 Admin Panel' }]);
   return { keyboard: kb, resize_keyboard: true };
 }
 
-function getAdminInline(mode, scenario, autoPosts) {
+function getAdminInline(mode, scenario, autoPosts, lang = 'en') {
   const m = AI_MODES[mode] || AI_MODES.normal;
   const s = SCENARIOS[scenario] || SCENARIOS.neutral;
   const autoStatus = autoPosts === 'true' ? '✅ On' : '⏸ Off';
   return {
     inline_keyboard: [
+      [{ text: '──── 🌐 Language · زبان کانال ────', callback_data: 'noop' }],
+      [
+        { text: `🇬🇧 English${lang === 'en' ? ' ✓' : ''}`, callback_data: 'admin:lang:en' },
+        { text: `🇮🇷 فارسی${lang === 'fa' ? ' ✓' : ''}`, callback_data: 'admin:lang:fa' },
+      ],
+      [{ text: '──── 📤 Send to Channel ────', callback_data: 'noop' }],
       [
         { text: '📈 Price', callback_data: 'send_price' },
-        { text: '📉 Volume', callback_data: 'send_volume' },
-        { text: '🧠 AI', callback_data: 'send_ai' },
+        { text: '🌅 Brief', callback_data: 'send_brief' },
+        { text: '🧠 Flagship', callback_data: 'send_flagship' },
       ],
       [
+        { text: '🗓 Macro Cal', callback_data: 'send_macro' },
+        { text: '🚀 Movers', callback_data: 'send_movers' },
+        { text: '🗓 Weekly', callback_data: 'send_weekly' },
+      ],
+      [
+        { text: '📉 Volume', callback_data: 'send_volume' },
         { text: '🔥 Trending', callback_data: 'send_trending' },
-        { text: '🧠 F&G', callback_data: 'send_fng' },
-        { text: '📊 All', callback_data: 'send_all' },
+        { text: '🧭 F&G', callback_data: 'send_fng' },
       ],
       [
         { text: '⚡ Futures', callback_data: 'send_futures' },
-        { text: '🚀 Movers', callback_data: 'send_movers' },
+        { text: '🤖 AI (legacy)', callback_data: 'send_ai' },
+        { text: '📊 All', callback_data: 'send_all' },
       ],
       [{ text: '──── AI Configuration ────', callback_data: 'noop' }],
       [

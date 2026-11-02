@@ -2,54 +2,80 @@
 import { COINS, TIER_1, TIER_2, TIER_3, AI_MODES, SCENARIOS, FOOTER, ALERT_PRESETS } from './config.js';
 import { esc, fmt, isAdmin } from './utils.js';
 import { getCoins, getGlobal, getTrending, getFearGreed, getCoinsCG, getCoinsBinance, getBinanceFutures, getTopGainersLosers } from './data.js';
-import { testGeminiConnection } from './ai.js';
-import { buildPrice, buildVolume, buildDaily, buildTrending, buildFng, buildAIAnalysis } from './posts.js';
-import { sendMessage, editMessage, answerCallback, mainKeyboard, getAdminInline, aiModeInline, scenarioInline, alertsInline } from './telegram.js';
+import { testGeminiConnection, getAIAnalysis, buildFlagshipPrompt, validateFlagship } from './ai.js';
+import { buildPrice, buildVolume, buildDaily, buildTrending, buildFng, buildAIAnalysis, buildFlagshipClassic } from './posts.js';
+import { buildRichFlagship } from './rich.js';
+import { footerClassic } from './i18n.js';
+import { sendMessage, sendRich, editMessage, answerCallback, mainKeyboard, getAdminInline, aiModeInline, scenarioInline, alertsInline } from './telegram.js';
 import { getConfig, setConfig, getUserState, setUserState } from './store.js';
-import { getAllAlertStates, trendingPriceMap, sendChannelPrice, sendChannelVolume, sendChannelDaily, sendChannelTrending, sendChannelFng, sendChannelAI, sendChannelFutures, sendChannelMovers, sendChannelAll } from './senders.js';
+import { getAllAlertStates, getAlertState, setAlertState, getLang, trendingPriceMap, sendChannelPrice, sendChannelVolume, sendChannelDaily, sendChannelTrending, sendChannelFng, sendChannelAI, sendChannelFutures, sendChannelMovers, sendChannelAll, sendChannelMorningBrief, sendChannelFlagship, sendChannelWeekly, sendChannelMacroCalendar, getFreshState } from './senders.js';
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 21. BOT HANDLERS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+async function panelKb(env) {
+  const mode = await getConfig(env, 'ai_mode', 'normal');
+  const scenario = await getConfig(env, 'scenario', 'neutral');
+  const autoPosts = await getConfig(env, 'auto_posts', 'true');
+  const lang = await getLang(env);
+  return getAdminInline(mode, scenario, autoPosts, lang);
+}
+
 async function handleStart(chatId, userId, env) {
   const admin = isAdmin(userId, env);
-  const text = admin
-    ? `👋 <b>Welcome Admin!</b>\n\nTradeAgent IV Control Panel.`
-    : `👋 <b>Welcome to TradeAgent IV!</b>\n\nAI Crypto Intelligence Dashboard.`;
-  await sendMessage(env, chatId, text, mainKeyboard(admin));
+  const lang = await getLang(env);
+  const text = lang === 'fa'
+    ? (admin ? `👋 <b>خوش آمدی ادمین!</b>\n\nپنل کنترل TradeAgent IV.` : `👋 <b>به TradeAgent IV خوش آمدی!</b>\n\nداشبورد هوشمند بازار کریپتو.`)
+    : (admin ? `👋 <b>Welcome Admin!</b>\n\nTradeAgent IV Control Panel.` : `👋 <b>Welcome to TradeAgent IV!</b>\n\nAI Crypto Intelligence Dashboard.`);
+  await sendMessage(env, chatId, text, mainKeyboard(admin, lang));
 }
 
 async function handlePrices(chatId, env) {
   const [{ source, data }, globalData, fear] = await Promise.all([getCoins(env), getGlobal(env), getFearGreed()]);
   const ctx = { btcDominance: Number(globalData?.data?.market_cap_percentage?.btc || 0).toFixed(1), fearGreed: fear?.data?.[0] ? parseInt(fear.data[0].value) : null };
-  await sendMessage(env, chatId, await buildPrice(data, source, ctx));
+  await sendMessage(env, chatId, await buildPrice(data, source, ctx, await getLang(env)));
 }
 
 async function handleVolume(chatId, env) {
   const { source, data } = await getCoins(env);
-  await sendMessage(env, chatId, await buildVolume(data, source));
+  await sendMessage(env, chatId, await buildVolume(data, source, await getLang(env)));
 }
 
 async function handleDaily(chatId, env) {
   const [{ source, data }, globalData, trending, fear] = await Promise.all([
     getCoins(env), getGlobal(env), getTrending(env), getFearGreed(),
   ]);
-  await sendMessage(env, chatId, await buildDaily(data, globalData, trending, fear, source));
+  await sendMessage(env, chatId, await buildDaily(data, globalData, trending, fear, source, await getLang(env)));
 }
 
 async function handleTrending(chatId, env) {
   const trending = await getTrending(env);
   if (!trending) {
-    await sendMessage(env, chatId, `🔥 <b>TRENDING COINS</b>\n\n<i>Data unavailable</i>\n\n${FOOTER}`);
+    const lang = await getLang(env);
+    await sendMessage(env, chatId, `🔥 <b>${lang === 'fa' ? 'کوین‌های ترند' : 'TRENDING COINS'}</b>\n\n<i>${lang === 'fa' ? 'داده موجود نیست' : 'Data unavailable'}</i>\n\n${footerClassic(lang)}`);
     return;
   }
-  await sendMessage(env, chatId, await buildTrending(trending, await trendingPriceMap(env)));
+  await sendMessage(env, chatId, await buildTrending(trending, await trendingPriceMap(env), await getLang(env)));
 }
 
 async function handleFng(chatId, env) {
   const fear = await getFearGreed();
-  await sendMessage(env, chatId, await buildFng(fear));
+  await sendMessage(env, chatId, await buildFng(fear, await getLang(env)));
+}
+
+async function handlePVFlagship(chatId, env) {
+  await sendMessage(env, chatId, '⏳ ...');
+  try {
+    const lang = await getLang(env);
+    const s = await getFreshState(env);
+    const text = await getAIAnalysis(env, buildFlagshipPrompt(s, lang));
+    const v = text ? validateFlagship(text, s, lang) : null;
+    if (!v?.ok) { await sendMessage(env, chatId, '⚠️ AI analysis unavailable right now.'); return; }
+    await sendRich(env, chatId, buildRichFlagship(s, v.parsed, lang), buildFlagshipClassic(s, v.parsed, lang));
+  } catch (e) {
+    await sendMessage(env, chatId, `❌ ${esc(e.message)}`);
+  }
 }
 
 async function handleAlerts(chatId, env) {
@@ -73,6 +99,7 @@ async function handleSettings(chatId, env) {
   const mode = await getConfig(env, 'ai_mode', 'normal');
   const scenario = await getConfig(env, 'scenario', 'neutral');
   const autoPosts = await getConfig(env, 'auto_posts', 'true');
+  const lang = await getLang(env);
 
   await sendMessage(env, chatId,
     `⚙️ <b>Settings</b>\n\n` +
@@ -81,16 +108,17 @@ async function handleSettings(chatId, env) {
     `Sources: ${sources.join(', ')}\n` +
     `AI: ${aiStatus} | ${orStatus}\n` +
     `Mode: ${AI_MODES[mode]} | Scenario: ${SCENARIOS[scenario]}\n` +
-    `Auto Posts: ${autoPosts === 'true' ? 'On' : 'Off'}\n\n` +
+    `Auto Posts: ${autoPosts === 'true' ? 'On' : 'Off'}\n` +
+    `Channel Language: ${lang === 'fa' ? '🇮🇷 فارسی' : '🇬🇧 English'}\n\n` +
     `Use /admin for admin panel.`
   );
 }
 
 async function showAdminPanel(chatId, env) {
-  const mode = await getConfig(env, 'ai_mode', 'normal');
-  const scenario = await getConfig(env, 'scenario', 'neutral');
+  const lang = await getLang(env);
   const autoPosts = await getConfig(env, 'auto_posts', 'true');
-  await sendMessage(env, chatId, `📣 <b>Admin Control Panel</b>\n\nManage posts, AI config, and system status:`, getAdminInline(mode, scenario, autoPosts));
+  const text = `📣 <b>Admin Control Panel</b> · v6.1.0\n\nChannel language: ${lang === 'fa' ? '🇮🇷 فارسی' : '🇬🇧 English'} · Auto posts: ${autoPosts === 'true' ? '✅ On' : '⏸ Off'}\nSend any post now, switch the channel language, tune the AI, or check system status:`;
+  await sendMessage(env, chatId, text, await panelKb(env));
 }
 
 async function handleHelp(chatId, env, userId) {
@@ -118,6 +146,10 @@ async function handleHelp(chatId, env, userId) {
     text += `/senddaily — Send daily report to channel\n`;
     text += `/sendfutures — Send funding rates to channel\n`;
     text += `/sendmovers — Send top movers to channel\n`;
+    text += `/sendbrief — Send morning brief to channel\n`;
+    text += `/sendflagship — Send flagship analysis to channel\n`;
+    text += `/sendmacro — Send macro calendar to channel\n`;
+    text += `/sendweekly — Send weekly deep dive to channel\n`;
     text += `/sendall — Send everything to channel\n`;
     text += `/aiprompt — Custom AI prompt\n`;
   }
@@ -159,7 +191,7 @@ async function handleAutoPosts(chatId, env, msgId = null) {
   if (msgId) {
     const mode = await getConfig(env, 'ai_mode', 'normal');
     const scenario = await getConfig(env, 'scenario', 'neutral');
-    await editMessage(env, chatId, msgId, statusText, getAdminInline(mode, scenario, newVal));
+    await editMessage(env, chatId, msgId, statusText, await panelKb(env));
   } else {
     await sendMessage(env, chatId, statusText);
   }
@@ -198,15 +230,16 @@ async function processWebhook(update, env, ctx) {
       console.log(`[BOT] ${userId}: ${text}`);
 
       if (text === '/start') await handleStart(chatId, userId, env);
-      else if (text === '/price' || text === '📊 Prices') await handlePrices(chatId, env);
-      else if (text === '/volume' || text === '📈 Volume') await handleVolume(chatId, env);
-      else if (text === '/daily' || text === '📉 Market Report' || text === '📈 Market Report' || text === '/marketreport') await handleDaily(chatId, env);
-      else if (text === '/trending' || text === '🔥 Trending') await handleTrending(chatId, env);
-      else if (text === '/fng' || text === '🧭 F&G' || text === '🧠 F&G' || text === '/feargreed' || text === '/fg') await handleFng(chatId, env);
-      else if (text === '/alerts' || text === '🚨 Alerts') await handleAlerts(chatId, env);
-      else if (text === '/settings' || text === '⚙️ Settings') await handleSettings(chatId, env);
-      else if (text === '/help' || text === '❓ Help') await handleHelp(chatId, env, userId);
-      else if (text === '/admin' || text === '📣 Admin Panel') {
+      else if (text === '/price' || text === '📊 Prices' || text === '📊 قیمت‌ها') await handlePrices(chatId, env);
+      else if (text === '/volume' || text === '📈 Volume' || text === '📈 حجم') await handleVolume(chatId, env);
+      else if (text === '/daily' || text === '📉 Market Report' || text === '📈 Market Report' || text === '/marketreport' || text === '📉 گزارش بازار') await handleDaily(chatId, env);
+      else if (text === '/trending' || text === '🔥 Trending' || text === '🔥 ترند') await handleTrending(chatId, env);
+      else if (text === '/fng' || text === '🧭 F&G' || text === '🧠 F&G' || text === '/feargreed' || text === '/fg' || text === '🧭 ترس و طمع') await handleFng(chatId, env);
+      else if (text === '🧠 AI Analysis' || text === '🧠 تحلیل AI') await handlePVFlagship(chatId, env);
+      else if (text === '/alerts' || text === '🚨 Alerts' || text === '🚨 هشدارها') await handleAlerts(chatId, env);
+      else if (text === '/settings' || text === '⚙️ Settings' || text === '⚙️ تنظیمات') await handleSettings(chatId, env);
+      else if (text === '/help' || text === '❓ Help' || text === '❓ راهنما') await handleHelp(chatId, env, userId);
+      else if (text === '/admin' || text === '📣 Admin Panel' || text === '📣 پنل ادمین') {
         if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ <b>Access Denied</b>'); return; }
         await showAdminPanel(chatId, env);
       }
@@ -239,6 +272,17 @@ async function processWebhook(update, env, ctx) {
       else if (text === '/sendmovers') {
         if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
         await sendMessage(env, chatId, '⏳ Sending movers...'); await sendChannelMovers(env); await sendMessage(env, chatId, '✅ Done!');
+      }
+      else if (text === '/sendbrief' || text === '/sendflagship' || text === '/sendmacro' || text === '/sendweekly') {
+        if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
+        await sendMessage(env, chatId, '⏳ Sending to channel...');
+        try {
+          if (text === '/sendbrief') await sendChannelMorningBrief(env);
+          if (text === '/sendflagship') await sendChannelFlagship(env);
+          if (text === '/sendmacro') await sendChannelMacroCalendar(env);
+          if (text === '/sendweekly') await sendChannelWeekly(env);
+          await sendMessage(env, chatId, '✅ Done!');
+        } catch (e) { await sendMessage(env, chatId, `❌ ${esc(e.message)}`); }
       }
       else if (text === '/sendall') {
         if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
@@ -287,6 +331,10 @@ async function processWebhook(update, env, ctx) {
         await sendMessage(env, chatId, '⏳ Sending to channel...');
         try {
           if (data === 'send_price') await sendChannelPrice(env);
+          if (data === 'send_brief') await sendChannelMorningBrief(env);
+          if (data === 'send_flagship') await sendChannelFlagship(env);
+          if (data === 'send_macro') await sendChannelMacroCalendar(env);
+          if (data === 'send_weekly') await sendChannelWeekly(env);
           if (data === 'send_volume') await sendChannelVolume(env);
           if (data === 'send_ai') await sendChannelAI(env);
           if (data === 'send_trending') await sendChannelTrending(env);
@@ -297,13 +345,21 @@ async function processWebhook(update, env, ctx) {
           const mode = await getConfig(env, 'ai_mode', 'normal');
           const scenario = await getConfig(env, 'scenario', 'neutral');
           const autoPosts = await getConfig(env, 'auto_posts', 'true');
-          await editMessage(env, chatId, msgId, `✅ <b>Sent!</b>\n🕒 ${fmt.time()}`, getAdminInline(mode, scenario, autoPosts));
+          await editMessage(env, chatId, msgId, `✅ <b>Sent!</b>\n🕒 ${fmt.time()}`, await panelKb(env));
         } catch (e) {
           const mode = await getConfig(env, 'ai_mode', 'normal');
           const scenario = await getConfig(env, 'scenario', 'neutral');
           const autoPosts = await getConfig(env, 'auto_posts', 'true');
-          await editMessage(env, chatId, msgId, `❌ <b>Error:</b> ${esc(e.message)}`, getAdminInline(mode, scenario, autoPosts));
+          await editMessage(env, chatId, msgId, `❌ <b>Error:</b> ${esc(e.message)}`, await panelKb(env));
         }
+        return;
+      }
+
+      if (data === 'admin:lang:en' || data === 'admin:lang:fa') {
+        if (!isAdmin(userId, env)) return;
+        const lang = data === 'admin:lang:fa' ? 'fa' : 'en';
+        await setConfig(env, 'lang', lang);
+        await editMessage(env, chatId, msgId, `📣 <b>Admin Control Panel</b>\n\n✅ Channel language: <b>${lang === 'fa' ? '🇮🇷 فارسی — همه پست‌های کانال از این به بعد فارسی ارسال می‌شن' : '🇬🇧 English — all channel posts will be sent in English'}</b>`, await panelKb(env));
         return;
       }
 
@@ -325,7 +381,7 @@ async function processWebhook(update, env, ctx) {
         await setConfig(env, 'ai_mode', mode);
         const scenario = await getConfig(env, 'scenario', 'neutral');
         const autoPosts = await getConfig(env, 'auto_posts', 'true');
-        await editMessage(env, chatId, msgId, `📣 <b>Admin Panel</b>\n\n✅ AI Mode: <b>${AI_MODES[mode]}</b>`, getAdminInline(mode, scenario, autoPosts));
+        await editMessage(env, chatId, msgId, `📣 <b>Admin Panel</b>\n\n✅ AI Mode: <b>${AI_MODES[mode]}</b>`, await panelKb(env));
         return;
       }
 
@@ -335,7 +391,7 @@ async function processWebhook(update, env, ctx) {
         await setConfig(env, 'scenario', scenario);
         const mode = await getConfig(env, 'ai_mode', 'normal');
         const autoPosts = await getConfig(env, 'auto_posts', 'true');
-        await editMessage(env, chatId, msgId, `📣 <b>Admin Panel</b>\n\n✅ Scenario: <b>${SCENARIOS[scenario]}</b>`, getAdminInline(mode, scenario, autoPosts));
+        await editMessage(env, chatId, msgId, `📣 <b>Admin Panel</b>\n\n✅ Scenario: <b>${SCENARIOS[scenario]}</b>`, await panelKb(env));
         return;
       }
 
@@ -354,7 +410,7 @@ async function processWebhook(update, env, ctx) {
           const lastToday = env.ALERTS_KV ? JSON.parse(await env.ALERTS_KV.get('last:today') || 'null') : null;
           const lastEmotion = env.ALERTS_KV ? JSON.parse(await env.ALERTS_KV.get('last:emotion') || 'null') : null;
           if (lastResult && lastToday) {
-            await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildAIAnalysis(lastResult, lastToday, lastEmotion));
+            await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildAIAnalysis(lastResult, lastToday, lastEmotion, await getLang(env)));
             await sendMessage(env, chatId, '✅ Resent to channel!');
           } else {
             await sendMessage(env, chatId, '⚠️ No previous analysis found.');
@@ -388,7 +444,7 @@ async function processWebhook(update, env, ctx) {
         const mode = await getConfig(env, 'ai_mode', 'normal');
         const scenario = await getConfig(env, 'scenario', 'neutral');
         const autoPosts = await getConfig(env, 'auto_posts', 'true');
-        await editMessage(env, chatId, msgId, `📣 <b>Admin Control Panel</b>\n\nManage posts, AI config, and system status:`, getAdminInline(mode, scenario, autoPosts));
+        await editMessage(env, chatId, msgId, `📣 <b>Admin Control Panel</b>\n\nManage posts, AI config, and system status:`, await panelKb(env));
         return;
       }
 
@@ -404,7 +460,7 @@ async function processWebhook(update, env, ctx) {
 
       if (data === 'back_main') {
         const admin = isAdmin(userId, env);
-        await sendMessage(env, chatId, '👋 <b>Main Menu</b>', mainKeyboard(admin));
+        await sendMessage(env, chatId, '👋 <b>Main Menu</b>', mainKeyboard(admin, await getLang(env)));
       }
     }
   } catch (err) {
