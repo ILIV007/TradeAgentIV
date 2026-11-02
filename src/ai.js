@@ -271,7 +271,7 @@ async function testGeminiConnection(env) {
 // 12. AI PROMPT BUILDER — [FIX v4.2.7] Shorter, clearer, proven structure
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-function buildAIPrompt(today, yesterday, mode, scenario, emotion) {
+function buildAIPrompt(today, yesterday, mode, scenario, emotion, lang = 'en') {
   const t = today, y = yesterday || {};
   const emo = emotion || { state: 'NEUTRAL', intensity: 50, tone: 'Neutral, factual.' };
 
@@ -332,7 +332,17 @@ MODE: ${mode} — ${modeDesc[mode] || modeDesc.normal}
 SCENARIO: ${scenario} — ${scenDesc[scenario] || scenDesc.neutral}
 EMOTION: ${emo.state} (intensity ${emo.intensity}/100). Tone: ${emo.tone}
 
-Write the analysis in EXACTLY this shape:
+${lang === 'fa' ? `Write the analysis ENTIRELY in Persian (native, professional financial Persian; figures in Latin digits), in EXACTLY this shape:
+
+<b>مرور بازار</b> — 2-3 sentences on the overall condition
+<b>عوامل صعودی</b> — the positive signals in the data
+<b>عوامل نزولی</b> — the negative signals in the data
+<b>عوامل ریسک</b> — what could go wrong
+<b>چرخش بخشی</b> — which tiers/categories are strong or weak
+<b>زیر نظر فردا</b> — what to watch next, from the data
+<b>نتیجه‌گیری</b> — one sentence
+
+Do NOT add a ---PERSIAN--- section — the whole analysis is already in Persian.` : `Write the analysis in EXACTLY this shape:
 
 <b>Market Overview</b> — 2-3 sentences on the overall condition
 <b>Bullish Factors</b> — the positive signals in the data
@@ -345,14 +355,14 @@ Write the analysis in EXACTLY this shape:
 Then a line containing only:
 ---PERSIAN---
 
-Then the Persian summary: a <b>خلاصه بازار</b> heading followed by exactly 7 bullets (•), each one line, dense, same meaning as the English — no additions, no omissions.
+Then the Persian summary: a <b>خلاصه بازار</b> heading followed by exactly 7 bullets (•), each one line, dense, same meaning as the English — no additions, no omissions.`}
 
 Five hard rules:
 1. Analyze ONLY the data below. Never invent support/resistance levels, price targets, or events.
 2. Telegram HTML only (<b>, <i>). No markdown syntax anywhere — it renders broken.
 3. Never contradict the emotion state: stress risk in FOMO/PANIC, opportunity in FEAR.
 4. Complete every section; total under 700 words; compare 24h moves against 7d/30d trends.
-5. End the English part (before the separator) with: "⚠️ This analysis is for informational purposes only and is not financial advice."
+5. End the main part with the disclaimer line (in the same language as the analysis): "⚠️ This analysis is for informational purposes only and is not financial advice."
 
 Example of the expected voice (Market Overview only):
 <b>Market Overview</b> — A quiet, defensive tape: majors are treading water while alts bleed slowly. Volume is thin, dominance is inching up, and nobody is chasing risk today.
@@ -414,7 +424,48 @@ const GROUND_RULES = `HARD RULES:
 - Your read must agree with the REGIME line; if you argue against it, say so explicitly and why.
 - Plain, literate, professional English. No hype, no emojis inside the analysis text.`;
 
-function buildFlagshipPrompt(s) {
+function buildFlagshipPrompt(s, lang = 'en') {
+  if (lang === 'fa') {
+    return `You are TradeAgent IV, a senior crypto market analyst writing the flagship analysis for a Persian-language Telegram channel. This is the channel's ONLY analysis post — everything else is data. Make it count: sharp, clear, and honest.
+
+LANGUAGE: Write EVERYTHING in Persian — native, professional, journalistic financial Persian, never translation-sounding. Keep every $ amount and figure in Latin digits. The === markers and the Lean/Level/Side fields stay in English exactly as specified.
+
+DATA (Market State, the only source you may cite):
+${stateDigest(s)}
+
+${GROUND_RULES}
+
+Write the analysis in EXACTLY this format (keep the === markers, nothing before or after):
+===VERDICT===
+One Persian sentence: the market's state and the single most important driver.
+===OVERVIEW===
+3-4 Persian lines: what happened and why, led by the main driver. This is the heart of the post — be specific and insightful, not a data readout (the numbers table is shown separately).
+===DRIVERS===
+Exactly 3 ranked drivers, one Persian line each, most important first, in this form:
+1. <driver> — <one short evidence clause with its number>
+2. ...
+3. ...
+===SCENARIOS===
+===SCENARIO:BASE===
+Lean: UP, DOWN or FLAT
+Level: a BTC price level from the DATA, or NONE
+Side: ABOVE, BELOW or NONE
+Text: (in Persian) the trigger (a level or scheduled event from the DATA) → the likely path if it fires.
+===SCENARIO:BULL===
+Lean: UP
+Level: ...
+Side: ABOVE
+Text: (in Persian) ...
+===SCENARIO:BEAR===
+Lean: DOWN
+Level: ...
+Side: BELOW
+Text: (in Persian) ...
+===WATCH===
+One Persian line: the next event or level that matters, with its time if it is in the DATA.
+===INVALIDATION===
+One Persian line: the single fact that would invalidate this read.`;
+  }
   return `You are TradeAgent IV, a senior crypto market analyst writing the flagship analysis for a Telegram channel. This is the channel's ONLY analysis post — everything else is data. Make it count: sharp, clear, and honest.
 
 DATA (Market State, the only source you may cite):
@@ -461,7 +512,21 @@ A summary written NATIVELY in Persian for Persian readers (never a word-by-word 
 Compact: at most 40% of the total length.`;
 }
 
-function buildFlashPrompt(s, event) {
+function buildFlashPrompt(s, event, lang = 'en') {
+  if (lang === 'fa') {
+    return `You are TradeAgent IV writing a fast event flash for a Persian-language Telegram channel.
+
+LANGUAGE: Write ONLY in Persian — native, professional financial Persian. Keep figures in Latin digits.
+
+DATA (Market State, the only source you may cite):
+${stateDigest(s)}
+
+THE EVENT: ${event.title} (${event.country}) — actual ${event.actual}, forecast ${event.forecast || '—'}, previous ${event.previous || '—'}.
+
+${GROUND_RULES}
+
+Write 5-8 short Persian lines ONLY (no markers): what printed vs expectations → how the market has reacted so far (from the DATA) → what it means for today's scenarios. Start with the event name and the actual figure.`;
+  }
   return `You are TradeAgent IV writing a fast event flash for a Telegram channel.
 
 DATA (Market State, the only source you may cite):
@@ -565,10 +630,11 @@ function parseFlagship(text) {
   };
 }
 
-function validateFlagship(text, s) {
+function validateFlagship(text, s, lang = 'en') {
   const errors = [];
   const p = parseFlagship(text);
-  for (const sec of FLAGSHIP_SECTIONS) if (!p._sections.includes(sec) && sec !== 'SCENARIOS') errors.push(`missing section ${sec}`);
+  const required = lang === 'fa' ? FLAGSHIP_SECTIONS.filter((x) => x !== 'PERSIAN') : FLAGSHIP_SECTIONS;
+  for (const sec of required) if (!p._sections.includes(sec) && sec !== 'SCENARIOS') errors.push(`missing section ${sec}`);
   if (!p._sections.some((k) => k.startsWith('SCENARIO:'))) errors.push('missing scenarios');
   if (p.verdict.length < 10) errors.push('verdict too short');
   if (p.drivers.length < 3) errors.push('needs exactly 3 ranked drivers');
@@ -578,9 +644,11 @@ function validateFlagship(text, s) {
     if (sc.level != null && !['ABOVE', 'BELOW'].includes(sc.side)) errors.push(`${sc.kind}: level without side`);
   }
   if (!p.invalidation) errors.push('missing invalidation line');
-  if (!/[؀-ۿ]/.test(p.persian)) errors.push('persian summary missing');
-  for (const f of ['حکم', 'سطوح', 'سناریو', 'مراقبت']) if (!p.persian.includes(f)) errors.push(`persian summary missing field ${f}`);
-  if (p.persian.length > text.length * 0.4) errors.push('persian summary over 40%');
+  if (lang !== 'fa') {
+    if (!/[؀-ۿ]/.test(p.persian)) errors.push('persian summary missing');
+    for (const f of ['حکم', 'سطوح', 'سناریو', 'مراقبت']) if (!p.persian.includes(f)) errors.push(`persian summary missing field ${f}`);
+    if (p.persian.length > text.length * 0.4) errors.push('persian summary over 40%');
+  }
   const g = validateGrounded(text, s);
   if (!g.ok) errors.push(`ungrounded numbers: ${g.bad.slice(0, 5).join(', ')}`);
   return { ok: errors.length === 0, errors, parsed: p };
