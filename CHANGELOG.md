@@ -3,6 +3,11 @@
 All notable changes to TradeAgent IV are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [6.1.2] — 2026-11-02
+
+### Changed
+- **Persian posts are rich again**: the v6.1.1 classic-for-FA routing is reverted by owner decision — rich design for both languages, accepting minor bidi quirks in Persian. FA headings (snapshot verdict, flagship masthead) now lead with the Persian text so they can right-align.
+
 ## [6.1.1] — 2026-11-02
 
 ### Fixed
