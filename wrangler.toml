@@ -1,6 +1,13 @@
-name = "tradeagent-iv"
+name = "tradeagentiv"
 main = "src/index.js"
-compatibility_date = "2025-06-01"
+compatibility_date = "2026-06-01"
+
+# ALERTS_KV binding is managed in the Cloudflare dashboard on purpose:
+# the owner does not commit the KV namespace id to this public repo.
+# A local deploy must add it first:
+#   [[kv_namespaces]]
+#   binding = "ALERTS_KV"
+#   id = "<namespace id>"
 
 [triggers]
 crons = ["*/30 * * * *", "0 */8 * * *", "0 9,15,21 * * *"]

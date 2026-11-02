@@ -1,0 +1,218 @@
+// TradeAgent IV — Telegram API wrappers, stickers, keyboards.
+import { STICKER_SET_NAME, AI_MODES, SCENARIOS, ALERT_PRESETS, COINS } from './config.js';
+import { fetchWithTimeout } from './utils.js';
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 15. TELEGRAM API
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+async function tgMethod(token, method, body) {
+  const url = `https://api.telegram.org/bot${token}/${method}`;
+  for (let i = 0; i < 3; i++) {
+    try {
+      const r = await fetchWithTimeout(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }, 15000);
+      const d = await r.json();
+      if (!d.ok) {
+        const err = new Error(d.description || `TG ${method} error`);
+        err.code = d.error_code; throw err;
+      }
+      return d;
+    } catch (e) {
+      const msg = (e.message || '').toLowerCase();
+      if (msg.includes('not modified')) throw e;
+      if (i === 2) throw e;
+      await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
+    }
+  }
+}
+
+async function sendMessage(env, chatId, text, markup = null) {
+  const body = { chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true };
+  if (markup) body.reply_markup = markup;
+
+  try {
+    return await tgMethod(env.TELEGRAM_BOT_TOKEN, 'sendMessage', body);
+  } catch (e) {
+    // If HTML parsing fails, retry without parse_mode
+    const msg = (e.message || '').toLowerCase();
+    if (msg.indexOf("parse entities") !== -1 || msg.indexOf("bad request") !== -1 || msg.indexOf("html") !== -1) {
+      console.log('[TG] HTML parse failed, retrying without parse_mode');
+      const fallbackBody = { 
+        chat_id: chatId, 
+        text: text.replace(/<[^>]*>/g, ''), 
+        disable_web_page_preview: true 
+      };
+      if (markup) fallbackBody.reply_markup = markup;
+      return await tgMethod(env.TELEGRAM_BOT_TOKEN, 'sendMessage', fallbackBody);
+    }
+    throw e;
+  }
+}
+
+async function sendSticker(env, chatId, stickerFileId) {
+  return tgMethod(env.TELEGRAM_BOT_TOKEN, 'sendSticker', { chat_id: chatId, sticker: stickerFileId });
+}
+
+async function answerCallback(env, queryId, text = null) {
+  try {
+    const body = { callback_query_id: queryId };
+    if (text) body.text = text;
+    return await tgMethod(env.TELEGRAM_BOT_TOKEN, 'answerCallbackQuery', body);
+  } catch (e) {
+    console.log(`[CALLBACK] Silently ignoring: ${e.message}`);
+    return null;
+  }
+}
+
+async function editMessage(env, chatId, messageId, text, markup = null) {
+  try {
+    const body = { chat_id: chatId, message_id: messageId, text, parse_mode: 'HTML', disable_web_page_preview: true };
+    if (markup) body.reply_markup = markup;
+    return await tgMethod(env.TELEGRAM_BOT_TOKEN, 'editMessageText', body);
+  } catch (e) {
+    const msg = (e.message || '').toLowerCase();
+    if (msg.includes('not modified')) {
+      console.log(`[EDIT] Ignoring "not modified" for msg ${messageId}`);
+      return null;
+    }
+    throw e;
+  }
+}
+
+async function getStickerFileId(env) {
+  if (!env.ALERTS_KV) return null;
+  try {
+    const cached = await env.ALERTS_KV.get('sticker:file_id');
+    if (cached) {
+      console.log('[STICKER] Using cached file_id');
+      return cached;
+    }
+    
+    console.log(`[STICKER] Fetching set: ${STICKER_SET_NAME}`);
+    const set = await tgMethod(env.TELEGRAM_BOT_TOKEN, 'getStickerSet', { name: STICKER_SET_NAME });
+    
+    if (set.result?.stickers?.length > 0) {
+      const fileId = set.result.stickers[0].file_id;
+      await env.ALERTS_KV.put('sticker:file_id', fileId, { expirationTtl: 2592000 });
+      console.log('[STICKER] Cached new file_id:', fileId.slice(0, 20) + '...');
+      return fileId;
+    } else {
+      console.error('[STICKER] Set exists but empty:', STICKER_SET_NAME);
+    }
+  } catch (e) {
+    console.error(`[STICKER] getStickerSet FAILED: ${e.message} | Set: ${STICKER_SET_NAME}`);
+    console.error(`[STICKER] HINT: Bot must be owner/admin of sticker set "${STICKER_SET_NAME}"`);
+  }
+  return null;
+}
+
+async function sendChannelSticker(env) {
+  if (!env.TELEGRAM_CHANNEL_ID) {
+    console.log('[STICKER] No TELEGRAM_CHANNEL_ID');
+    return;
+  }
+  try {
+    const fileId = await getStickerFileId(env);
+    if (fileId) {
+      await sendSticker(env, env.TELEGRAM_CHANNEL_ID, fileId);
+      console.log('[STICKER] Sent sticker to channel');
+    } else {
+      console.log('[STICKER] No file_id available, skipping');
+    }
+  } catch (e) {
+    console.error('[STICKER] Send error:', e.message);
+  }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 16. KEYBOARDS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function mainKeyboard(isAdmin) {
+  const kb = [
+    [{ text: '📊 Prices' }, { text: '📈 Volume' }, { text: '🔥 Trending' }],
+    [{ text: '🧠 AI Analysis' }, { text: '🧭 F&G' }, { text: '📉 Market Report' }],
+    [{ text: '🚨 Alerts' }, { text: '⚙️ Settings' }, { text: '❓ Help' }],
+  ];
+  if (isAdmin) kb.push([{ text: '📣 Admin Panel' }]);
+  return { keyboard: kb, resize_keyboard: true };
+}
+
+function getAdminInline(mode, scenario, autoPosts) {
+  const m = AI_MODES[mode] || AI_MODES.normal;
+  const s = SCENARIOS[scenario] || SCENARIOS.neutral;
+  const autoStatus = autoPosts === 'true' ? '✅ On' : '⏸ Off';
+  return {
+    inline_keyboard: [
+      [
+        { text: '📈 Price', callback_data: 'send_price' },
+        { text: '📉 Volume', callback_data: 'send_volume' },
+        { text: '🧠 AI', callback_data: 'send_ai' },
+      ],
+      [
+        { text: '🔥 Trending', callback_data: 'send_trending' },
+        { text: '🧠 F&G', callback_data: 'send_fng' },
+        { text: '📊 All', callback_data: 'send_all' },
+      ],
+      [
+        { text: '⚡ Futures', callback_data: 'send_futures' },
+        { text: '🚀 Movers', callback_data: 'send_movers' },
+      ],
+      [{ text: '──── AI Configuration ────', callback_data: 'noop' }],
+      [
+        { text: `🤖 ${m}`, callback_data: 'admin:ai_mode' },
+        { text: `🎛 ${s}`, callback_data: 'admin:scenario' },
+      ],
+      [
+        { text: '🧪 Custom Prompt', callback_data: 'admin:custom' },
+        { text: '📤 Resend Last', callback_data: 'admin:resend' },
+      ],
+      [{ text: '──── System ────', callback_data: 'noop' }],
+      [
+        { text: '🤖 AI Status', callback_data: 'admin:ai_status' },
+        { text: '📊 API Status', callback_data: 'admin:api_status' },
+      ],
+      [
+        { text: `⏸ Auto: ${autoStatus}`, callback_data: 'admin:auto_posts' },
+      ],
+      [{ text: '🔙 Back to Menu', callback_data: 'back_main' }],
+    ],
+  };
+}
+
+const aiModeInline = {
+  inline_keyboard: [
+    [{ text: '🤖 Normal', callback_data: 'set_mode:normal' }, { text: '⚡ Deep', callback_data: 'set_mode:deep' }],
+    [{ text: '🎯 Short Signal', callback_data: 'set_mode:short' }, { text: '🧠 Emotion', callback_data: 'set_mode:emotion' }],
+    [{ text: '🔙 Back to Admin', callback_data: 'admin:page:main' }],
+  ],
+};
+
+const scenarioInline = {
+  inline_keyboard: [
+    [{ text: '🚀 Bullish', callback_data: 'set_scenario:bullish' }, { text: '💀 Bearish', callback_data: 'set_scenario:bearish' }],
+    [{ text: '⚖️ Neutral', callback_data: 'set_scenario:neutral' }, { text: '🧨 Volatile', callback_data: 'set_scenario:volatile' }],
+    [{ text: '🔙 Back to Admin', callback_data: 'admin:page:main' }],
+  ],
+};
+
+function alertsInline(states) {
+  const rows = [];
+  for (const [coinId, cfg] of Object.entries(ALERT_PRESETS)) {
+    const c = COINS[coinId]; if (!c) continue;
+    const aboveKey = `${coinId}:above`, belowKey = `${coinId}:below`;
+    const aboveOn = states[aboveKey] ? '🟢' : '⚪️', belowOn = states[belowKey] ? '🔴' : '⚪️';
+    rows.push([
+      { text: `${aboveOn} ${c.symbol} 🚀 +${cfg.pct}% (24h)`, callback_data: `toggle:${aboveKey}` },
+      { text: `${belowOn} ${c.symbol} 📉 -${cfg.pct}% (24h)`, callback_data: `toggle:${belowKey}` },
+    ]);
+  }
+  rows.push([{ text: '🔙 Back', callback_data: 'back_main' }]);
+  return { inline_keyboard: rows };
+}
+
+export { tgMethod, sendMessage, sendSticker, answerCallback, editMessage, getStickerFileId, sendChannelSticker, mainKeyboard, getAdminInline, aiModeInline, scenarioInline, alertsInline };
