@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV HYBRID v6.0.0 — Gemini Migration
+//  TRADEAGENT IV HYBRID v6.1.1 — Gemini Migration
 // ═══════════════════════════════════════════════════════════════
 // Worker entry: cron + HTTP router (webhook, /admin, /debug).
 import { CRON_PRICE, CRON_BUNDLE, CRON_MOVERS, COINS, TIER_1, TIER_2, TIER_3 } from './config.js';
@@ -144,7 +144,7 @@ async function handleDebug(env) {
     tier1: Object.keys(TIER_1).length,
     tier2: Object.keys(TIER_2).length,
     tier3: Object.keys(TIER_3).length,
-    version: '6.1.0',
+    version: '6.1.1',
   };
 
   if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHANNEL_ID) {
@@ -207,8 +207,8 @@ async function handleHttp(request, env, ctx) {
   }
   if (path === '/' && request.method === 'GET') {
     return new Response(
-      `TradeAgent IV HYBRID v6.0.0 — AI-Powered Crypto Intelligence\n\n` +
-      `Backend: v6.0.0 (Market State, Regime Engine v2, rich delivery, flagship AI products, macro watcher)\n` +
+      `TradeAgent IV HYBRID v6.1.1 — AI-Powered Crypto Intelligence\n\n` +
+      `Backend: v6.1.1 (Market State, Regime Engine v2, rich delivery, flagship AI products, macro watcher)\n` +
       `UI: Plain <blockquote> for all sections + Gemini Priority + Updated Commands\n\n` +
       `Routes:\n` +
       `  POST /webhook  → Telegram webhook\n` +

@@ -417,3 +417,14 @@ test('v6.1 language: FA flagship validates without a summary section; FA builder
   const flat = JSON.stringify(kb);
   assert.ok(flat.includes('admin:lang:fa') && flat.includes('فارسی ✓') && flat.includes('send_flagship') && flat.includes('send_brief') && flat.includes('send_macro') && flat.includes('send_weekly'));
 });
+
+test('v6.1.1 FA classic brief carries the full content (majors, movers, levels, totals)', async () => {
+  const { buildBriefClassic } = await import('../src/posts.js');
+  const s = v6State();
+  s._levels = { h24: 78500, l24: 77200, h7: 81500, l7: 76800 };
+  const fa = buildBriefClassic(s, 'دوشنبه ۱۱ آبان', 'fa');
+  assert.ok(fa.includes('گزارش صبحگاهی') && fa.includes('سطوح کلیدی بیت‌کوین') && fa.includes('تصویر کلی بازار') && fa.includes('برترین حرکت‌های شبانه'));
+  assert.ok(fa.includes('$78,500'));
+  const en = buildBriefClassic(s, 'Monday', 'en');
+  assert.ok(en.includes('Morning Brief') && !en.includes('سطوح'));
+});

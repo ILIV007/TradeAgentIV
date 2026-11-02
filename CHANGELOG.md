@@ -3,6 +3,11 @@
 All notable changes to TradeAgent IV are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [6.1.1] — 2026-11-02
+
+### Fixed
+- **Persian rendering**: rich-message blocks keep LTR grids/alignment, which jumbled Persian text and never right-aligned lines starting with Latin tokens. In FA mode all posts now deliver as classic messages, whose paragraphs auto-detect RTL. The FA Morning Brief classic was rebuilt with the full content (majors, overnight movers, breadth, key levels, market totals, headline), Persian lines carry an RLM mark, and the FA flagship prompt now requires every line to begin with a Persian word.
+
 ## [6.1.0] — 2026-11-02
 
 ### Added

@@ -428,7 +428,7 @@ function buildFlagshipPrompt(s, lang = 'en') {
   if (lang === 'fa') {
     return `You are TradeAgent IV, a senior crypto market analyst writing the flagship analysis for a Persian-language Telegram channel. This is the channel's ONLY analysis post — everything else is data. Make it count: sharp, clear, and honest.
 
-LANGUAGE: Write EVERYTHING in Persian — native, professional, journalistic financial Persian, never translation-sounding. Keep every $ amount and figure in Latin digits. The === markers and the Lean/Level/Side fields stay in English exactly as specified.
+LANGUAGE: Write EVERYTHING in Persian — native, professional, journalistic financial Persian, never translation-sounding. Keep every $ amount and figure in Latin digits. Begin EVERY line with a Persian word (never with a Latin word, symbol or number) so every paragraph right-aligns correctly. The === markers and the Lean/Level/Side fields stay in English exactly as specified.
 
 DATA (Market State, the only source you may cite):
 ${stateDigest(s)}
