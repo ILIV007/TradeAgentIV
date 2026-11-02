@@ -132,4 +132,5 @@ function timeStr(lang) {
     : new Date().toLocaleString('en-GB', { timeZone: 'Asia/Tehran', hour12: false, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
-export { STR, L, footerClassic, footerRich, regimeName, fngName, biasText, fngSignal, dateStr, timeStr };
+const RLM = '\u200F';
+export { STR, L, footerClassic, footerRich, regimeName, fngName, biasText, fngSignal, dateStr, timeStr, RLM };

@@ -1,7 +1,7 @@
 // TradeAgent IV — post builders (pure: data in, Telegram HTML out).
 import { COINS, BINANCE_MAP, SYMBOL_TO_ID } from './config.js';
 import { esc, fmt, progressBar } from './utils.js';
-import { L, footerClassic, regimeName, fngName, biasText, fngSignal, timeStr } from './i18n.js';
+import { L, footerClassic, regimeName, fngName, biasText, fngSignal, timeStr, RLM } from './i18n.js';
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 17. MESSAGE BUILDERS — MODERN UI
@@ -20,7 +20,7 @@ async function buildPrice(coins, source = '', ctx = null, lang = 'en') {
     const bits = [];
     if (ctx.btcDominance) bits.push(`₿ ${T.dominance}: ${ctx.btcDominance}%`);
     if (ctx.fearGreed != null) bits.push(`🧠 ${T.fearGreed}: ${ctx.fearGreed}/100`);
-    m += `<i>${bits.join(' · ')}</i>\n`;
+    m += `<i>${lang === 'fa' ? RLM : ''}${bits.join(' · ')}</i>\n`;
   }
   m += `\n`;
   
@@ -73,7 +73,7 @@ async function buildPrice(coins, source = '', ctx = null, lang = 'en') {
   if (perf.length > 1) {
     const sorted = [...perf].sort((a, b) => (b.price_change_percentage_24h || 0) - (a.price_change_percentage_24h || 0));
     const best = sorted[0], worst = sorted[sorted.length - 1];
-    m += `⭐ <b>${T.best}:</b> ${COINS[best.id].symbol} ${fmt.pct(best.price_change_percentage_24h)} · ⚠️ <b>${T.weakest}:</b> ${COINS[worst.id].symbol} ${fmt.pct(worst.price_change_percentage_24h)}\n\n`;
+    m += `${lang === 'fa' ? RLM : ''}⭐ <b>${T.best}:</b> ${COINS[best.id].symbol} ${fmt.pct(best.price_change_percentage_24h)} · ⚠️ <b>${T.weakest}:</b> ${COINS[worst.id].symbol} ${fmt.pct(worst.price_change_percentage_24h)}\n\n`;
   }
 
   m += `${FOOTER}`;
@@ -370,7 +370,22 @@ function buildBriefClassic(s, dateStr, lang = 'en') {
   const FOOTER = footerClassic(lang);
   const btc = s.prices.find((c) => c.id === 'bitcoin') || {};
   let m = `🌅 <b>${T.brief} — ${esc(dateStr)}</b>\n\n`;
-  m += `${T.regime} ${regimeName(s.regime.label, lang)} ${s.regime.score} · ${T.fearGreed} ${s.fearGreed.now ?? '—'} · ${T.dominance} ${Number(s.global.btcDominance || 0).toFixed(1)}%\n`;
+  m += `${T.regime} ${regimeName(s.regime.label, lang)} ${s.regime.score} · ${T.fearGreed} ${s.fearGreed.now ?? '—'} · ${T.dominance} ${Number(s.global.btcDominance || 0).toFixed(1)}%\n\n`;
+  if (lang === 'fa') {
+    const row = (c) => `${RLM}<b>${esc(COINS[c.id]?.symbol || c.id)}</b> — $${fmt.price(c.current_price)} · ۲۴س ${fmt.pct(c.price_change_percentage_24h)} · ۷ر ${fmt.pct(c.price_change_percentage_7d_in_currency)}`;
+    const majors = ['bitcoin', 'ethereum', 'solana'].map((id) => s.prices.find((c) => c.id === id)).filter(Boolean);
+    m += `<b>${T.majorsCap}</b>\n` + majors.map(row).join('\n') + '\n\n';
+    const sorted = [...s.prices].sort((a, b) => (b.price_change_percentage_24h || 0) - (a.price_change_percentage_24h || 0));
+    const movers = [...sorted.slice(0, 3), ...sorted.slice(-3).reverse()];
+    m += `<b>${T.briefMoversCap}</b>\n` + movers.map(row).join('\n') + '\n\n';
+    const green = s.prices.filter((c) => c.price_change_percentage_24h > 0).length;
+    m += `${RLM}${T.breadth}: ${green}/${s.prices.length} ${T.breadthTail}\n\n`;
+    const lv = s._levels;
+    if (lv) m += `<b>${T.levelsCap}</b>\n${RLM}۲۴ ساعته — ${T.high} $${fmt.price(lv.h24)} · ${T.low} $${fmt.price(lv.l24)}\n${RLM}۷ روزه — ${T.high} $${fmt.price(lv.h7)} · ${T.low} $${fmt.price(lv.l7)}\n\n`;
+    m += `<b>${T.totalsCap}</b>\n${RLM}${T.totalCap}: ${fmt.cap(s.global.marketCap)} · ${T.vol24}: ${fmt.vol(s.global.volume24h)}\n`;
+    if (s.news?.length) m += `\n${RLM}${T.headline}: ${esc(s.news[0].title)}\n`;
+    return m + `\n${FOOTER}`;
+  }
   m += `BTC $${fmt.price(btc.current_price)} (${fmt.pct(btc.price_change_percentage_24h)})\n`;
   const evs = (s.macro?.today || []).slice(0, 5);
   if (evs.length) m += `\n<b>${T.macroCal}:</b>\n` + evs.map((e) => `• ${esc(e.title)} (${esc(e.country)}) — ${T.forecast} ${esc(e.forecast || '—')} · ${T.previous} ${esc(e.previous || '—')}`).join('\n') + '\n';
