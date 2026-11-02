@@ -12,6 +12,36 @@ async function storeSnapshot(env, data) {
   } catch (e) {}
 }
 
+// ── Market State (v6 §1): latest + hourly history in KV ──────────────
+async function putMarketState(env, s) {
+  if (!env.ALERTS_KV) return;
+  try {
+    const body = JSON.stringify(s);
+    await env.ALERTS_KV.put('state:latest', body);
+    const hour = new Date(s.ts).toISOString().slice(0, 13);
+    await env.ALERTS_KV.put(`state:hist:${hour}`, body, { expirationTtl: 604800 });
+  } catch (e) {}
+}
+
+async function getMarketState(env) {
+  if (!env.ALERTS_KV) return null;
+  try {
+    const raw = await env.ALERTS_KV.get('state:latest');
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
+}
+
+// Generic JSON KV helpers (v6 records: scenarios, watcher markers).
+async function kvGetJSON(env, key) {
+  if (!env.ALERTS_KV) return null;
+  try { const raw = await env.ALERTS_KV.get(key); return raw ? JSON.parse(raw) : null; } catch (e) { return null; }
+}
+
+async function kvPutJSON(env, key, value, ttl = null) {
+  if (!env.ALERTS_KV) return;
+  try { await env.ALERTS_KV.put(key, JSON.stringify(value), ttl ? { expirationTtl: ttl } : undefined); } catch (e) {}
+}
+
 async function getSnapshot(env) {
   if (!env.ALERTS_KV) return null;
   try {
@@ -102,4 +132,4 @@ async function dedupSend(env, type, fn) {
   }
 }
 
-export { storeSnapshot, getSnapshot, getConfig, setConfig, getUserState, setUserState, DEDUP_SKIPPED, dedupSend };
+export { storeSnapshot, getSnapshot, getConfig, setConfig, getUserState, setUserState, DEDUP_SKIPPED, dedupSend, putMarketState, getMarketState, kvGetJSON, kvPutJSON };

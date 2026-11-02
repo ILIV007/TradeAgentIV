@@ -381,4 +381,207 @@ ${y.fearGreed != null ? `Fear & Greed: ${y.fearGreed}/100` : ''}
 Write the analysis now.`;
 }
 
-export { getAIAnalysis, testGeminiConnection, buildAIPrompt, isValidAIResponse };
+export { getAIAnalysis, testGeminiConnection, buildAIPrompt, isValidAIResponse, stateDigest, buildFlagshipPrompt, buildFlashPrompt, numericCorpus, extractNumbers, validateGrounded, parseFlagship, validateFlagship };
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// v6 AI PRODUCTS — prompts + grounding/structure validation (§3)
+// Method rules enforced here: scenarios not predictions, every number
+// from the Market State, ranked driver, invalidation line mandatory.
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function stateDigest(s) {
+  const btc = s.prices.find((c) => c.id === 'bitcoin') || {};
+  const eth = s.prices.find((c) => c.id === 'ethereum') || {};
+  const lines = [];
+  lines.push(`REGIME: ${s.regime.label} (score ${s.regime.score}/100) — drivers: ${s.regime.reasons.join('; ')}`);
+  lines.push(`BTC $${btc.current_price} (24h ${btc.price_change_percentage_24h}%, 7d ${btc.price_change_percentage_7d_in_currency}%) · ETH $${eth.current_price} (24h ${eth.price_change_percentage_24h}%)`);
+  const sorted = [...s.prices].sort((a, b) => (b.price_change_percentage_24h || 0) - (a.price_change_percentage_24h || 0));
+  lines.push(`Breadth: ${s.prices.filter((c) => c.price_change_percentage_24h > 0).length}/${s.prices.length} green · Best ${sorted[0]?.id} ${sorted[0]?.price_change_percentage_24h}% · Weakest ${sorted[sorted.length - 1]?.id} ${sorted[sorted.length - 1]?.price_change_percentage_24h}%`);
+  lines.push(`Dominance ${s.global.btcDominance}% · Market cap $${s.global.marketCap} · Volume 24h $${s.global.volume24h}`);
+  lines.push(`Fear & Greed ${s.fearGreed.now} (yesterday ${s.fearGreed.yday})`);
+  const d = s.derivatives || {};
+  lines.push(`Derivatives: funding BTC ${d.fundingBtc}% / ETH ${d.fundingEth}% / SOL ${d.fundingSol}% · Deribit OI $${d.oiUsd} (Δ ${d.oiDeltaPct}%) · DVOL ${d.dvol}`);
+  if (s.onchain) lines.push(`On-chain: fast fee ${s.onchain.feeFast} sat/vB · hashrate ${s.onchain.hashrateEHs} EH/s`);
+  if (s.defi) lines.push(`Liquidity: DeFi TVL $${s.defi.tvl} · stablecoin supply $${s.defi.stableSupply} (7d ${s.defi.stableDelta7dPct}%)`);
+  if (s.macro?.nextHighImpact) { const e = s.macro.nextHighImpact; lines.push(`Next high-impact macro: ${e.title} (${e.country}) at ${new Date(e.ts).toISOString()} · forecast ${e.forecast || '—'} · previous ${e.previous || '—'}`); }
+  if (s.news?.length) lines.push('Headlines: ' + s.news.slice(0, 4).map((n) => `[${n.src}] ${n.title}`).join(' | '));
+  return lines.join('\n');
+}
+
+const GROUND_RULES = `HARD RULES:
+- Use ONLY numbers that appear in the DATA block. Never invent a price, level, percentage or figure. If a number is not in the DATA, do not write it.
+- No price predictions. Ever. Speak in scenarios with triggers taken from the DATA.
+- Your read must agree with the REGIME line; if you argue against it, say so explicitly and why.
+- Plain, literate, professional English. No hype, no emojis inside the analysis text.`;
+
+function buildFlagshipPrompt(s) {
+  return `You are TradeAgent IV, a senior crypto market analyst writing the flagship analysis for a Telegram channel. This is the channel's ONLY analysis post — everything else is data. Make it count: sharp, clear, and honest.
+
+DATA (Market State, the only source you may cite):
+${stateDigest(s)}
+
+${GROUND_RULES}
+
+Write the analysis in EXACTLY this format (keep the === markers, nothing before or after):
+===VERDICT===
+One line: the market's state and the single most important driver.
+===OVERVIEW===
+3-4 lines: what happened and why, led by the main driver. This is the heart of the post — be specific and insightful, not a data readout (the numbers table is shown separately).
+===DRIVERS===
+Exactly 3 ranked drivers, one line each, most important first, in this form:
+1. <driver> — <one short evidence clause with its number>
+2. ...
+3. ...
+===SCENARIOS===
+===SCENARIO:BASE===
+Lean: UP, DOWN or FLAT
+Level: a BTC price level from the DATA, or NONE
+Side: ABOVE, BELOW or NONE
+Text: the trigger (a level or scheduled event from the DATA) → the likely path if it fires.
+===SCENARIO:BULL===
+Lean: UP
+Level: ...
+Side: ABOVE
+Text: ...
+===SCENARIO:BEAR===
+Lean: DOWN
+Level: ...
+Side: BELOW
+Text: ...
+===WATCH===
+One line: the next event or level that matters, with its time if it is in the DATA.
+===INVALIDATION===
+One line: the single fact that would invalidate this read.
+===PERSIAN===
+A summary written NATIVELY in Persian for Persian readers (never a word-by-word translation), with exactly these 4 labeled lines:
+حکم: <one sentence — the market verdict>
+سطوح: <key support/resistance levels from the DATA, $ figures in Latin digits>
+سناریو: <the base case, and what activates the bull and bear cases>
+مراقبت: <the next thing to watch, with its time if it is in the DATA>
+Compact: at most 40% of the total length.`;
+}
+
+function buildFlashPrompt(s, event) {
+  return `You are TradeAgent IV writing a fast event flash for a Telegram channel.
+
+DATA (Market State, the only source you may cite):
+${stateDigest(s)}
+
+THE EVENT: ${event.title} (${event.country}) — actual ${event.actual}, forecast ${event.forecast || '—'}, previous ${event.previous || '—'}.
+
+${GROUND_RULES}
+
+Write 5-8 short lines ONLY (no markers, no Persian): what printed vs expectations → how the market has reacted so far (from the DATA) → what it means for today's scenarios. Start with the event name and the actual figure.`;
+}
+
+// ── Numeric grounding validator (§3.2 rule 2) ─────────────────────
+// Targets the catastrophic failure mode: invented levels/figures.
+// Large numbers must match the state (within rounding), mid numbers
+// must sit near a state value, small numbers (<20) are counts/hours.
+function numericCorpus(s, extra = []) {
+  const vals = [];
+  const push = (v) => { const n = Number(v); if (Number.isFinite(n)) vals.push(n); };
+  for (const c of s.prices || []) { push(c.current_price); push(c.price_change_percentage_24h); push(c.price_change_percentage_7d_in_currency); push(c.price_change_percentage_30d_in_currency); push(c.total_volume); push(c.market_cap); }
+  push(s.global?.marketCap); push(s.global?.volume24h); push(s.global?.btcDominance);
+  push(s.fearGreed?.now); push(s.fearGreed?.yday);
+  const d = s.derivatives || {}; push(d.fundingBtc); push(d.fundingEth); push(d.fundingSol); push(d.oiUsd); push(d.oiDeltaPct); push(d.dvol);
+  push(s.onchain?.feeFast); push(s.onchain?.feeHalfHour); push(s.onchain?.hashrateEHs);
+  push(s.defi?.tvl); push(s.defi?.stableSupply); push(s.defi?.stableDelta7dPct);
+  push(s.regime?.score);
+  for (const e of [...(s.macro?.today || []), s.macro?.nextHighImpact, ...(extra || [])]) {
+    if (!e) continue;
+    for (const k of ['forecast', 'previous', 'actual']) { const n = parseFloat(String(e[k] ?? '').replace(/[^0-9.\-]/g, '')); if (Number.isFinite(n)) vals.push(n); }
+  }
+  const lv = s._levels; if (lv) { push(lv.h24); push(lv.l24); push(lv.h7); push(lv.l7); }
+  vals.push(new Date().getFullYear());
+  if (s.prices) vals.push(s.prices.length);
+  return vals.filter((v) => v !== 0);
+}
+
+function extractNumbers(text) {
+  const cleaned = String(text).replace(/\d{1,2}:\d{2}/g, ' ').replace(/===?[A-Z:]+===/g, ' ')
+    .replace(/\b\d+\s?(?:h|hr|hrs|hours?|d|days?|w|weeks?|mins?|minutes?)\b/gi, ' ');
+  const out = [];
+  for (const m of cleaned.matchAll(/\$?\s?(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\s?([kKmMbB](?![A-Za-z]))?/g)) {
+    let n = parseFloat(m[1].replace(/,/g, ''));
+    if (m[2]) n *= { k: 1e3, m: 1e6, b: 1e9 }[m[2].toLowerCase()];
+    out.push(n);
+  }
+  return out;
+}
+
+function isGrounded(n, corpus) {
+  // Sign carries no grounding information (direction words do), so all
+  // comparisons run on absolute values: "down 1.38%" is grounded by -1.38.
+  const a = Math.abs(n);
+  if (a < 20) return true;
+  for (const v of corpus) {
+    const av = Math.abs(v);
+    if (a >= 100 || av >= 100) {
+      if (av > 0 && Math.abs(a - av) / av <= 0.005) return true;
+      // rounded forms of big values (78,000 / 78.0k / 3.2B)
+      for (const r of [10, 100, 1000]) if (Math.abs(Math.round(av / r) * r - a) / (av || 1) <= 0.005) return true;
+    } else if (Math.abs(a - av) <= 1.6) return true;
+  }
+  return false;
+}
+
+function validateGrounded(text, s, extra = []) {
+  const corpus = numericCorpus(s, extra);
+  const bad = extractNumbers(text).filter((n) => !isGrounded(n, corpus));
+  return { ok: bad.length === 0, bad };
+}
+
+// ── Flagship structure ──────────────────────────────────────────────
+const FLAGSHIP_SECTIONS = ['VERDICT', 'OVERVIEW', 'DRIVERS', 'SCENARIOS', 'WATCH', 'INVALIDATION', 'PERSIAN'];
+
+function parseFlagship(text) {
+  const parts = {};
+  const re = /===([A-Z:]+)===\s*/g;
+  let last = null, m;
+  const marks = [];
+  while ((m = re.exec(text))) marks.push({ key: m[1], start: m.index, end: re.lastIndex });
+  for (let i = 0; i < marks.length; i++) {
+    const seg = text.slice(marks[i].end, i + 1 < marks.length ? marks[i + 1].start : undefined).trim();
+    parts[marks[i].key] = seg;
+  }
+  const scenarios = [];
+  for (const kind of ['BASE', 'BULL', 'BEAR']) {
+    const raw = parts[`SCENARIO:${kind}`] || '';
+    const field = (name) => (raw.match(new RegExp(`${name}:\\s*(.+)`)) || [])[1]?.trim() || '';
+    const lvl = parseFloat(field('Level').replace(/[^0-9.]/g, ''));
+    scenarios.push({
+      kind, lean: field('Lean').toUpperCase(), level: Number.isFinite(lvl) ? lvl : null,
+      side: field('Side').toUpperCase(),
+      text: (raw.split('\n').filter((l) => !/^(Lean|Level|Side):/.test(l)).join(' ').replace(/^Text:\s*/, '') || raw).trim(),
+    });
+  }
+  return {
+    verdict: parts.VERDICT || '', overview: parts.OVERVIEW || '',
+    drivers: (parts.DRIVERS || '').split(/\n+/).map((l) => l.replace(/^\d+\.\s*/, '').trim()).filter(Boolean),
+    watch: parts.WATCH || '',
+    invalidation: parts.INVALIDATION || '', persian: parts.PERSIAN || '', scenarios,
+    _sections: Object.keys(parts),
+  };
+}
+
+function validateFlagship(text, s) {
+  const errors = [];
+  const p = parseFlagship(text);
+  for (const sec of FLAGSHIP_SECTIONS) if (!p._sections.includes(sec) && sec !== 'SCENARIOS') errors.push(`missing section ${sec}`);
+  if (!p._sections.some((k) => k.startsWith('SCENARIO:'))) errors.push('missing scenarios');
+  if (p.verdict.length < 10) errors.push('verdict too short');
+  if (p.drivers.length < 3) errors.push('needs exactly 3 ranked drivers');
+  for (const sc of p.scenarios) {
+    if (!['UP', 'DOWN', 'FLAT'].includes(sc.lean)) errors.push(`${sc.kind}: bad lean`);
+    if (!sc.text || sc.text.length < 20) errors.push(`${sc.kind}: text too short`);
+    if (sc.level != null && !['ABOVE', 'BELOW'].includes(sc.side)) errors.push(`${sc.kind}: level without side`);
+  }
+  if (!p.invalidation) errors.push('missing invalidation line');
+  if (!/[؀-ۿ]/.test(p.persian)) errors.push('persian summary missing');
+  for (const f of ['حکم', 'سطوح', 'سناریو', 'مراقبت']) if (!p.persian.includes(f)) errors.push(`persian summary missing field ${f}`);
+  if (p.persian.length > text.length * 0.4) errors.push('persian summary over 40%');
+  const g = validateGrounded(text, s);
+  if (!g.ok) errors.push(`ungrounded numbers: ${g.bad.slice(0, 5).join(', ')}`);
+  return { ok: errors.length === 0, errors, parsed: p };
+}

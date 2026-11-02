@@ -3,6 +3,26 @@
 All notable changes to TradeAgent IV are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [6.0.0] — 2026-11-02
+
+The market-desk release: the bot now builds one unified picture of the market and reasons over it.
+
+### Added
+- **Market State layer** (`src/state.js`): every cycle assembles prices, global metrics, Fear & Greed (today + yesterday), Binance funding, Deribit open interest + DVOL, mempool.space fees/hashrate, DefiLlama TVL + stablecoin supply/flows, the ForexFactory calendar (Tehran-day bucketing, next high-impact, week ahead) and keyword-filtered RSS headlines into one structured object, persisted to KV (`state:latest` + hourly history). Every source is fail-soft; prices remain the only hard requirement.
+- **Regime Engine v2**: a purely computational regime (RISK_ON / RISK_OFF / RANGE / SQUEEZE_RISK / CAPITULATION / EUPHORIA) with a 0–100 score and its top numeric drivers — printed on posts and fed to the AI so tone follows the data.
+- **Rich delivery**: channel posts are sent rich-first (`sendRichMessage`, Bot API 10.1+) with automatic fallback to the classic HTML format. The price snapshot uses the approved design: a content-rich BTC chart (labeled axes + average line), verdict heading, native tier tables (Tier 1 open, long tiers in labeled collapsibles), and the classic quote footer.
+- **Flagship Analysis** (13:00 + 21:00 Tehran, replaces the 8-hourly AI bundle) — the channel's only analysis post: verdict, overview, three ranked drivers, a market-in-numbers table rendered from the state, three data-triggered scenarios (Base/Bull/Bear), a mandatory invalidation line, and the Persian summary folded into an expandable quote. Charts belong to the price post only; every other post is informational. A **numeric grounding validator** rejects any draft containing a figure that does not exist in the Market State — a rejected draft is rewritten once, then the channel stays silent.
+- **Morning Brief** (09:30 Tehran): overnight moves, regime, and real BTC key levels from the 7-day series.
+- **Macro Calendar** (08:00 Tehran): a dedicated daily ForexFactory post — today's releases at Tehran times with forecast/previous (actuals when printed), high-impact marked, low-impact folded.
+- **Macro Watch + Event Flash**: ~75 minutes before a high-impact print the channel gets a watch post and an event poll; minutes after the release, an Event Flash with actual vs forecast vs previous closes the loop. A once-a-day spike poll fires on ±5% BTC days.
+- **Weekly Deep Dive** (Friday 20:00 Tehran): a 7d top-movers chart, week performance for all 32 coins, the regime path, next week's calendar — and a **scenario scorecard** grading the week's own flagship calls (triggers fired + 24h follow-through) from the recorded scenario ledger.
+- **Top Movers** posts are rich now, with a market-wide 24h bar chart (top gainers/losers) above the tables.
+- **Scheduling**: the cron pattern count is unchanged from production (3). The v6 products ride the existing 30-minute pattern, dispatched by Tehran clock (calendar 08:00, brief 09:30, flagship 13:00/21:00, weekly Fri 20:00, macro watcher every tick).
+
+### Changed
+- The 8-hourly bundle keeps its sticker + F&G + futures posts; the AI analysis moves to the flagship slots.
+- Version unified at 6.0.0.
+
 ## [5.1.0] — 2026-11-02
 
 Final release of the 5.x line — ships the full overhaul described under 5.0.0 below (developed as 5.0.0, released as 5.1.0).
