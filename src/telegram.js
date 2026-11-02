@@ -30,6 +30,22 @@ async function tgMethod(token, method, body) {
   }
 }
 
+async function sendRich(env, chatId, richHtml, fallbackText, markup = null) {
+  const body = { chat_id: chatId, rich_message: { html: richHtml } };
+  if (markup) body.reply_markup = markup;
+  try {
+    return await tgMethod(env.TELEGRAM_BOT_TOKEN, 'sendRichMessage', body);
+  } catch (e) {
+    console.error('[TG] sendRichMessage failed, falling back to HTML:', e.message);
+    return sendMessage(env, chatId, fallbackText, markup);
+  }
+}
+
+async function sendPoll(env, chatId, question, options) {
+  const body = { chat_id: chatId, question, options: options.map((text) => ({ text })), is_anonymous: true };
+  return tgMethod(env.TELEGRAM_BOT_TOKEN, 'sendPoll', body);
+}
+
 async function sendMessage(env, chatId, text, markup = null) {
   const body = { chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true };
   if (markup) body.reply_markup = markup;
@@ -215,4 +231,4 @@ function alertsInline(states) {
   return { inline_keyboard: rows };
 }
 
-export { tgMethod, sendMessage, sendSticker, answerCallback, editMessage, getStickerFileId, sendChannelSticker, mainKeyboard, getAdminInline, aiModeInline, scenarioInline, alertsInline };
+export { tgMethod, sendMessage, sendRich, sendPoll, sendSticker, answerCallback, editMessage, getStickerFileId, sendChannelSticker, mainKeyboard, getAdminInline, aiModeInline, scenarioInline, alertsInline };

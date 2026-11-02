@@ -176,13 +176,21 @@ async function getTopGainersLosersBinance() {
   }
 }
 
+const MOVER_EXCLUDE = new Set(['USDT', 'USDC', 'DAI', 'FDUSD', 'TUSD', 'USDE', 'PYUSD', 'WBTC', 'WETH', 'STETH', 'WSTETH', 'WEETH', 'CBBTC', 'USDS', 'XAUT', 'PAXG']);
+
+// Market-wide movers from CoinGecko: scan the top 250 by market cap
+// (NOT just the tracked 32), drop stables/wrapped, normalize the shape.
 async function getTopGainersLosersCG(env) {
   const key = env.COINGECKO_API_KEY;
   if (!key) return null;
   try {
-    const data = await api(`${COINGECKO_BASE}/coins/top_gainers_losers?vs_currency=usd&duration=24h`, { headers: { 'x-cg-demo-api-key': key } });
-    return { gainers: (data.top_gainers || []).slice(0, 5), losers: (data.top_losers || []).slice(0, 5) };
-  } catch (e) { console.error('[API] CG Gainers fail:', e.message); return null; }
+    const data = await api(`${COINGECKO_BASE}/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=1&sparkline=false`, { headers: { 'x-cg-demo-api-key': key } });
+    const pool = (data || []).filter((c) => !MOVER_EXCLUDE.has((c.symbol || '').toUpperCase()) && c.price_change_percentage_24h != null);
+    if (pool.length < 20) return null;
+    const sorted = [...pool].sort((a, b) => b.price_change_percentage_24h - a.price_change_percentage_24h);
+    const norm = (c) => ({ symbol: (c.symbol || '').toUpperCase(), current_price: c.current_price, price_change_percentage_24h: c.price_change_percentage_24h });
+    return { gainers: sorted.slice(0, 5).map(norm), losers: sorted.slice(-5).reverse().map(norm) };
+  } catch (e) { console.error('[API] CG movers fail:', e.message); return null; }
 }
 
 async function getTopGainersLosers(env) {
@@ -292,4 +300,4 @@ async function getFearGreed() {
   }
 }
 
-export { calculateEmotionState, api, getCoinsCG, getCoinsCMC, getCoinsBinance, missingCoinIds, getCoins, getTopGainersLosersBinance, getTopGainersLosers, getCategories, getMarketChart, getBinanceFutures, getGlobal, getTrending, getFearGreed };
+export { calculateEmotionState, api, getCoinsCG, getCoinsCMC, getCoinsBinance, missingCoinIds, getCoins, getTopGainersLosersBinance, getTopGainersLosersCG, getTopGainersLosers, getCategories, getMarketChart, getBinanceFutures, getGlobal, getTrending, getFearGreed };

@@ -346,4 +346,52 @@ async function buildMovers(gl) {
   return m;
 }
 
-export { buildPrice, buildVolume, buildDaily, buildTrending, buildFng, buildAIAnalysis, buildAlert, buildFutures, buildMovers };
+export { buildPrice, buildVolume, buildDaily, buildTrending, buildFng, buildAIAnalysis, buildAlert, buildFutures, buildMovers, buildFlagshipClassic, buildBriefClassic, buildFlashClassic, buildWeeklyClassic, buildMacroCalendarClassic };
+
+// ── v6 classic fallbacks (used when Telegram rejects a rich post) ────
+function buildFlagshipClassic(s, p) {
+  let m = `🧠 <b>TradeAgent IV — MARKET ANALYSIS</b>\n`;
+  m += `<i>Regime ${s.regime.label.replace(/_/g, ' ')} · ${s.regime.score}</i>\n\n`;
+  m += `<i>${esc(p.verdict)}</i>\n\n`;
+  m += `<b>Overview</b>\n${esc(p.overview)}\n\n`;
+  if (p.drivers?.length) m += `<b>Ranked drivers</b>\n` + p.drivers.map((d, i) => `${i + 1}. ${esc(d)}`).join('\n') + '\n\n';
+  for (const sc of p.scenarios) m += `<b>${sc.kind} case (${esc(sc.lean)}${sc.level ? ` · trigger $${fmt.price(sc.level)}` : ''})</b>\n${esc(sc.text)}\n\n`;
+  m += `👀 <i>Watch: ${esc(p.watch)}</i>\n`;
+  m += `<i>Invalidation: ${esc(p.invalidation)}</i>\n\n`;
+  m += `<b>جمع‌بندی فارسی</b>\n${esc(p.persian).replace(/(حکم|سطوح|سناریو|مراقبت):/g, '▸ $1:')}\n\n`;
+  m += `<i>⚠️ Educational analysis, not financial advice.</i>\n\n${FOOTER}`;
+  return m;
+}
+
+function buildMacroCalendarClassic(s, dateStr) {
+  const evs = [...(s.macro?.today || [])].sort((a, b) => a.ts - b.ts).filter((e) => /high|medium/i.test(e.impact || ''));
+  let m = `🗓️ <b>Macro Calendar — ${esc(dateStr)}</b>\n<i>ForexFactory · Tehran times</i>\n\n`;
+  m += evs.length ? evs.map((e) => `• ${esc(e.title)} (${esc(e.country)})${/high/i.test(e.impact || '') ? ' 🔴' : ''} — forecast ${esc(e.forecast || '—')} · previous ${esc(e.previous || '—')}`).join('\n') : 'No medium or high-impact releases today.';
+  return m + `\n\n${FOOTER}`;
+}
+
+function buildBriefClassic(s, dateStr) {
+  const btc = s.prices.find((c) => c.id === 'bitcoin') || {};
+  let m = `🌅 <b>Morning Brief — ${esc(dateStr)}</b>\n\n`;
+  m += `Regime ${s.regime.label.replace(/_/g, ' ')} ${s.regime.score} · F&G ${s.fearGreed.now ?? '—'} · Dominance ${Number(s.global.btcDominance || 0).toFixed(1)}%\n`;
+  m += `BTC $${fmt.price(btc.current_price)} (${fmt.pct(btc.price_change_percentage_24h)})\n`;
+  const evs = (s.macro?.today || []).slice(0, 5);
+  if (evs.length) m += `\n<b>Today's macro:</b>\n` + evs.map((e) => `• ${esc(e.title)} (${esc(e.country)}) — forecast ${esc(e.forecast || '—')} · previous ${esc(e.previous || '—')}`).join('\n') + '\n';
+  return m + `\n${FOOTER}`;
+}
+
+function buildFlashClassic(s, event, aiText) {
+  let m = `⚡ <b>Event Flash — ${esc(event.title)}</b>\n\n`;
+  m += `Actual <b>${esc(event.actual || '—')}</b> · Forecast ${esc(event.forecast || '—')} · Previous ${esc(event.previous || '—')}\n\n`;
+  m += `${esc(aiText)}\n\n${FOOTER}`;
+  return m;
+}
+
+function buildWeeklyClassic(s, week) {
+  const sorted = [...s.prices].sort((a, b) => (b.price_change_percentage_7d_in_currency || 0) - (a.price_change_percentage_7d_in_currency || 0));
+  let m = `🗓️ <b>Weekly Deep Dive</b>\n\n`;
+  m += `Regime ${s.regime.label.replace(/_/g, ' ')} ${s.regime.score}\n`;
+  m += `Best 7d: ${COINS[sorted[0]?.id]?.symbol || ''} ${fmt.pct(sorted[0]?.price_change_percentage_7d_in_currency)}\n`;
+  m += `Weakest 7d: ${COINS[sorted[sorted.length - 1]?.id]?.symbol || ''} ${fmt.pct(sorted[sorted.length - 1]?.price_change_percentage_7d_in_currency)}\n\n${FOOTER}`;
+  return m;
+}
