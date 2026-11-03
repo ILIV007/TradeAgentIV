@@ -72,9 +72,9 @@ const CMC_BASE = 'https://pro-api.coinmarketcap.com/v1';
 // Model audit 2026-11-02 (official catalogs): gemini-3.5-flash superseded,
 // gemini-3.1-flash-lite shutdown-announced (2027-05-07). Current chain:
 // Primary: Gemini 3.8 Flash (flagship) -> 3.6 Flash -> 2.5 Flash (stable).
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent';
+const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent';
 const GEMINI_FALLBACK_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent';
-const GEMINI_FALLBACK_URL_2 = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+const GEMINI_FALLBACK_URL_2 = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent';
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const FNG_URL = 'https://api.alternative.me/fng/?limit=2';

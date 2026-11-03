@@ -163,7 +163,7 @@ async function handleAIStatus(chatId, env) {
   const lastTime = await getConfig(env, 'last_ai_time', 'Never');
   
   let text = `🤖 <b>AI System Status</b>\n\n`;
-  text += `<b>Gemini 3.8 Flash:</b> ${geminiTest.ok ? '✅ Active' : `⚠️ ${geminiTest.error}`}\n`;
+  text += `<b>Gemini 3.5 Flash-Lite:</b> ${geminiTest.ok ? '✅ Active' : `⚠️ ${geminiTest.error}`}\n`;
   text += `<b>OpenRouter:</b> ${env.OPENROUTER_API_KEY ? '✅ Configured' : '⚠️ No Key'}\n`;
   text += `<b>Last Provider:</b> ${lastProvider}\n`;
   text += `<b>Last Analysis:</b> ${lastTime}\n`;
