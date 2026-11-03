@@ -3,6 +3,14 @@
 All notable changes to TradeAgent IV are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [6.1.3] — 2026-11-03
+
+### Changed
+- **AI failure notifications now say why**: when the legacy AI post or the Flagship fails and the channel stays silent, the admin notification lists one short reason per provider/stage — e.g. `gemini-3.8-flash: HTTP 429 …`, `gemini-3.6-flash: circuit open`, `gemini-2.5-flash: invalid response (only 1 section)`, `openrouter …: HTTP 500 …` — instead of a generic "failed" line. The Flagship notification appends its validation errors (or "AI returned no result" plus the provider reasons). Reason lines are HTML-escaped and capped at 8. No sending behavior changes — only the notification content.
+
+### Fixed
+- **Flagship and Event Flash never published end-to-end**: the AI result object (`{text, source}`) was passed to the validators and post builders instead of its text, and the legacy chain's format gate (≥3 `<b>` sections + Persian + conclusion) rejected the v6 `===SECTION===` draft format inside the provider chain — so every Flagship silently failed validation and every Event Flash fell back to the programmatic text. Both products (and the PV flagship preview) now call the chain in a new raw mode — no legacy format gate, no legacy cache — and are judged by their own validators as designed.
+
 ## [6.1.2] — 2026-11-02
 
 ### Changed

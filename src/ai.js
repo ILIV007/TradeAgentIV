@@ -57,49 +57,55 @@ async function closeCircuit(env, name) {
 // 11. AI LAYER — Strict validation + Gemini 3.5 primary
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-function isValidAIResponse(text) {
-  if (!text || typeof text !== 'string') return false;
+// Failure diagnostics: one short line per failed/skipped provider attempt,
+// reset at the start of every getAIAnalysis call. Senders surface these in
+// the admin failure notify so a silent post explains itself.
+let lastAIFailureReasons = [];
+function noteAIFailure(line) { lastAIFailureReasons.push(line); }
+function getLastAIFailureReasons() { return [...lastAIFailureReasons]; }
+const shortErr = (s) => String(s || '').replace(/\s+/g, ' ').slice(0, 80);
+
+// Returns '' when valid, otherwise a short reason (same checks, same order
+// as the old boolean validator).
+function aiValidationReason(text) {
+  if (!text || typeof text !== 'string') return 'empty response';
   const trimmed = text.trim();
 
   // Must be reasonably long (AI often returns short garbage on errors)
-  if (trimmed.length < 200) {
-    console.log('[AI] Response too short:', trimmed.length, 'chars');
-    return false;
-  }
+  if (trimmed.length < 200) return `too short (${trimmed.length} chars)`;
 
   // Must have at least 3 sections (Market Overview + 2 more)
   const sectionCount = (trimmed.match(/<b>[^<]+<\/b>/g) || []).length;
-  if (sectionCount < 3) {
-    console.log('[AI] Not enough sections:', sectionCount);
-    return false;
-  }
+  if (sectionCount < 3) return `only ${sectionCount} section${sectionCount === 1 ? '' : 's'}`;
 
   // Must have Persian separator OR Persian content
-  const hasPersian = trimmed.includes('---PERSIAN---') || 
-                     trimmed.includes('خلاصه') || 
+  const hasPersian = trimmed.includes('---PERSIAN---') ||
+                     trimmed.includes('خلاصه') ||
                      /[؀-ۿ]/.test(trimmed);
-  if (!hasPersian) {
-    console.log('[AI] No Persian section found');
-    return false;
-  }
+  if (!hasPersian) return 'no Persian section';
 
   // Must have conclusion
   const hasConclusion = trimmed.includes('Conclusion') || trimmed.includes('نتیجه') || trimmed.includes('جمع‌بندی');
-  if (!hasConclusion) {
-    console.log('[AI] No conclusion found');
-    return false;
-  }
+  if (!hasConclusion) return 'no conclusion';
 
-  return true;
+  return '';
 }
 
-async function tryGeminiDirect(env, prompt, modelUrl, name) {
+function isValidAIResponse(text) {
+  const reason = aiValidationReason(text);
+  if (reason) console.log('[AI] Invalid response:', reason);
+  return reason === '';
+}
+
+async function tryGeminiDirect(env, prompt, modelUrl, name, raw = false) {
   if (!env.GEMINI_API_KEY) {
     console.log(`[AI] ${name} skipped: No GEMINI_API_KEY`);
+    noteAIFailure(`${name}: no key`);
     return null;
   }
   if (await isCircuitOpen(env, name)) {
     console.log(`[AI] ${name} circuit OPEN, skipping`);
+    noteAIFailure(`${name}: circuit open`);
     return null;
   }
   try {
@@ -128,16 +134,29 @@ async function tryGeminiDirect(env, prompt, modelUrl, name) {
       text = data.candidates[0].content.parts.map(p => p.text).join('');
     }
     
+    if (raw) {
+      // Raw mode: any non-empty draft passes; the caller's validator judges it.
+      if (text && text.trim()) {
+        console.log(`[AI] ${name} SUCCESS (raw), length:`, text.length);
+        await closeCircuit(env, name);
+        return text.trim();
+      }
+      console.log(`[AI] ${name} returned empty text`);
+      return null;
+    }
+
     if (isValidAIResponse(text)) {
       console.log(`[AI] ${name} SUCCESS, length:`, text.length);
       await closeCircuit(env, name);
       return cleanMarkdown(text.trim());
     }
-    
+
     console.log(`[AI] ${name} returned empty/invalid text:`, text ? `"${text.slice(0, 50)}..."` : 'null');
+    noteAIFailure(`${name}: invalid response (${aiValidationReason(text)})`);
     return null;
   } catch (e) {
     console.error(`[AI] ${name} fail:`, e.message);
+    noteAIFailure(`${name}: ${shortErr(e.message)}`);
     if (e.message.includes('429') || e.message.includes('quota') || e.message.includes('exceeded') || e.message.includes('Rate limit')) {
       console.log(`[AI] ${name} 429/quota → tripping circuit`);
       await tripCircuit(env, name);
@@ -146,31 +165,38 @@ async function tryGeminiDirect(env, prompt, modelUrl, name) {
   }
 }
 
-async function getAIAnalysis(env, prompt) {
-  const promptHash = await hashPrompt(prompt);
-  
-  const cached = await getAICache(env, promptHash);
-  if (cached) {
-    console.log('[AI] Cache hit for hash:', promptHash);
-    return cached;
+async function getAIAnalysis(env, prompt, opts = {}) {
+  lastAIFailureReasons = [];
+  // Raw mode (v6 flagship/flash): no legacy format gate — the caller's own
+  // validator judges the draft — and the legacy cache is neither read nor
+  // written, so raw drafts never enter or are served from it.
+  const raw = !!opts?.raw;
+  const promptHash = raw ? null : await hashPrompt(prompt);
+
+  if (!raw) {
+    const cached = await getAICache(env, promptHash);
+    if (cached) {
+      console.log('[AI] Cache hit for hash:', promptHash);
+      return cached;
+    }
   }
 
   // STEP 1: Gemini 3.8 Flash Direct (PRIMARY)
-  let text = await tryGeminiDirect(env, prompt, GEMINI_URL, 'gemini-3.8-flash');
-  
+  let text = await tryGeminiDirect(env, prompt, GEMINI_URL, 'gemini-3.8-flash', raw);
+
   // STEP 2: Gemini 3.6 Flash Fallback
   if (!text) {
-    text = await tryGeminiDirect(env, prompt, GEMINI_FALLBACK_URL, 'gemini-3.6-flash');
+    text = await tryGeminiDirect(env, prompt, GEMINI_FALLBACK_URL, 'gemini-3.6-flash', raw);
   }
 
   // STEP 3: Gemini 2.5 Flash Fallback
   if (!text) {
-    text = await tryGeminiDirect(env, prompt, GEMINI_FALLBACK_URL_2, 'gemini-2.5-flash');
+    text = await tryGeminiDirect(env, prompt, GEMINI_FALLBACK_URL_2, 'gemini-2.5-flash', raw);
   }
 
   if (text) {
     const result = { text, source: 'Gemini' };
-    await setAICache(env, promptHash, result);
+    if (!raw) await setAICache(env, promptHash, result);
     await setConfig(env, 'last_ai_provider', 'Gemini');
     await setConfig(env, 'last_ai_time', fmt.time());
     return result;
@@ -180,6 +206,7 @@ async function getAIAnalysis(env, prompt) {
   console.log('[AI] Gemini family failed, trying OpenRouter FREE models...');
   if (!env.OPENROUTER_API_KEY) {
     console.log('[AI] No OpenRouter key, giving up');
+    noteAIFailure('openrouter: no key');
     return null;
   }
 
@@ -213,6 +240,7 @@ async function getAIAnalysis(env, prompt) {
       if (!res.ok) {
         const errText = await res.text().catch(() => '');
         console.log(`[AI] ${model} HTTP ${res.status}: ${errText.slice(0, 200)}`);
+        noteAIFailure(`openrouter ${getShortModelName(model)}: HTTP ${res.status} ${shortErr(errText)}`.trim());
         if (res.status === 429) {
           console.log(`[AI] ${model} rate limited - waiting 3s before next model...`);
           await new Promise(r => setTimeout(r, 3000));
@@ -222,18 +250,22 @@ async function getAIAnalysis(env, prompt) {
       
       const data = await res.json();
       const text = data.choices?.[0]?.message?.content;
-      
-      if (isValidAIResponse(text)) {
-        const result = { text: cleanMarkdown(text.trim()), source: getShortModelName(model) };
-        await setAICache(env, promptHash, result);
+
+      if (raw ? (text && text.trim()) : isValidAIResponse(text)) {
+        const result = { text: raw ? text.trim() : cleanMarkdown(text.trim()), source: getShortModelName(model) };
+        if (!raw) await setAICache(env, promptHash, result);
         await setConfig(env, 'last_ai_provider', getShortModelName(model));
         await setConfig(env, 'last_ai_time', fmt.time());
         console.log(`[AI] ✅ ${getShortModelName(model)} SUCCESS`);
         return result;
       }
-      console.log(`[AI] ${model} returned invalid content`);
-    } catch (e) { 
-      console.error(`[AI] ${model} fail:`, e.message); 
+      if (!raw) {
+        console.log(`[AI] ${model} returned invalid content`);
+        noteAIFailure(`openrouter ${getShortModelName(model)}: invalid response (${aiValidationReason(text)})`);
+      }
+    } catch (e) {
+      console.error(`[AI] ${model} fail:`, e.message);
+      noteAIFailure(`openrouter ${getShortModelName(model)}: ${shortErr(e.message)}`);
     }
   }
 
@@ -391,7 +423,7 @@ ${y.fearGreed != null ? `Fear & Greed: ${y.fearGreed}/100` : ''}
 Write the analysis now.`;
 }
 
-export { getAIAnalysis, testGeminiConnection, buildAIPrompt, isValidAIResponse, stateDigest, buildFlagshipPrompt, buildFlashPrompt, numericCorpus, extractNumbers, validateGrounded, parseFlagship, validateFlagship };
+export { getAIAnalysis, getLastAIFailureReasons, testGeminiConnection, buildAIPrompt, isValidAIResponse, stateDigest, buildFlagshipPrompt, buildFlashPrompt, numericCorpus, extractNumbers, validateGrounded, parseFlagship, validateFlagship };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // v6 AI PRODUCTS — prompts + grounding/structure validation (§3)

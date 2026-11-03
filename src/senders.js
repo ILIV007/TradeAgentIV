@@ -2,7 +2,7 @@
 import { COINS, ALERT_PRESETS } from './config.js';
 import { fmt, esc } from './utils.js';
 import { getCoins, getGlobal, getTrending, getFearGreed, getTopGainersLosers, getCategories, getMarketChart, getBinanceFutures, calculateEmotionState } from './data.js';
-import { getAIAnalysis, buildAIPrompt, buildFlagshipPrompt, buildFlashPrompt, validateFlagship, validateGrounded } from './ai.js';
+import { getAIAnalysis, getLastAIFailureReasons, buildAIPrompt, buildFlagshipPrompt, buildFlashPrompt, validateFlagship, validateGrounded } from './ai.js';
 import { buildPrice, buildVolume, buildDaily, buildTrending, buildFng, buildAIAnalysis, buildAlert, buildFutures, buildMovers, buildFlagshipClassic, buildBriefClassic, buildFlashClassic, buildWeeklyClassic, buildMacroCalendarClassic } from './posts.js';
 import { sendMessage, sendRich, sendPoll, sendChannelSticker } from './telegram.js';
 import { dedupSend, DEDUP_SKIPPED, getConfig, getSnapshot, storeSnapshot, getMarketState, putMarketState, kvGetJSON, kvPutJSON } from './store.js';
@@ -234,7 +234,8 @@ async function sendChannelAI(env, customPrompt = null) {
     if (!aiResult) {
       console.error('[AI] Analysis failed from all providers; staying silent in channel');
       if (env.ADMIN_ID) {
-        try { await sendMessage(env, env.ADMIN_ID, '⚠️ <b>AI analysis failed</b> — no post was sent to the channel.'); } catch (e) {}
+        const reasons = getLastAIFailureReasons().slice(0, 8).map((r) => `• ${esc(r)}`).join('\n');
+        try { await sendMessage(env, env.ADMIN_ID, '⚠️ <b>AI analysis failed</b> — no post was sent to the channel.' + (reasons ? `\n${reasons}` : '')); } catch (e) {}
       }
       return;
     }
@@ -363,16 +364,22 @@ async function sendChannelFlagship(env) {
     const s = await getFreshState(env);
     const lang = await getLang(env);
     const prompt = buildFlagshipPrompt(s, lang);
-    let text = await getAIAnalysis(env, prompt);
+    let result = await getAIAnalysis(env, prompt, { raw: true });
+    let text = result?.text ?? null;
     let v = text ? validateFlagship(text, s, lang) : null;
     if (!v?.ok) {
       const errs = v ? v.errors.join('; ') : 'AI unavailable';
       console.error('[FLAGSHIP] draft rejected:', errs);
-      text = await getAIAnalysis(env, `${prompt}\n\nIMPORTANT: a previous draft was rejected (${errs}). Rewrite completely, fixing every issue.`);
+      result = await getAIAnalysis(env, `${prompt}\n\nIMPORTANT: a previous draft was rejected (${errs}). Rewrite completely, fixing every issue.`, { raw: true });
+      text = result?.text ?? null;
       v = text ? validateFlagship(text, s, lang) : null;
     }
     if (!v?.ok) {
-      await notifyAdmin(env, '⚠️ <b>Flagship analysis failed validation</b> — no post was sent to the channel.');
+      const detail = !text
+        ? ['AI returned no result', ...getLastAIFailureReasons()]
+        : (v?.errors || []).slice(0, 3);
+      const block = detail.slice(0, 8).map((l) => `• ${esc(l)}`).join('\n');
+      await notifyAdmin(env, '⚠️ <b>Flagship analysis failed validation</b> — no post was sent to the channel.' + (block ? `\n${block}` : ''));
       return;
     }
     await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichFlagship(s, v.parsed, lang), buildFlagshipClassic(s, v.parsed, lang), null, lang);
@@ -457,7 +464,8 @@ async function checkMacroEvents(env) {
     }
     if (e.actual && e.ts <= now && now - e.ts <= 3 * 3600000 && !markers.flashed.includes(key)) {
       const s = await getFreshState(env);
-      let aiText = await getAIAnalysis(env, buildFlashPrompt(s, e, lang));
+      const aiResult = await getAIAnalysis(env, buildFlashPrompt(s, e, lang), { raw: true });
+      let aiText = aiResult?.text ?? null;
       if (aiText && !validateGrounded(aiText, s, [e]).ok) aiText = null;
       if (!aiText) {
         const btc = s.prices.find((c) => c.id === 'bitcoin') || {};
