@@ -19,7 +19,8 @@ async function panelKb(env) {
   const scenario = await getConfig(env, 'scenario', 'neutral');
   const autoPosts = await getConfig(env, 'auto_posts', 'true');
   const lang = await getLang(env);
-  return getAdminInline(mode, scenario, autoPosts, lang);
+  const richMode = await getConfig(env, 'rich_mode', 'on');
+  return getAdminInline(mode, scenario, autoPosts, lang, richMode);
 }
 
 async function handleStart(chatId, userId, env) {
@@ -118,7 +119,8 @@ async function handleSettings(chatId, env) {
 async function showAdminPanel(chatId, env) {
   const lang = await getLang(env);
   const autoPosts = await getConfig(env, 'auto_posts', 'true');
-  const text = `📣 <b>Admin Control Panel</b> · v6.1.0\n\nChannel language: ${lang === 'fa' ? '🇮🇷 فارسی' : '🇬🇧 English'} · Auto posts: ${autoPosts === 'true' ? '✅ On' : '⏸ Off'}\nSend any post now, switch the channel language, tune the AI, or check system status:`;
+  const richMode = await getConfig(env, 'rich_mode', 'on');
+  const text = `📣 <b>Admin Control Panel</b> · v6.1.5\n\nChannel language: ${lang === 'fa' ? '🇮🇷 فارسی' : '🇬🇧 English'} · Auto posts: ${autoPosts === 'true' ? '✅ On' : '⏸ Off'} · Rich: ${richMode === 'off' ? '❌ Off' : '✅ On'}\nSend any post now, switch the channel language, tune the AI, or check system status:`;
   await sendMessage(env, chatId, text, await panelKb(env));
 }
 
@@ -361,6 +363,14 @@ async function processWebhook(update, env, ctx) {
         const lang = data === 'admin:lang:fa' ? 'fa' : 'en';
         await setConfig(env, 'lang', lang);
         await editMessage(env, chatId, msgId, `📣 <b>Admin Control Panel</b>\n\n✅ Channel language: <b>${lang === 'fa' ? '🇮🇷 فارسی — همه پست‌های کانال از این به بعد فارسی ارسال می‌شن' : '🇬🇧 English — all channel posts will be sent in English'}</b>`, await panelKb(env));
+        return;
+      }
+
+      if (data === 'admin:rich_toggle') {
+        if (!isAdmin(userId, env)) return;
+        const next = (await getConfig(env, 'rich_mode', 'on')) === 'off' ? 'on' : 'off';
+        await setConfig(env, 'rich_mode', next);
+        await editMessage(env, chatId, msgId, `📣 <b>Admin Control Panel</b>\n\n✨ Rich Mode: <b>${next === 'off' ? '❌ Off — posts will be sent in the classic format' : '✅ On — posts will be sent in the rich format'}</b>`, await panelKb(env));
         return;
       }
 

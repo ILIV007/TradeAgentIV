@@ -1,6 +1,7 @@
 // TradeAgent IV — Telegram API wrappers, stickers, keyboards.
 import { STICKER_SET_NAME, AI_MODES, SCENARIOS, ALERT_PRESETS, COINS } from './config.js';
 import { fetchWithTimeout } from './utils.js';
+import { getConfig } from './store.js';
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 15. TELEGRAM API
@@ -31,6 +32,8 @@ async function tgMethod(token, method, body) {
 }
 
 async function sendRich(env, chatId, richHtml, fallbackText, markup = null, lang = 'en') {
+  // Panel toggle (config rich_mode): off = classic format everywhere.
+  if ((await getConfig(env, 'rich_mode', 'on')) === 'off') return sendMessage(env, chatId, fallbackText, markup);
   const body = { chat_id: chatId, rich_message: { html: richHtml } };
   if (markup) body.reply_markup = markup;
   try {
@@ -163,7 +166,7 @@ function mainKeyboard(isAdminUser, lang = 'en') {
   return { keyboard: kb, resize_keyboard: true };
 }
 
-function getAdminInline(mode, scenario, autoPosts, lang = 'en') {
+function getAdminInline(mode, scenario, autoPosts, lang = 'en', richMode = 'on') {
   const m = AI_MODES[mode] || AI_MODES.normal;
   const s = SCENARIOS[scenario] || SCENARIOS.neutral;
   const autoStatus = autoPosts === 'true' ? '✅ On' : '⏸ Off';
@@ -210,6 +213,7 @@ function getAdminInline(mode, scenario, autoPosts, lang = 'en') {
         { text: '📊 API Status', callback_data: 'admin:api_status' },
       ],
       [
+        { text: `✨ Rich: ${richMode === 'off' ? '❌ Off' : '✅ On'}`, callback_data: 'admin:rich_toggle' },
         { text: `⏸ Auto: ${autoStatus}`, callback_data: 'admin:auto_posts' },
       ],
       [{ text: '🔙 Back to Menu', callback_data: 'back_main' }],

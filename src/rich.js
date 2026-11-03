@@ -264,4 +264,47 @@ function buildRichMacroCalendar(s, dateStr, lang = 'en') {
   return h + footerRich(lang);
 }
 
-export { buildRichMorningBrief, buildRichFlagship, buildRichEventFlash, buildRichMacroWatch, buildRichWeekly, buildRichMovers, buildRichMacroCalendar, moversChartUrl, tehranTime };
+
+// Rich twin of the legacy AI analysis post (panel /sendai, custom prompt,
+// Send All bundle). Same content as buildAIAnalysis, rich structure.
+function buildRichAIAnalysis(aiResult, today, emotion, lang = 'en') {
+  const T = L(lang);
+  const t = today, emo = emotion || { state: 'NEUTRAL', intensity: 50, emoji: '😐', color: '⚪' };
+  let englishText = aiResult.text || '';
+  let persianText = '';
+  const SEP = '---PERSIAN---';
+  const si = englishText.indexOf(SEP);
+  if (si !== -1) { persianText = englishText.substring(si + SEP.length).trim(); englishText = englishText.substring(0, si).trim(); }
+  englishText = englishText.replace(/\s*(<b>(Market Overview|Bullish Factors|Bearish Factors|Risk Factors|Sector Rotation|Tomorrow Watchlist|Conclusion)<\/b>)/g, '\n\n$1').trim();
+
+  let h = `<h2>🧠 ${T.aiIntel}</h2>`;
+  h += `<p>${emo.emoji} <b>${T.marketState}: ${emo.state}</b> · ${emo.color} ${T.intensity}: ${emo.intensity}/100 · ${esc(t.mode || 'Normal')} ${T.mode}</p>`;
+  h += `<p><i>${esc(t.date || '')} · ${esc(aiResult.source || 'AI')}</i></p>`;
+  const HEAD = /^<b>(Market Overview|Bullish Factors|Bearish Factors|Risk Factors|Sector Rotation|Tomorrow Watchlist|Conclusion)<\/b>\s*/;
+  for (const part of englishText.split(/\n\s*\n/).map((x) => x.trim()).filter(Boolean)) {
+    const hm = part.match(HEAD);
+    const body = hm ? part.slice(hm[0].length).trim() : part;
+    if (hm) h += `<h3>${hm[1]}</h3>`;
+    if (body) h += body.split(/\n+/).map((x) => x.trim()).filter(Boolean).map((x) => `<p>${x}</p>`).join('');
+  }
+  if (persianText && lang !== 'fa') {
+    const pl = persianText.replace(/([^\n])\s*•\s*/g, '$1\n• ').replace(/\s*(⚠️ This analysis)/g, '\n$1');
+    h += `<h3>📋 خلاصه بازار</h3><blockquote expandable>${esc(pl).replace(/\n/g, '<br/>')}</blockquote>`;
+  }
+  h += `<table bordered striped compact><caption>${T.keyMetrics}</caption><tr><th>${T.coin}</th><th>${T.price}</th><th>24h</th></tr>` +
+    [['BTC', t.btcPrice, t.btcChange], ['ETH', t.ethPrice, t.ethChange], ['SOL', t.solPrice, t.solChange]]
+      .map(([s2, p, c2]) => `<tr><td>${s2}</td><td>$${fmt.price(p)}</td><td>${fmt.change(c2)}</td></tr>`).join('') + `</table>`;
+  h += `<p>🌍 ${T.global}: ${T.cap} ${fmt.cap(t.totalMarketCap)} · ${T.vol} ${fmt.vol(t.totalVolume)} · ₿ ${T.dominance}: ${Number(t.btcDominance || 0).toFixed(1)}% · 🧠 ${T.fearGreed}: ${t.fearGreed}/100</p>`;
+  if (t.futures?.BTCUSDT) {
+    const f = t.futures.BTCUSDT;
+    const parts = [];
+    if (f.fundingRate != null) parts.push(`${T.funding}: ${f.fundingRate.toFixed(4)}%`);
+    if (f.openInterest != null) parts.push(`OI: ${fmt.vol(f.openInterest)}`);
+    if (f.longShortRatio != null) parts.push(`L/S: ${f.longShortRatio.toFixed(2)}`);
+    if (parts.length) h += `<p><b>⚡ ${T.futuresPulse}</b> — ${parts.join(' · ')}</p>`;
+  }
+  h += footerRich(lang);
+  return h;
+}
+
+export { buildRichMorningBrief, buildRichFlagship, buildRichAIAnalysis, buildRichEventFlash, buildRichMacroWatch, buildRichWeekly, buildRichMovers, buildRichMacroCalendar, moversChartUrl, tehranTime };
