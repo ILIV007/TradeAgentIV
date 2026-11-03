@@ -663,3 +663,31 @@ test('v6.1.4 AI chain: Lite primary, 3.8 last, dead models removed', async () =>
   for (const dead of ['gemini-2.5-flash', 'gemma-4-31b-it', 'thinkingmachines/inkling:free']) assert.ok(!aiSrc.includes(dead), `dead model still in chain: ${dead}`);
   assert.ok(aiSrc.includes('nvidia/nemotron-3-ultra-550b-a55b:free') && aiSrc.includes('75000'), 'nemotron step + global deadline present');
 });
+
+test('v6.1.5 rich mode: panel toggle exists, sendRich honors rich_mode=off, legacy AI has a rich builder', async () => {
+  const { getAdminInline } = await import('../src/telegram.js');
+  const { sendRich } = await import('../src/telegram.js');
+  const { buildRichAIAnalysis } = await import('../src/rich.js');
+  const kbOff = JSON.stringify(getAdminInline('normal', 'neutral', 'true', 'en', 'off'));
+  assert.ok(kbOff.includes('admin:rich_toggle') && kbOff.includes('Rich: ❌ Off'));
+  const kbOn = JSON.stringify(getAdminInline('normal', 'neutral', 'true', 'en', 'on'));
+  assert.ok(kbOn.includes('Rich: ✅ On'));
+
+  const calls = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => { calls.push(String(url)); return { ok: true, json: async () => ({ ok: true, result: {} }), text: async () => '' }; };
+  try {
+    const envOff = { TELEGRAM_BOT_TOKEN: 'x', ALERTS_KV: { get: async (k) => (k === 'cfg:rich_mode' ? 'off' : null), put: async () => {}, delete: async () => {} } };
+    await sendRich(envOff, '-100', '<h2>rich</h2>', 'classic text', null, 'en');
+    assert.ok(calls.some((u) => u.includes('sendMessage')) && !calls.some((u) => u.includes('sendRichMessage')), 'off → classic sendMessage');
+    calls.length = 0;
+    const envOn = { TELEGRAM_BOT_TOKEN: 'x', ALERTS_KV: { get: async () => null, put: async () => {}, delete: async () => {} } };
+    await sendRich(envOn, '-100', '<h2>rich</h2>', 'classic text', null, 'en');
+    assert.ok(calls.some((u) => u.includes('sendRichMessage')), 'on → sendRichMessage');
+  } finally { globalThis.fetch = realFetch; }
+
+  const today = { date: '2026-11-03', mode: 'Normal', btcPrice: 100000, btcChange: 1.5, ethPrice: 3000, ethChange: -0.5, solPrice: 200, solChange: 2.5, totalMarketCap: 3e12, totalVolume: 1e11, btcDominance: 59.9, fearGreed: 37, futures: null };
+  const ai = { text: '<b>Market Overview</b>\nCalm market.\n\n<b>Conclusion</b>\nStay patient.\n\n---PERSIAN---\n• بازار آرام است\n⚠️ This analysis is not financial advice.', source: 'Gemini' };
+  const rich = buildRichAIAnalysis(ai, today, { state: 'FEAR', intensity: 55, emoji: '😨', color: '🟠' }, 'en');
+  assert.ok(rich.includes('<h3>Market Overview</h3>') && rich.includes('<table') && rich.includes('خلاصه بازار') && rich.includes('blockquote expandable') && !rich.includes('---PERSIAN---'));
+});

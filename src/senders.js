@@ -7,7 +7,7 @@ import { buildPrice, buildVolume, buildDaily, buildTrending, buildFng, buildAIAn
 import { sendMessage, sendRich, sendPoll, sendChannelSticker } from './telegram.js';
 import { dedupSend, DEDUP_SKIPPED, getConfig, getSnapshot, storeSnapshot, getMarketState, putMarketState, kvGetJSON, kvPutJSON } from './store.js';
 import { buildMarketState, getMacroEvents, sparkLevels } from './state.js';
-import { buildRichSnapshot, buildRichMorningBrief, buildRichFlagship, buildRichEventFlash, buildRichMacroWatch, buildRichWeekly, buildRichMovers, buildRichMacroCalendar, tehranTime } from './rich.js';
+import { buildRichSnapshot, buildRichMorningBrief, buildRichFlagship, buildRichAIAnalysis, buildRichEventFlash, buildRichMacroWatch, buildRichWeekly, buildRichMovers, buildRichMacroCalendar, tehranTime } from './rich.js';
 import { L, footerClassic, regimeName, dateStr } from './i18n.js';
 
 async function getLang(env) { const l = await getConfig(env, 'lang', 'en'); return l === 'fa' ? 'fa' : 'en'; }
@@ -248,7 +248,8 @@ async function sendChannelAI(env, customPrompt = null) {
       } catch (e) {}
     }
 
-    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildAIAnalysis(aiResult, today, emotion, await getLang(env)));
+    const lang = await getLang(env);
+    await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichAIAnalysis(aiResult, today, emotion, lang), await buildAIAnalysis(aiResult, today, emotion, lang), null, lang);
     await storeSnapshot(env, today);
   });
 }

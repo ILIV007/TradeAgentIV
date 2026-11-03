@@ -3,6 +3,12 @@
 All notable changes to TradeAgent IV are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [6.1.5] — 2026-11-03
+
+### Added
+- **Rich Mode toggle in the admin panel** (System section): one tap switches every rich-capable post between the rich format and the classic format (config key `rich_mode`, honored centrally by `sendRich`; the panel header shows the current state).
+- **Rich variant of the legacy AI analysis post**: panel `/sendai`, custom-prompt sends and the Send All bundle previously delivered this post in the classic format only — it now renders rich (section headings, native key-metrics table, Persian summary in an expandable quote) with the classic text kept as fallback.
+
 ## [6.1.4] — 2026-11-03
 
 ### Changed
