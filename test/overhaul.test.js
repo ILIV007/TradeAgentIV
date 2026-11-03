@@ -418,6 +418,231 @@ test('v6.1 language: FA flagship validates without a summary section; FA builder
   assert.ok(flat.includes('admin:lang:fa') && flat.includes('فارسی ✓') && flat.includes('send_flagship') && flat.includes('send_brief') && flat.includes('send_macro') && flat.includes('send_weekly'));
 });
 
+// ── v6.1.3: AI failure notifies carry per-provider reasons ──────────
+const makeKVStub = (seed = {}) => {
+  const m = new Map(Object.entries(seed));
+  return {
+    get: async (k) => (m.has(k) ? m.get(k) : null),
+    put: async (k, v) => { m.set(k, String(v)); },
+    delete: async (k) => { m.delete(k); },
+  };
+};
+const tgOkRes = { ok: true, status: 200, json: async () => ({ ok: true, result: {} }), text: async () => '' };
+const httpRes = (status, body, rawText) => ({
+  ok: status >= 200 && status < 300, status,
+  json: async () => body,
+  text: async () => (rawText ?? JSON.stringify(body)),
+});
+const geminiRes = (text) => httpRes(200, { candidates: [{ content: { parts: [{ text }] } }] });
+
+// Data layer for the legacy AI sender with no CG/CMC keys: Binance prices,
+// Binance movers, F&G, futures — all succeeding.
+function legacyDataRoute(u) {
+  if (u.includes('ticker/24hr?symbols=')) {
+    return httpRes(200, Object.values(BINANCE_MAP).map((symbol) => ({ symbol, lastPrice: '100', priceChangePercent: '1.5', volume: '1000' })));
+  }
+  if (u.includes('ticker/24hr')) return httpRes(200, [
+    { symbol: 'BTCUSDT', lastPrice: '78000', priceChangePercent: '2', quoteVolume: '900000000' },
+    { symbol: 'ETHUSDT', lastPrice: '2500', priceChangePercent: '-3', quoteVolume: '400000000' },
+  ]);
+  if (u.includes('alternative.me')) return httpRes(200, { data: [{ value: '37', value_classification: 'Fear' }] });
+  if (u.includes('premiumIndex')) return httpRes(200, { lastFundingRate: '0.0001' });
+  if (u.includes('openInterest')) return httpRes(200, { openInterest: '1000' });
+  if (u.includes('globalLongShortAccountRatio')) return httpRes(200, [{ longShortRatio: '1.1' }]);
+  return httpRes(200, {});
+}
+
+const legacyValidText = '<b>Market Overview</b> ' + 'A calm, range-bound tape with majors treading water and volume thin across the board. '.repeat(3)
+  + '\n<b>Bullish Factors</b> Steady spot demand.\n<b>Bearish Factors</b> Soft alt breadth.\n<b>Conclusion</b> Stay neutral.\n---PERSIAN---\n<b>خلاصه بازار</b>\n• نتیجه روشن است';
+
+test('v6.1.3 legacy AI: total provider failure notifies admin with per-provider reasons', async () => {
+  const { sendChannelAI } = await import('../src/senders.js');
+  const { getLastAIFailureReasons } = await import('../src/ai.js');
+  const kv = makeKVStub({ 'circuit:gemini-3.6-flash': JSON.stringify({ until: Date.now() + 600000 }) });
+  const tg = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    const u = String(url);
+    if (u.includes('api.telegram.org')) { tg.push(JSON.parse(options.body)); return tgOkRes; }
+    if (u.includes('gemini-3.8-flash')) return httpRes(429, {}, '{"error":"quota exceeded"}');
+    if (u.includes('gemini-2.5-flash')) return geminiRes('<b>Market Overview</b> short take');
+    if (u.includes('openrouter.ai')) return httpRes(500, {}, 'upstream boom');
+    return legacyDataRoute(u);
+  };
+  try {
+    const env = { TELEGRAM_BOT_TOKEN: 'tok', TELEGRAM_CHANNEL_ID: '-100123', ADMIN_ID: '999', GEMINI_API_KEY: 'g', OPENROUTER_API_KEY: 'or', ALERTS_KV: kv };
+    await sendChannelAI(env);
+    const notify = tg.find((b) => String(b.chat_id) === '999');
+    assert.ok(notify, 'admin notify sent');
+    assert.ok(notify.text.includes('<b>AI analysis failed</b> — no post was sent to the channel.'), notify.text);
+    assert.ok(notify.text.includes('• gemini-3.8-flash: HTTP 429'), notify.text);
+    assert.ok(notify.text.includes('• gemini-3.6-flash: circuit open'), notify.text);
+    assert.ok(notify.text.includes('• gemini-2.5-flash: invalid response (too short'), notify.text);
+    assert.ok(notify.text.includes('openrouter') && notify.text.includes('HTTP 500'), notify.text);
+    assert.ok(!tg.some((b) => String(b.chat_id) === '-100123'), 'channel stays silent');
+    assert.ok(getLastAIFailureReasons().length >= 7, 'one reason per failed attempt');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('v6.1.3 legacy AI: provider success posts to the channel with no failure notify', async () => {
+  const { sendChannelAI } = await import('../src/senders.js');
+  const { getLastAIFailureReasons } = await import('../src/ai.js');
+  const tg = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    const u = String(url);
+    if (u.includes('api.telegram.org')) { tg.push(JSON.parse(options.body)); return tgOkRes; }
+    if (u.includes('generativelanguage.googleapis.com')) return geminiRes(legacyValidText);
+    return legacyDataRoute(u);
+  };
+  try {
+    const env = { TELEGRAM_BOT_TOKEN: 'tok', TELEGRAM_CHANNEL_ID: '-100123', ADMIN_ID: '999', GEMINI_API_KEY: 'g', OPENROUTER_API_KEY: 'or', ALERTS_KV: makeKVStub() };
+    await sendChannelAI(env);
+    assert.ok(tg.some((b) => String(b.chat_id) === '-100123'), 'post sent to channel');
+    assert.ok(!tg.some((b) => String(b.chat_id) === '999'), 'no admin notify');
+    assert.deepEqual(getLastAIFailureReasons(), []);
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('v6.1.3 flagship: validation failure notify carries the validation errors', async () => {
+  const { sendChannelFlagship } = await import('../src/senders.js');
+  const coins = Object.keys(COINS).map((id, i) => ({ id, current_price: 100 + i, price_change_percentage_24h: 1, price_change_percentage_7d_in_currency: 2, price_change_percentage_30d_in_currency: 3, total_volume: 10, market_cap: 10 }));
+  const tg = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    const u = String(url);
+    if (u.includes('api.telegram.org')) { tg.push(JSON.parse(options.body)); return tgOkRes; }
+    // AI answers in the legacy format: passes the provider chain, fails flagship structure.
+    if (u.includes('generativelanguage.googleapis.com')) return geminiRes(legacyValidText);
+    const route = (x) => {
+      if (x.includes('deribit.com') || x.includes('mempool.space')) throw new Error('dead source');
+      if (x.includes('/coins/markets')) return coins;
+      if (x.includes('/global')) return { data: { total_market_cap: { usd: 3e12 }, total_volume: { usd: 1e11 }, market_cap_percentage: { btc: 57.5 } } };
+      if (x.includes('market_chart')) return { prices: Array.from({ length: 50 }, (_, i) => [i, 100 + i]) };
+      if (x.includes('alternative.me')) return { data: [{ value: '60', value_classification: 'Greed' }, { value: '55', value_classification: 'Greed' }] };
+      if (x.includes('fapi.binance.com/fapi/v1/premiumIndex')) return { lastFundingRate: '0.0002' };
+      if (x.includes('openInterest')) return { openInterest: '1000' };
+      if (x.includes('globalLongShortAccountRatio')) return [{ longShortRatio: '1.2' }];
+      if (x.includes('api.llama.fi/v2/chains')) return [{ tvl: 100 }, { tvl: 50 }];
+      if (x.includes('stablecoins.llama.fi')) return { peggedAssets: [{ circulating: { peggedUSD: 200 }, circulatingPrevWeek: { peggedUSD: 190 } }] };
+      if (x.includes('faireconomy')) return [];
+      return {};
+    };
+    return httpRes(200, route(u));
+  };
+  try {
+    const env = { TELEGRAM_BOT_TOKEN: 'tok', TELEGRAM_CHANNEL_ID: '-100123', ADMIN_ID: '999', GEMINI_API_KEY: 'g', COINGECKO_API_KEY: 'test', ALERTS_KV: makeKVStub() };
+    await sendChannelFlagship(env);
+    const notify = tg.find((b) => String(b.chat_id) === '999');
+    assert.ok(notify, 'admin notify sent');
+    assert.ok(notify.text.includes('<b>Flagship analysis failed validation</b>'), notify.text);
+    assert.ok(notify.text.includes('missing section VERDICT'), notify.text);
+    assert.ok(!tg.some((b) => String(b.chat_id) === '-100123'), 'channel stays silent');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+// End-to-end: a valid v6 draft must travel the REAL chain (raw mode) →
+// validator → channel post. Regression test for the object-vs-text and
+// legacy-format-gate bugs that silently killed every flagship/flash.
+const senderCoins = () => Object.keys(COINS).map((id, i) => ({ id, current_price: 100 + i, price_change_percentage_24h: 1, price_change_percentage_7d_in_currency: 2, price_change_percentage_30d_in_currency: 3, total_volume: 10, market_cap: 10 }));
+function stateDataRoute(u, coins) {
+  if (u.includes('deribit.com') || u.includes('mempool.space')) throw new Error('dead source');
+  if (u.includes('/coins/markets')) return coins;
+  if (u.includes('/global')) return { data: { total_market_cap: { usd: 3e12 }, total_volume: { usd: 1e11 }, market_cap_percentage: { btc: 57.5 } } };
+  if (u.includes('market_chart')) return { prices: Array.from({ length: 50 }, (_, i) => [i, 100 + i]) };
+  if (u.includes('alternative.me')) return { data: [{ value: '60', value_classification: 'Greed' }, { value: '55', value_classification: 'Greed' }] };
+  if (u.includes('fapi.binance.com/fapi/v1/premiumIndex')) return { lastFundingRate: '0.0002' };
+  if (u.includes('openInterest')) return { openInterest: '1000' };
+  if (u.includes('globalLongShortAccountRatio')) return [{ longShortRatio: '1.2' }];
+  if (u.includes('api.llama.fi/v2/chains')) return [{ tvl: 100 }, { tvl: 50 }];
+  if (u.includes('stablecoins.llama.fi')) return { peggedAssets: [{ circulating: { peggedUSD: 200 }, circulatingPrevWeek: { peggedUSD: 190 } }] };
+  if (u.includes('faireconomy')) return [];
+  return {};
+}
+
+// Grounded in the stub state above: BTC $100, spark range $100–$149 (24h low
+// $126), dominance 57.5, F&G 60 (yday 55), stablecoin supply $200, TVL $150.
+const flagshipE2EDraft = `===VERDICT===
+Bitcoin is range-bound at $100 with greed firm at 60 — a quiet, orderly tape.
+===OVERVIEW===
+BTC trades at $100, up 1% on the day and 2% on the week. Fear and Greed sits at 60, up from 55 yesterday, while dominance holds at 57.5%. Stablecoin supply is $200 and DeFi TVL is $150, so liquidity is steady rather than expanding.
+===DRIVERS===
+1. Sentiment rebuilding — Fear and Greed at 60, up from 55 yesterday
+2. Stable dominance — BTC dominance holds at 57.5% with price at $100
+3. Calm leverage — funding is near zero and the $100 to $149 spark range stays orderly
+===SCENARIOS===
+===SCENARIO:BASE===
+Lean: FLAT
+Level: NONE
+Side: NONE
+Text: While BTC holds near $100 inside the $100 to $149 range, the sideways structure persists and moves stay shallow.
+===SCENARIO:BULL===
+Lean: UP
+Level: 149
+Side: ABOVE
+Text: A close above $149, the recent spark high, would break the range top and invite momentum buyers.
+===SCENARIO:BEAR===
+Lean: DOWN
+Level: 126
+Side: BELOW
+Text: A break below $126, the recent 24h low zone, would signal the range is failing.
+===WATCH===
+The next high-impact macro print is the one event that matters for the range.
+===INVALIDATION===
+A daily close above $149 or below $126 invalidates the range read.
+===PERSIAN===
+حکم: بیت‌کوین روی $100 در محدوده‌ای آرام نوسان می‌کند
+سطوح: حمایت $126 و مقاومت $149 سطوح کلیدی‌اند
+سناریو: سناریوی پایه ادامه نوسان نزدیک $100 است
+مراقبت: رویداد ماکروی بعدی مهم‌ترین محرک پیش روست`;
+
+test('v6.1.3 flagship end-to-end: valid draft via the real raw chain posts to the channel', async () => {
+  const { sendChannelFlagship } = await import('../src/senders.js');
+  const coins = senderCoins();
+  const kv = makeKVStub();
+  const tg = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    const u = String(url);
+    if (u.includes('api.telegram.org')) { tg.push(JSON.parse(options.body)); return tgOkRes; }
+    if (u.includes('generativelanguage.googleapis.com')) return geminiRes(flagshipE2EDraft);
+    return httpRes(200, stateDataRoute(u, coins));
+  };
+  try {
+    const env = { TELEGRAM_BOT_TOKEN: 'tok', TELEGRAM_CHANNEL_ID: '-100123', ADMIN_ID: '999', GEMINI_API_KEY: 'g', COINGECKO_API_KEY: 'test', ALERTS_KV: kv };
+    await sendChannelFlagship(env);
+    const channelSends = tg.filter((b) => String(b.chat_id) === '-100123');
+    assert.ok(channelSends.length >= 1, 'flagship posted to the channel');
+    assert.ok(JSON.stringify(channelSends).includes('orderly tape'), 'the AI verdict reached the channel post');
+    assert.ok(!tg.some((b) => String(b.chat_id) === '999'), 'no admin failure notify');
+    const recs = JSON.parse((await kv.get('scen:records')) || '[]');
+    assert.equal(recs.length, 1, 'scenario ledger recorded the post');
+    assert.equal(recs[0].scenarios.length, 3);
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('v6.1.3 flash end-to-end: AI flash text is used, not the programmatic fallback', async () => {
+  const { checkMacroEvents } = await import('../src/senders.js');
+  const coins = senderCoins();
+  const eventTs = Date.now() - 30 * 60000;
+  const tg = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    const u = String(url);
+    if (u.includes('api.telegram.org')) { tg.push(JSON.parse(options.body)); return tgOkRes; }
+    if (u.includes('generativelanguage.googleapis.com')) return geminiRes('FLASH-AI-MARKER: CPI printed at 3.2 versus 3.1 expected. Bitcoin holds at $100 while the market digests the release.');
+    if (u.includes('ff_calendar_thisweek')) return httpRes(200, [{ title: 'CPI YoY', country: 'USD', impact: 'High', date: new Date(eventTs).toISOString(), forecast: '3.1', previous: '3.0', actual: '3.2' }]);
+    return httpRes(200, stateDataRoute(u, coins));
+  };
+  try {
+    const env = { TELEGRAM_BOT_TOKEN: 'tok', TELEGRAM_CHANNEL_ID: '-100123', ADMIN_ID: '999', GEMINI_API_KEY: 'g', COINGECKO_API_KEY: 'test', ALERTS_KV: makeKVStub() };
+    await checkMacroEvents(env);
+    const channelSends = tg.filter((b) => String(b.chat_id) === '-100123');
+    assert.ok(channelSends.length >= 1, 'flash posted to the channel');
+    assert.ok(JSON.stringify(channelSends).includes('FLASH-AI-MARKER'), 'AI text used instead of the programmatic fallback');
+  } finally { globalThis.fetch = realFetch; }
+});
+
 test('v6.1.1 FA classic brief carries the full content (majors, movers, levels, totals)', async () => {
   const { buildBriefClassic } = await import('../src/posts.js');
   const s = v6State();
