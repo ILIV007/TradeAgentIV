@@ -97,7 +97,7 @@ function isValidAIResponse(text) {
   return reason === '';
 }
 
-async function tryGeminiDirect(env, prompt, modelUrl, name, raw = false) {
+async function tryGeminiDirect(env, prompt, modelUrl, name, raw = false, opts = {}) {
   if (!env.GEMINI_API_KEY) {
     console.log(`[AI] ${name} skipped: No GEMINI_API_KEY`);
     noteAIFailure(`${name}: no key`);
@@ -115,9 +115,9 @@ async function tryGeminiDirect(env, prompt, modelUrl, name, raw = false) {
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.3, maxOutputTokens: 1500 }
+        generationConfig: { temperature: 0.3, maxOutputTokens: 1500, ...(opts.thinkingLevel ? { thinkingConfig: { thinkingLevel: opts.thinkingLevel } } : {}) }
       }),
-    }, 20000);
+    }, opts.timeoutMs || 20000);
     
     if (!res.ok) {
       const txt = await res.text().catch(() => '');
@@ -181,44 +181,61 @@ async function getAIAnalysis(env, prompt, opts = {}) {
     }
   }
 
-  // STEP 1: Gemini 3.8 Flash Direct (PRIMARY)
-  let text = await tryGeminiDirect(env, prompt, GEMINI_URL, 'gemini-3.8-flash', raw);
-
-  // STEP 2: Gemini 3.6 Flash Fallback
-  if (!text) {
-    text = await tryGeminiDirect(env, prompt, GEMINI_FALLBACK_URL, 'gemini-3.6-flash', raw);
-  }
-
-  // STEP 3: Gemini 2.5 Flash Fallback
-  if (!text) {
-    text = await tryGeminiDirect(env, prompt, GEMINI_FALLBACK_URL_2, 'gemini-2.5-flash', raw);
-  }
-
-  if (text) {
-    const result = { text, source: 'Gemini' };
+  // Chain v6.1.4 (research-backed, 2026-11-03): fastest + highest-quota
+  // first, the capacity-collapsed 3.8 Flash last, dead models removed
+  // (2.5 Flash deprecated, OpenRouter gemma/inkling dead). One global
+  // ~75s deadline bounds the whole chain; every step gets min(cap, rest).
+  const deadline = Date.now() + 75000;
+  const remain = () => deadline - Date.now();
+  const geminiResult = async (t) => {
+    const result = { text: t, source: 'Gemini' };
     if (!raw) await setAICache(env, promptHash, result);
     await setConfig(env, 'last_ai_provider', 'Gemini');
     await setConfig(env, 'last_ai_time', fmt.time());
     return result;
+  };
+
+  // STEP 1: Gemini 3.5 Flash-Lite (PRIMARY — ~350 tok/s, 500 req/day free)
+  let text = await tryGeminiDirect(env, prompt, GEMINI_URL, 'gemini-3.5-flash-lite', raw, { timeoutMs: Math.min(15000, remain()) });
+
+  // STEP 2: Gemini 3.6 Flash (fresh per-model pool, thinking low)
+  if (!text && remain() > 3000) {
+    text = await tryGeminiDirect(env, prompt, GEMINI_FALLBACK_URL, 'gemini-3.6-flash', raw, { timeoutMs: Math.min(12000, remain()), thinkingLevel: 'low' });
   }
 
-  // STEP 4: OpenRouter :FREE Failover
-  console.log('[AI] Gemini family failed, trying OpenRouter FREE models...');
+  if (text) return await geminiResult(text);
+
+  // STEP 3: OpenRouter Nemotron — a different vendor and quota pool.
+  const orNemotron = await tryOpenRouter(env, prompt, ['nvidia/nemotron-3-ultra-550b-a55b:free'], raw, promptHash, deadline);
+  if (orNemotron) return orNemotron;
+
+  // STEP 4: Gemini 3.8 Flash — highest quality, worst reliability (documented
+  // capacity collapse Oct–Nov 2026): last Gemini resort, thinking low, and
+  // only when a real time budget remains.
+  if (remain() > 5000) {
+    text = await tryGeminiDirect(env, prompt, GEMINI_FALLBACK_URL_2, 'gemini-3.8-flash', raw, { timeoutMs: Math.min(15000, remain()), thinkingLevel: 'low' });
+    if (text) return await geminiResult(text);
+  }
+
+  // STEP 5: openrouter/free auto-router as the final net.
+  const orFree = await tryOpenRouter(env, prompt, ['openrouter/free'], raw, promptHash, deadline);
+  if (orFree) return orFree;
+
+  console.log('[AI] All AI sources failed');
+  return null;
+}
+
+async function tryOpenRouter(env, prompt, models, raw, promptHash, deadline) {
+  console.log('[AI] Trying OpenRouter FREE models...');
   if (!env.OPENROUTER_API_KEY) {
     console.log('[AI] No OpenRouter key, giving up');
     noteAIFailure('openrouter: no key');
     return null;
   }
 
-  // Free list live-verified against the OpenRouter catalog on 2026-11-02.
-  const models = [
-    'nvidia/nemotron-3-ultra-550b-a55b:free',
-    'google/gemma-4-31b-it:free',
-    'thinkingmachines/inkling:free',
-    'openrouter/free',  // Last resort: auto-select any available free model
-  ];
-
   for (const model of models) {
+    const remaining = deadline - Date.now();
+    if (remaining < 3000) { console.log('[AI] Global AI deadline reached, stopping chain'); break; }
     try {
       console.log(`[AI] Trying OpenRouter FREE: ${getShortModelName(model)}...`);
       const res = await fetchWithTimeout(OPENROUTER_URL, {
@@ -235,19 +252,19 @@ async function getAIAnalysis(env, prompt, opts = {}) {
           max_tokens: 1500,
           temperature: 0.3
         }),
-      }, 30000);
-      
+      }, Math.min(model === 'openrouter/free' ? 10000 : 18000, remaining));
+
       if (!res.ok) {
         const errText = await res.text().catch(() => '');
         console.log(`[AI] ${model} HTTP ${res.status}: ${errText.slice(0, 200)}`);
         noteAIFailure(`openrouter ${getShortModelName(model)}: HTTP ${res.status} ${shortErr(errText)}`.trim());
-        if (res.status === 429) {
+        if (res.status === 429 && deadline - Date.now() > 6000) {
           console.log(`[AI] ${model} rate limited - waiting 3s before next model...`);
           await new Promise(r => setTimeout(r, 3000));
         }
         continue;
       }
-      
+
       const data = await res.json();
       const text = data.choices?.[0]?.message?.content;
 
@@ -268,8 +285,6 @@ async function getAIAnalysis(env, prompt, opts = {}) {
       noteAIFailure(`openrouter ${getShortModelName(model)}: ${shortErr(e.message)}`);
     }
   }
-
-  console.log('[AI] All AI sources failed');
   return null;
 }
 
@@ -292,7 +307,7 @@ async function testGeminiConnection(env) {
     if (!res.ok) return { ok: false, error: `HTTP ${res.status}`, source: 'Gemini' };
     const data = await res.json();
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (text && text.toLowerCase().includes('ok')) return { ok: true, source: 'Gemini 3.8' };
+    if (text && text.toLowerCase().includes('ok')) return { ok: true, source: 'Gemini 3.5 Flash-Lite' };
     return { ok: false, error: `Unexpected: ${text || 'empty'}`, source: 'Gemini' };
   } catch (e) {
     return { ok: false, error: e.message, source: 'Gemini' };

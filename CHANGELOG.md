@@ -3,6 +3,14 @@
 All notable changes to TradeAgent IV are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [6.1.4] — 2026-11-03
+
+### Changed
+- **AI fallback chain rebuilt** (deep-research-backed, report 2026-11-03): the primary is now **Gemini 3.5 Flash-Lite** (fastest, ~500 free req/day) instead of Gemini 3.8 Flash, whose documented Oct–Nov 2026 capacity collapse (late 503s, requests hanging to client timeouts, ~25s TTFT even when healthy) was the root cause of the «AI analysis failed» admin alerts. New order under one ~75s global deadline: 3.5 Flash-Lite (15s) → 3.6 Flash (12s, thinking low) → OpenRouter Nemotron (18s) → 3.8 Flash (remaining budget, thinking low) → openrouter/free. The AI Status panel test now exercises the Lite primary.
+
+### Removed
+- **Gemini 2.5 Flash** (deprecated 2026-11-02; 404 for new projects, auto-routes to Flash-Lite from Dec 1) and the dead OpenRouter free models **gemma-4-31b-it:free** (upstream 429, 0/7 days in live probing) and **inkling:free** (403 for plain API calls, retiring Nov 4).
+
 ## [6.1.3] — 2026-11-03
 
 ### Changed

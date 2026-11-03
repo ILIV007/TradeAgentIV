@@ -465,7 +465,7 @@ test('v6.1.3 legacy AI: total provider failure notifies admin with per-provider 
     const u = String(url);
     if (u.includes('api.telegram.org')) { tg.push(JSON.parse(options.body)); return tgOkRes; }
     if (u.includes('gemini-3.8-flash')) return httpRes(429, {}, '{"error":"quota exceeded"}');
-    if (u.includes('gemini-2.5-flash')) return geminiRes('<b>Market Overview</b> short take');
+    if (u.includes('gemini-3.5-flash-lite')) return geminiRes('<b>Market Overview</b> short take');
     if (u.includes('openrouter.ai')) return httpRes(500, {}, 'upstream boom');
     return legacyDataRoute(u);
   };
@@ -477,10 +477,10 @@ test('v6.1.3 legacy AI: total provider failure notifies admin with per-provider 
     assert.ok(notify.text.includes('<b>AI analysis failed</b> — no post was sent to the channel.'), notify.text);
     assert.ok(notify.text.includes('• gemini-3.8-flash: HTTP 429'), notify.text);
     assert.ok(notify.text.includes('• gemini-3.6-flash: circuit open'), notify.text);
-    assert.ok(notify.text.includes('• gemini-2.5-flash: invalid response (too short'), notify.text);
+    assert.ok(notify.text.includes('• gemini-3.5-flash-lite: invalid response (too short'), notify.text);
     assert.ok(notify.text.includes('openrouter') && notify.text.includes('HTTP 500'), notify.text);
     assert.ok(!tg.some((b) => String(b.chat_id) === '-100123'), 'channel stays silent');
-    assert.ok(getLastAIFailureReasons().length >= 7, 'one reason per failed attempt');
+    assert.ok(getLastAIFailureReasons().length >= 5, 'one reason per failed attempt');
   } finally { globalThis.fetch = realFetch; }
 });
 
@@ -652,4 +652,14 @@ test('v6.1.1 FA classic brief carries the full content (majors, movers, levels, 
   assert.ok(fa.includes('$78,500'));
   const en = buildBriefClassic(s, 'Monday', 'en');
   assert.ok(en.includes('Morning Brief') && !en.includes('سطوح'));
+});
+
+test('v6.1.4 AI chain: Lite primary, 3.8 last, dead models removed', async () => {
+  const cfg = await import('../src/config.js');
+  assert.ok(cfg.GEMINI_URL.includes('gemini-3.5-flash-lite'), 'primary must be Flash-Lite');
+  assert.ok(cfg.GEMINI_FALLBACK_URL.includes('gemini-3.6-flash'));
+  assert.ok(cfg.GEMINI_FALLBACK_URL_2.includes('gemini-3.8-flash'), 'last Gemini resort is 3.8');
+  const aiSrc = (await import('node:fs')).readFileSync(new URL('../src/ai.js', import.meta.url), 'utf8');
+  for (const dead of ['gemini-2.5-flash', 'gemma-4-31b-it', 'thinkingmachines/inkling:free']) assert.ok(!aiSrc.includes(dead), `dead model still in chain: ${dead}`);
+  assert.ok(aiSrc.includes('nvidia/nemotron-3-ultra-550b-a55b:free') && aiSrc.includes('75000'), 'nemotron step + global deadline present');
 });
