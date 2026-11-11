@@ -460,10 +460,12 @@ test('v6.1.3 legacy AI: total provider failure notifies admin with per-provider 
   const { getLastAIFailureReasons } = await import('../src/ai.js');
   const kv = makeKVStub({ 'circuit:gemini-3.6-flash': JSON.stringify({ until: Date.now() + 600000 }) });
   const tg = [];
+  const seenUrls = [];
   const realFetch = globalThis.fetch;
   globalThis.fetch = async (url, options = {}) => {
     const u = String(url);
     if (u.includes('api.telegram.org')) { tg.push(JSON.parse(options.body)); return tgOkRes; }
+    seenUrls.push(u);
     if (u.includes('gemini-3.8-flash')) return httpRes(429, {}, '{"error":"quota exceeded"}');
     if (u.includes('gemini-3.5-flash-lite')) return geminiRes('<b>Market Overview</b> short take');
     if (u.includes('openrouter.ai')) return httpRes(500, {}, 'upstream boom');
@@ -475,12 +477,12 @@ test('v6.1.3 legacy AI: total provider failure notifies admin with per-provider 
     const notify = tg.find((b) => String(b.chat_id) === '999');
     assert.ok(notify, 'admin notify sent');
     assert.ok(notify.text.includes('<b>AI analysis failed</b> — no post was sent to the channel.'), notify.text);
-    assert.ok(notify.text.includes('• gemini-3.8-flash: HTTP 429'), notify.text);
+    assert.ok(!seenUrls.some((u) => u.includes('gemini-3.8-flash')), 'v6.1.6: 3.8 removed from the chain, never requested');
     assert.ok(notify.text.includes('• gemini-3.6-flash: circuit open'), notify.text);
     assert.ok(notify.text.includes('• gemini-3.5-flash-lite: invalid response (too short'), notify.text);
     assert.ok(notify.text.includes('openrouter') && notify.text.includes('HTTP 500'), notify.text);
     assert.ok(!tg.some((b) => String(b.chat_id) === '-100123'), 'channel stays silent');
-    assert.ok(getLastAIFailureReasons().length >= 5, 'one reason per failed attempt');
+    assert.ok(getLastAIFailureReasons().length >= 5, 'one reason per failed attempt: lite, nemotron, 3.6, gemma, free');
   } finally { globalThis.fetch = realFetch; }
 });
 
@@ -654,14 +656,17 @@ test('v6.1.1 FA classic brief carries the full content (majors, movers, levels, 
   assert.ok(en.includes('Morning Brief') && !en.includes('سطوح'));
 });
 
-test('v6.1.4 AI chain: Lite primary, 3.8 last, dead models removed', async () => {
+test('v6.1.6 AI chain: cross-infrastructure, geo-aware, dead models removed', async () => {
   const cfg = await import('../src/config.js');
-  assert.ok(cfg.GEMINI_URL.includes('gemini-3.5-flash-lite'), 'primary must be Flash-Lite');
+  assert.ok(cfg.GEMINI_URL.includes('gemini-3.5-flash-lite'), 'first Gemini is Flash-Lite');
   assert.ok(cfg.GEMINI_FALLBACK_URL.includes('gemini-3.6-flash'));
-  assert.ok(cfg.GEMINI_FALLBACK_URL_2.includes('gemini-3.8-flash'), 'last Gemini resort is 3.8');
+  assert.ok(cfg.GROQ_URL.includes('api.groq.com'));
   const aiSrc = (await import('node:fs')).readFileSync(new URL('../src/ai.js', import.meta.url), 'utf8');
-  for (const dead of ['gemini-2.5-flash', 'gemma-4-31b-it', 'thinkingmachines/inkling:free']) assert.ok(!aiSrc.includes(dead), `dead model still in chain: ${dead}`);
-  assert.ok(aiSrc.includes('nvidia/nemotron-3-ultra-550b-a55b:free') && aiSrc.includes('75000'), 'nemotron step + global deadline present');
+  for (const dead of ['gemini-2.5-flash', 'thinkingmachines/inkling:free', 'GEMINI_FALLBACK_URL_2']) assert.ok(!aiSrc.includes(dead), `dead reference still in ai.js: ${dead}`);
+  assert.ok(aiSrc.includes('@cf/qwen/qwen3-30b-a3b-fp8'), 'Workers AI step present');
+  assert.ok(aiSrc.includes('llama-3.3-70b-versatile'), 'Groq step present');
+  assert.ok(aiSrc.includes('nvidia/nemotron-3-ultra-550b-a55b:free') && aiSrc.includes('google/gemma-4-31b-it:free') && aiSrc.includes('90000'), 'OR steps + global deadline present');
+  assert.ok(aiSrc.includes('geminiGeoBlockedUntil'), 'geo-block memo present');
 });
 
 test('v6.1.5 rich mode: panel toggle exists, sendRich honors rich_mode=off, legacy AI has a rich builder', async () => {
@@ -690,4 +695,79 @@ test('v6.1.5 rich mode: panel toggle exists, sendRich honors rich_mode=off, lega
   const ai = { text: '<b>Market Overview</b>\nCalm market.\n\n<b>Conclusion</b>\nStay patient.\n\n---PERSIAN---\n• بازار آرام است\n⚠️ This analysis is not financial advice.', source: 'Gemini' };
   const rich = buildRichAIAnalysis(ai, today, { state: 'FEAR', intensity: 55, emoji: '😨', color: '🟠' }, 'en');
   assert.ok(rich.includes('<h3>Market Overview</h3>') && rich.includes('<table') && rich.includes('خلاصه بازار') && rich.includes('blockquote expandable') && !rich.includes('---PERSIAN---'));
+});
+
+const AI_OK = '<b>Market Overview</b>\nBitcoin is holding above its key support while breadth slowly improves across large caps and traders wait for confirmation.\n\n<b>Bullish Factors</b>\nSpot demand is steady and funding stays neutral, which leaves room for a squeeze higher if resistance breaks cleanly.\n\n<b>Conclusion</b>\nStay patient and let price confirm the move before adding risk.\n\n---PERSIAN---\n• بازار در وضعیت انتظار است و بیت‌کوین بالای حمایت کلیدی باقی مانده است.\n⚠️ This analysis is not financial advice.';
+const AI_MD = '**Market Overview**\nBitcoin is holding above its key support while breadth slowly improves across large caps and traders wait for confirmation.\n\n## Bullish Factors\nSpot demand is steady and funding stays neutral, which leaves room for a squeeze higher if resistance breaks cleanly.\n\nConclusion\nStay patient and let price confirm the move before adding risk.\n\n---PERSIAN---\n• بازار در وضعیت انتظار است و بیت‌کوین بالای حمایت کلیدی باقی مانده است.\n⚠️ This analysis is not financial advice.';
+const kvStub = () => { const m = new Map(); return { get: async (k) => m.get(k) ?? null, put: async (k, v) => { m.set(k, v); }, delete: async (k) => { m.delete(k); } }; };
+
+test('v6.1.6 validator judges content, not markup dialect', async () => {
+  assert.equal(isValidAIResponse(AI_OK), true);
+  assert.equal(isValidAIResponse(AI_MD), true); // **bold** + ## heading + bare Conclusion line
+});
+
+test('v6.1.6 chain: Workers AI answers first when the binding exists', async () => {
+  const { getAIAnalysis } = await import('../src/ai.js');
+  const realFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = async () => { fetchCalls++; throw new Error('no HTTP expected'); };
+  try {
+    const env = { ALERTS_KV: kvStub(), GEMINI_API_KEY: 'g', OPENROUTER_API_KEY: 'o', AI: { run: async () => ({ response: AI_OK }) } };
+    const r = await getAIAnalysis(env, 'test prompt');
+    assert.ok(r && r.source === 'Workers AI');
+    assert.equal(fetchCalls, 0);
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('v6.1.6 chain: OpenRouter array-part content is extracted (was: empty response)', async () => {
+  const { getAIAnalysis } = await import('../src/ai.js');
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    if (u.includes('generativelanguage')) return httpRes(503, 'capacity');
+    if (u.includes('openrouter')) return httpRes(200, { choices: [{ message: { content: [{ type: 'text', text: AI_OK }] }, finish_reason: 'stop' }] });
+    throw new Error('unexpected ' + u);
+  };
+  try {
+    const env = { ALERTS_KV: kvStub(), GEMINI_API_KEY: 'g', OPENROUTER_API_KEY: 'o' };
+    const r = await getAIAnalysis(env, 'test prompt');
+    assert.ok(r && r.source.toLowerCase().includes('nemotron'), JSON.stringify(r));
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('v6.1.6 chain: Groq answers when its secret exists', async () => {
+  const { getAIAnalysis } = await import('../src/ai.js');
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    if (u.includes('generativelanguage')) return httpRes(503, 'capacity');
+    if (u.includes('groq.com')) return httpRes(200, { choices: [{ message: { content: AI_OK }, finish_reason: 'stop' }] });
+    throw new Error('unexpected ' + u);
+  };
+  try {
+    const env = { ALERTS_KV: kvStub(), GEMINI_API_KEY: 'g', OPENROUTER_API_KEY: 'o', GROQ_API_KEY: 'gk' };
+    const r = await getAIAnalysis(env, 'test prompt');
+    assert.ok(r && r.source === 'Groq', JSON.stringify(r));
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('v6.1.6 chain: a Gemini geo-block skips the remaining Gemini steps', async () => {
+  const { getAIAnalysis, getLastAIFailureReasons } = await import('../src/ai.js');
+  const realFetch = globalThis.fetch;
+  const seen = [];
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    seen.push(u);
+    if (u.includes('generativelanguage')) return httpRes(400, '{"error":{"code":400,"message":"User location is not supported for use with the API"}}');
+    if (u.includes('openrouter')) return httpRes(200, { choices: [{ message: { content: 'short' }, finish_reason: 'stop' }] });
+    throw new Error('unexpected ' + u);
+  };
+  try {
+    const env = { ALERTS_KV: kvStub(), GEMINI_API_KEY: 'g', OPENROUTER_API_KEY: 'o' };
+    const r = await getAIAnalysis(env, 'test prompt');
+    assert.equal(r, null);
+    assert.ok(seen.some((u) => u.includes('gemini-3.5-flash-lite')));
+    assert.ok(!seen.some((u) => u.includes('gemini-3.6-flash')), '3.6 must be skipped after a geo-block');
+    assert.ok(getLastAIFailureReasons().join(' ').includes('geo-blocked'));
+  } finally { globalThis.fetch = realFetch; }
 });

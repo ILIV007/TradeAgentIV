@@ -1,5 +1,5 @@
 // TradeAgent IV — AI layer: Gemini chain, OpenRouter fallback, cache, circuit breaker, prompt.
-import { GEMINI_URL, GEMINI_FALLBACK_URL, GEMINI_FALLBACK_URL_2, OPENROUTER_URL, COINS } from './config.js';
+import { GEMINI_URL, GEMINI_FALLBACK_URL, OPENROUTER_URL, GROQ_URL, COINS } from './config.js';
 import { fetchWithTimeout, cleanMarkdown, fmt, getShortModelName, hashPrompt } from './utils.js';
 import { getConfig, setConfig } from './store.js';
 
@@ -61,12 +61,30 @@ async function closeCircuit(env, name) {
 // reset at the start of every getAIAnalysis call. Senders surface these in
 // the admin failure notify so a silent post explains itself.
 let lastAIFailureReasons = [];
+// Google geo-blocks the Gemini API by the Worker's egress location, which
+// varies per run: one 400 'User location is not supported' means EVERY
+// Gemini call from this isolate will 400. Memoize it so later Gemini steps
+// skip instantly instead of burning the chain deadline (v6.1.6).
+let geminiGeoBlockedUntil = 0;
 function noteAIFailure(line) { lastAIFailureReasons.push(line); }
 function getLastAIFailureReasons() { return [...lastAIFailureReasons]; }
 const shortErr = (s) => String(s || '').replace(/\s+/g, ' ').slice(0, 80);
 
 // Returns '' when valid, otherwise a short reason (same checks, same order
 // as the old boolean validator).
+// Models answer in different markup dialects (HTML <b>, markdown **, ##
+// headings, bare heading lines). Judge the CONTENT, not the dialect:
+// normalize to the canonical <b> form before counting sections — a draft
+// rejected only for its markup was the v6.1.6 'only 1 section' failure.
+const AI_SECTIONS = ['Market Overview', 'Bullish Factors', 'Bearish Factors', 'Risk Factors', 'Sector Rotation', 'Tomorrow Watchlist', 'Conclusion'];
+function normalizeForValidation(text) {
+  let t = cleanMarkdown(text);
+  for (const name of AI_SECTIONS) {
+    t = t.replace(new RegExp(`^\\s*${name}\\s*:?\\s*$`, 'gim'), `<b>${name}</b>`);
+  }
+  return t;
+}
+
 function aiValidationReason(text) {
   if (!text || typeof text !== 'string') return 'empty response';
   const trimmed = text.trim();
@@ -74,8 +92,9 @@ function aiValidationReason(text) {
   // Must be reasonably long (AI often returns short garbage on errors)
   if (trimmed.length < 200) return `too short (${trimmed.length} chars)`;
 
-  // Must have at least 3 sections (Market Overview + 2 more)
-  const sectionCount = (trimmed.match(/<b>[^<]+<\/b>/g) || []).length;
+  // Must have at least 3 sections (Market Overview + 2 more), any dialect
+  const norm = normalizeForValidation(trimmed);
+  const sectionCount = (norm.match(/<b>[^<]+<\/b>/g) || []).length;
   if (sectionCount < 3) return `only ${sectionCount} section${sectionCount === 1 ? '' : 's'}`;
 
   // Must have Persian separator OR Persian content
@@ -85,7 +104,7 @@ function aiValidationReason(text) {
   if (!hasPersian) return 'no Persian section';
 
   // Must have conclusion
-  const hasConclusion = trimmed.includes('Conclusion') || trimmed.includes('نتیجه') || trimmed.includes('جمع‌بندی');
+  const hasConclusion = norm.includes('Conclusion') || trimmed.includes('نتیجه') || trimmed.includes('جمع‌بندی');
   if (!hasConclusion) return 'no conclusion';
 
   return '';
@@ -103,6 +122,11 @@ async function tryGeminiDirect(env, prompt, modelUrl, name, raw = false, opts = 
     noteAIFailure(`${name}: no key`);
     return null;
   }
+  if (Date.now() < geminiGeoBlockedUntil) {
+    console.log(`[AI] ${name} skipped: Gemini geo-blocked from this location`);
+    noteAIFailure(`${name}: skipped (Gemini geo-blocked)`);
+    return null;
+  }
   if (await isCircuitOpen(env, name)) {
     console.log(`[AI] ${name} circuit OPEN, skipping`);
     noteAIFailure(`${name}: circuit open`);
@@ -115,7 +139,7 @@ async function tryGeminiDirect(env, prompt, modelUrl, name, raw = false, opts = 
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.3, maxOutputTokens: 1500, ...(opts.thinkingLevel ? { thinkingConfig: { thinkingLevel: opts.thinkingLevel } } : {}) }
+        generationConfig: { temperature: 0.3, maxOutputTokens: 4096, ...(opts.thinkingLevel ? { thinkingConfig: { thinkingLevel: opts.thinkingLevel } } : {}) }
       }),
     }, opts.timeoutMs || 20000);
     
@@ -152,11 +176,17 @@ async function tryGeminiDirect(env, prompt, modelUrl, name, raw = false, opts = 
     }
 
     console.log(`[AI] ${name} returned empty/invalid text:`, text ? `"${text.slice(0, 50)}..."` : 'null');
-    noteAIFailure(`${name}: invalid response (${aiValidationReason(text)})`);
+    const finishReason = data?.candidates?.[0]?.finishReason;
+    noteAIFailure(`${name}: invalid response (${finishReason === 'MAX_TOKENS' ? 'truncated (MAX_TOKENS)' : aiValidationReason(text)})`);
     return null;
   } catch (e) {
     console.error(`[AI] ${name} fail:`, e.message);
-    noteAIFailure(`${name}: ${shortErr(e.message)}`);
+    if (e.message.includes('User location is not supported')) {
+      geminiGeoBlockedUntil = Date.now() + 30 * 60000;
+      noteAIFailure(`${name}: geo-blocked (Gemini API not supported from the worker's egress location)`);
+    } else {
+      noteAIFailure(`${name}: ${shortErr(e.message)}`);
+    }
     if (e.message.includes('429') || e.message.includes('quota') || e.message.includes('exceeded') || e.message.includes('Rate limit')) {
       console.log(`[AI] ${name} 429/quota → tripping circuit`);
       await tripCircuit(env, name);
@@ -181,11 +211,14 @@ async function getAIAnalysis(env, prompt, opts = {}) {
     }
   }
 
-  // Chain v6.1.4 (research-backed, 2026-11-03): fastest + highest-quota
-  // first, the capacity-collapsed 3.8 Flash last, dead models removed
-  // (2.5 Flash deprecated, OpenRouter gemma/inkling dead). One global
-  // ~75s deadline bounds the whole chain; every step gets min(cap, rest).
-  const deadline = Date.now() + 75000;
+  // Chain v6.1.6 (architecture fix, 2026-11-11): v6.1.4 put THREE slots on
+  // one vendor, so a single Gemini failure mode (egress geo-block 400s,
+  // capacity 503s) burned most of the chain, and the two OpenRouter slots
+  // shared one extraction bug. Now every step is a different infrastructure,
+  // Gemini is geo-aware, and same-platform Workers AI anchors reliability.
+  // Steps whose binding/secret is absent skip silently. One global ~90s
+  // deadline bounds the chain; every step gets min(cap, rest).
+  const deadline = Date.now() + 90000;
   const remain = () => deadline - Date.now();
   const geminiResult = async (t) => {
     const result = { text: t, source: 'Gemini' };
@@ -194,35 +227,114 @@ async function getAIAnalysis(env, prompt, opts = {}) {
     await setConfig(env, 'last_ai_time', fmt.time());
     return result;
   };
+  const accept = async (t, source) => {
+    const result = { text: raw ? t.trim() : cleanMarkdown(t.trim()), source };
+    if (!raw) await setAICache(env, promptHash, result);
+    await setConfig(env, 'last_ai_provider', source);
+    await setConfig(env, 'last_ai_time', fmt.time());
+    return result;
+  };
 
-  // STEP 1: Gemini 3.5 Flash-Lite (PRIMARY — ~350 tok/s, 500 req/day free)
+  // STEP 1: Workers AI Qwen3 30B — same platform, cannot geo-block.
+  const wai = remain() > 3000 ? await tryWorkersAI(env, prompt, raw, Math.min(25000, remain())) : null;
+  if (wai) return await accept(wai, 'Workers AI');
+
+  // STEP 2: Gemini 3.5 Flash-Lite (fast + 500 req/day free when reachable).
   let text = await tryGeminiDirect(env, prompt, GEMINI_URL, 'gemini-3.5-flash-lite', raw, { timeoutMs: Math.min(15000, remain()) });
-
-  // STEP 2: Gemini 3.6 Flash (fresh per-model pool, thinking low)
-  if (!text && remain() > 3000) {
-    text = await tryGeminiDirect(env, prompt, GEMINI_FALLBACK_URL, 'gemini-3.6-flash', raw, { timeoutMs: Math.min(12000, remain()), thinkingLevel: 'low' });
-  }
-
   if (text) return await geminiResult(text);
 
-  // STEP 3: OpenRouter Nemotron — a different vendor and quota pool.
+  // STEP 3: Groq Llama 3.3 70B — separate infra, ~280 tok/s.
+  const groq = remain() > 3000 ? await tryGroq(env, prompt, raw, Math.min(15000, remain())) : null;
+  if (groq) return await accept(groq, 'Groq');
+
+  // STEP 4: OpenRouter Nemotron Ultra (reasoning tamed: low effort, 4096 cap).
   const orNemotron = await tryOpenRouter(env, prompt, ['nvidia/nemotron-3-ultra-550b-a55b:free'], raw, promptHash, deadline);
   if (orNemotron) return orNemotron;
 
-  // STEP 4: Gemini 3.8 Flash — highest quality, worst reliability (documented
-  // capacity collapse Oct–Nov 2026): last Gemini resort, thinking low, and
-  // only when a real time budget remains.
+  // STEP 5: Gemini 3.6 Flash — skipped instantly while geo-blocked.
   if (remain() > 5000) {
-    text = await tryGeminiDirect(env, prompt, GEMINI_FALLBACK_URL_2, 'gemini-3.8-flash', raw, { timeoutMs: Math.min(15000, remain()), thinkingLevel: 'low' });
+    text = await tryGeminiDirect(env, prompt, GEMINI_FALLBACK_URL, 'gemini-3.6-flash', raw, { timeoutMs: Math.min(12000, remain()), thinkingLevel: 'low' });
     if (text) return await geminiResult(text);
   }
 
-  // STEP 5: openrouter/free auto-router as the final net.
-  const orFree = await tryOpenRouter(env, prompt, ['openrouter/free'], raw, promptHash, deadline);
+  // STEP 6: OpenRouter final net — Gemma 4 31B, then the free auto-router.
+  const orFree = await tryOpenRouter(env, prompt, ['google/gemma-4-31b-it:free', 'openrouter/free'], raw, promptHash, deadline);
   if (orFree) return orFree;
 
   console.log('[AI] All AI sources failed');
   return null;
+}
+
+// One extraction for every OpenAI-shaped API (OpenRouter, Groq): content
+// may be a string, an array of parts, or absent while an error rides along
+// in a 200 body. v6.1.4 read only the string form and called the rest
+// 'empty response'.
+function extractChatText(data) {
+  if (data?.error) return { text: null, error: data.error.message || 'provider error', finish: null };
+  const msg = data?.choices?.[0]?.message;
+  let text = null;
+  if (typeof msg?.content === 'string') text = msg.content;
+  else if (Array.isArray(msg?.content)) text = msg.content.map((p) => p?.text || '').join('');
+  return { text: text && text.trim() ? text : null, error: null, finish: data?.choices?.[0]?.finish_reason || null };
+}
+
+const WAI_MODEL = '@cf/qwen/qwen3-30b-a3b-fp8';
+const GROQ_MODEL = 'llama-3.3-70b-versatile';
+
+// Cloudflare Workers AI runs on the same platform as the Worker itself:
+// it cannot be geo-blocked or capacity-starved the way external APIs are,
+// which makes it the chain's reliability anchor. Active only when the AI
+// binding exists (dashboard step); silently skipped until then.
+async function tryWorkersAI(env, prompt, raw, timeoutMs) {
+  if (!env.AI) return null;
+  try {
+    console.log('[AI] Trying Workers AI: Qwen3 30B...');
+    const data = await Promise.race([
+      env.AI.run(WAI_MODEL, { messages: [{ role: 'user', content: `/no_think\n${prompt}` }], max_tokens: 4096, temperature: 0.3 }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error(`Timeout after ${timeoutMs}ms`)), timeoutMs)),
+    ]);
+    const text = data?.response ?? data?.result?.response ?? null;
+    if (raw ? (text && text.trim()) : isValidAIResponse(text)) {
+      console.log('[AI] Workers AI SUCCESS, length:', text.length);
+      return text;
+    }
+    noteAIFailure(`workers-ai: invalid response (${aiValidationReason(text)})`);
+    return null;
+  } catch (e) {
+    console.error('[AI] workers-ai fail:', e.message);
+    noteAIFailure(`workers-ai: ${shortErr(e.message)}`);
+    return null;
+  }
+}
+
+// Groq (OpenAI-shaped, separate infra, very fast). Active only when the
+// GROQ_API_KEY secret exists; silently skipped until then.
+async function tryGroq(env, prompt, raw, timeoutMs) {
+  if (!env.GROQ_API_KEY) return null;
+  try {
+    console.log('[AI] Trying Groq: Llama 3.3 70B...');
+    const res = await fetchWithTimeout(GROQ_URL, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${env.GROQ_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: GROQ_MODEL, messages: [{ role: 'user', content: prompt }], max_tokens: 4096, temperature: 0.3 }),
+    }, timeoutMs);
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(`HTTP ${res.status} ${errText.slice(0, 100)}`);
+    }
+    const { text, error, finish } = extractChatText(await res.json());
+    if (error) throw new Error(error);
+    if (raw ? (text && text.trim()) : isValidAIResponse(text)) {
+      console.log('[AI] Groq SUCCESS, length:', text.length);
+      return text;
+    }
+    noteAIFailure(`groq: invalid response (${finish === 'length' ? 'truncated' : aiValidationReason(text)})`);
+    return null;
+  } catch (e) {
+    console.error('[AI] groq fail:', e.message);
+    noteAIFailure(`groq: ${shortErr(e.message)}`);
+    return null;
+  }
 }
 
 async function tryOpenRouter(env, prompt, models, raw, promptHash, deadline) {
@@ -249,8 +361,11 @@ async function tryOpenRouter(env, prompt, models, raw, promptHash, deadline) {
         body: JSON.stringify({
           model,
           messages: [{ role: 'user', content: prompt }],
-          max_tokens: 1500,
-          temperature: 0.3
+          max_tokens: 4096,
+          temperature: 0.3,
+          // Nemotron Ultra is a reasoning model: at 1500 tokens its chain of
+          // thought ate the whole budget and content came back empty.
+          ...(model.includes('nemotron') ? { reasoning: { effort: 'low', exclude: true } } : {})
         }),
       }, Math.min(model === 'openrouter/free' ? 10000 : 18000, remaining));
 
@@ -266,7 +381,12 @@ async function tryOpenRouter(env, prompt, models, raw, promptHash, deadline) {
       }
 
       const data = await res.json();
-      const text = data.choices?.[0]?.message?.content;
+      const { text, error, finish } = extractChatText(data);
+      if (error) {
+        console.log(`[AI] ${model} provider error: ${error}`);
+        noteAIFailure(`openrouter ${getShortModelName(model)}: ${shortErr(error)}`);
+        continue;
+      }
 
       if (raw ? (text && text.trim()) : isValidAIResponse(text)) {
         const result = { text: raw ? text.trim() : cleanMarkdown(text.trim()), source: getShortModelName(model) };
@@ -276,10 +396,8 @@ async function tryOpenRouter(env, prompt, models, raw, promptHash, deadline) {
         console.log(`[AI] ✅ ${getShortModelName(model)} SUCCESS`);
         return result;
       }
-      if (!raw) {
-        console.log(`[AI] ${model} returned invalid content`);
-        noteAIFailure(`openrouter ${getShortModelName(model)}: invalid response (${aiValidationReason(text)})`);
-      }
+      console.log(`[AI] ${model} returned invalid content`);
+      noteAIFailure(`openrouter ${getShortModelName(model)}: invalid response (${finish === 'length' ? 'truncated' : aiValidationReason(text)})`);
     } catch (e) {
       console.error(`[AI] ${model} fail:`, e.message);
       noteAIFailure(`openrouter ${getShortModelName(model)}: ${shortErr(e.message)}`);
