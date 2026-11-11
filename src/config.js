@@ -77,6 +77,7 @@ const GEMINI_FALLBACK_URL = 'https://generativelanguage.googleapis.com/v1beta/mo
 const GEMINI_FALLBACK_URL_2 = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent';
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const FNG_URL = 'https://api.alternative.me/fng/?limit=2';
 
 const BINANCE_MAP = {
@@ -114,4 +115,4 @@ const EMOTION_STATES = {
 
 const STICKER_SET_NAME = 'TradeAgentIVstickers';
 
-export { TIER_1, TIER_2, TIER_3, COINS, COIN_IDS, CRON_PRICE, CRON_BUNDLE, CRON_MOVERS, ALERT_PRESETS, COINGECKO_BASE, CMC_BASE, GEMINI_URL, GEMINI_FALLBACK_URL, GEMINI_FALLBACK_URL_2, OPENROUTER_URL, FNG_URL, BINANCE_MAP, SYMBOL_TO_ID, CMC_SYMBOLS, FOOTER, AI_MODES, SCENARIOS, EMOTION_STATES, STICKER_SET_NAME };
+export { TIER_1, TIER_2, TIER_3, COINS, COIN_IDS, CRON_PRICE, CRON_BUNDLE, CRON_MOVERS, ALERT_PRESETS, COINGECKO_BASE, CMC_BASE, GEMINI_URL, GEMINI_FALLBACK_URL, GEMINI_FALLBACK_URL_2, OPENROUTER_URL, GROQ_URL, FNG_URL, BINANCE_MAP, SYMBOL_TO_ID, CMC_SYMBOLS, FOOTER, AI_MODES, SCENARIOS, EMOTION_STATES, STICKER_SET_NAME };

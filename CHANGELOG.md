@@ -3,6 +3,17 @@
 All notable changes to TradeAgent IV are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [6.1.6] — 2026-11-11
+
+### Fixed — AI provider architecture
+- **Cross-infrastructure chain.** v6.1.4 put three of five slots on Gemini, so one failure mode (egress geo-block 400 «User location is not supported», capacity 503s, timeouts) sank the whole run — both failure reports on 2026-11-11 show exactly that. The chain is now: Workers AI → Gemini 3.5 Flash-Lite → Groq → OpenRouter Nemotron → Gemini 3.6 → OpenRouter (Gemma 4 31B → free router). Gemini 3.8 removed (documented capacity collapse, never succeeded in production).
+- **Workers AI provider** (`@cf/qwen/qwen3-30b-a3b-fp8`, catalog-verified): runs on the same platform as the Worker, so it cannot be geo-blocked. Activates automatically when the `AI` binding is added in the dashboard; skipped silently until then.
+- **Groq provider** (`llama-3.3-70b-versatile`, catalog-verified): activates automatically when the `GROQ_API_KEY` secret is set; skipped silently until then.
+- **Geo-block memo:** one Gemini «User location is not supported» 400 marks Gemini blocked for 30 minutes; later Gemini steps skip instantly instead of burning the deadline.
+- **OpenRouter empties fixed:** response extraction now handles string content, array-of-parts content and errors embedded in 200 bodies (shared with Groq); Nemotron's reasoning is tamed (`effort: low, exclude: true`) — at the old 1500-token cap its chain-of-thought consumed the whole budget and the answer came back empty.
+- **Token budgets:** 1500 → 4096 output tokens on Gemini, OpenRouter and the new providers (the bilingual analysis plus Gemini 3.x thinking no longer truncates mid-format; MAX_TOKENS/length finishes are now named in the failure diagnostics).
+- **Validator judges content, not dialect:** drafts are normalized (markdown `**bold**`, `##` headings and bare heading lines become canonical sections) before the section/conclusion checks — a Gemini 3.6 draft was rejected with «only 1 section» purely for answering in markdown.
+
 ## [6.1.5] — 2026-11-03
 
 ### Added
