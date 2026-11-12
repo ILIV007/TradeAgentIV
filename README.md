@@ -38,7 +38,7 @@ On demand via the bot/admin: Volume Leaders (⚡ = unusual volume), Daily Intell
 ## ✨ Key Features
 
 - **Multi-API failover:** CoinGecko → CoinMarketCap → Binance for prices; Binance for futures and movers; Alternative.me for Fear & Greed. Coin IDs are monitored — a renamed upstream ID logs loudly instead of silently dropping a coin.
-- **Multi-model AI failover:** Gemini 3.8 Flash → Gemini 3.6 Flash → Gemini 2.5 Flash → free OpenRouter models, with per-model circuit breakers and an 8-hour KV response cache. If every provider fails, the channel stays silent and the admin is notified in private chat.
+- **Multi-model AI failover:** Workers AI (Qwen3 30B) → Gemini 3.5 Flash-Lite → Groq Llama 3.3 70B → OpenRouter Nemotron 3 Ultra → Gemini 3.6 Flash → OpenRouter Gemma 4 31B → free OpenRouter models, with per-model circuit breakers and an 8-hour KV response cache. If every provider fails, the channel stays silent and the admin is notified in private chat.
 - **Bilingual AI output:** structured English analysis followed by a compact Persian summary, with a custom **Emotion Engine** (💀 PANIC · 😰 FEAR · 😐 NEUTRAL · 🔥 MOMENTUM · 🚀 BREAKOUT · 🧨 FOMO) computed from BTC/ETH action, Fear & Greed and BTC dominance.
 - **Smart deduplication:** 10-minute gap + lock per post type; the send-all bundle reports dedup skips honestly.
 - **3-tier coin tracking (32 coins):**
