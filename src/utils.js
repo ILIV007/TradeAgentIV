@@ -40,13 +40,20 @@ function cleanMarkdown(text) {
     .replace(/```/g, '');
 }
 
+// v6.1.11 CPU diet: fmt.price runs ~100x per tick; constructing a
+// NumberFormat per call is pure overhead. Same output as toLocaleString
+// with the same options — verified by the fmt.price test below.
+const nf0 = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
+const nf2 = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const nf4 = new Intl.NumberFormat('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+const nf68 = new Intl.NumberFormat('en-US', { minimumFractionDigits: 6, maximumFractionDigits: 8 });
 const fmt = {
   price: (n) => {
     if (!n) return '$0.00';
-    if (n >= 1000) return n.toLocaleString('en-US', { maximumFractionDigits: 0 });
-    if (n >= 1)    return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    if (n >= 0.01) return n.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
-    return n.toLocaleString('en-US', { minimumFractionDigits: 6, maximumFractionDigits: 8 });
+    if (n >= 1000) return nf0.format(n);
+    if (n >= 1)    return nf2.format(n);
+    if (n >= 0.01) return nf4.format(n);
+    return nf68.format(n);
   },
   vol: (n) => {
     if (!n) return '$0';

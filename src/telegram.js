@@ -31,16 +31,21 @@ async function tgMethod(token, method, body) {
   }
 }
 
-async function sendRich(env, chatId, richHtml, fallbackText, markup = null, lang = 'en') {
+async function sendRich(env, chatId, richHtml, fallback, markup = null, lang = 'en') {
+  // v6.1.11 CPU diet: the classic fallback is LAZY — call sites pass a
+  // thunk (() => buildX(...)) and it is built only when rich is off or the
+  // rich send fails. Building it eagerly cost ~1.4ms on every price tick
+  // for a post that is almost never sent. A plain string still works.
+  const resolveFallback = async () => (typeof fallback === 'function' ? await fallback() : fallback);
   // Panel toggle (config rich_mode): off = classic format everywhere.
-  if ((await getConfig(env, 'rich_mode', 'on')) === 'off') return sendMessage(env, chatId, fallbackText, markup);
+  if ((await getConfig(env, 'rich_mode', 'on')) === 'off') return sendMessage(env, chatId, await resolveFallback(), markup);
   const body = { chat_id: chatId, rich_message: { html: richHtml } };
   if (markup) body.reply_markup = markup;
   try {
     return await tgMethod(env.TELEGRAM_BOT_TOKEN, 'sendRichMessage', body);
   } catch (e) {
     console.error('[TG] sendRichMessage failed, falling back to HTML:', e.message);
-    return sendMessage(env, chatId, fallbackText, markup);
+    return sendMessage(env, chatId, await resolveFallback(), markup);
   }
 }
 

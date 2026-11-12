@@ -206,7 +206,10 @@ test('market state assembles all sources and survives dead ones', async () => {
     assert.equal(s.derivatives.oiUsd, null); // deribit dead → fail-soft
     assert.ok(s.onchain && s.onchain.feeFast === null && s.onchain.hashrateEHs === null); // dead source degrades to null fields
     assert.equal(s.defi.tvl, 150);
-    assert.ok(Math.abs(s.defi.stableDelta7dPct - 5.26) < 0.01);
+    // v6.1.11 CPU diet: the stablecoins payload is no longer fetched —
+    // the fields stay null and the regime computes without that signal.
+    assert.equal(s.defi.stableSupply, null);
+    assert.equal(s.defi.stableDelta7dPct, null);
     assert.ok(Array.isArray(s.btcSpark) && s.btcSpark.length >= 8);
     assert.ok(s.regime && typeof s.regime.score === 'number' && Array.isArray(s.regime.reasons));
   } finally { globalThis.fetch = realFetch; }
@@ -950,4 +953,104 @@ test('v6.1.10 PV copy: copyToAdmin never throws when the copy fails', async () =
     await copyToAdmin(env, 'dedup-skipped');
     await copyToAdmin(env, [{ result: { message_id: 1 } }, { result: {} }]);
   } finally { globalThis.fetch = realFetch; }
+});
+
+// ── v6.1.11: CPU diet (free-plan 10ms cron budget) ────────────────
+test('v6.1.11 CPU diet: getDefi fetches TVL only, no stablecoins payload', async () => {
+  const { buildMarketState, computeRegime } = await import('../src/state.js');
+  const coins = senderCoins();
+  const seen = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => { seen.push(String(url)); return httpRes(200, stateDataRoute(url, coins)); };
+  try {
+    const s = await buildMarketState({ COINGECKO_API_KEY: 'cg', ALERTS_KV: makeKVStub() });
+    assert.ok(!seen.some((u) => u.includes('stablecoins.llama.fi')), 'stablecoins payload must not be fetched');
+    assert.ok(seen.some((u) => u.includes('api.llama.fi/v2/chains')), 'chains TVL still fetched');
+    assert.equal(typeof s.defi.tvl, 'number');
+    assert.equal(s.defi.stableSupply, null);
+    assert.equal(s.defi.stableDelta7dPct, null);
+    const r = computeRegime(s);
+    assert.ok(['RISK_ON', 'RISK_OFF', 'RANGE', 'CAPITULATION', 'EUPHORIA', 'SQUEEZE_RISK'].includes(r.label), r.label);
+    assert.equal(typeof r.score, 'number');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('v6.1.11 CPU diet: AI prompt omits the stablecoin segment when it is null (no literal null)', async () => {
+  const { stateDigest } = await import('../src/ai.js');
+  const s = {
+    prices: [
+      { id: 'bitcoin', current_price: 78000, price_change_percentage_24h: 1.5, price_change_percentage_7d_in_currency: -2, price_change_percentage_30d_in_currency: -5, total_volume: 1e9, market_cap: 1.5e12 },
+      { id: 'ethereum', current_price: 2500, price_change_percentage_24h: -1, price_change_percentage_7d_in_currency: 3, price_change_percentage_30d_in_currency: 0, total_volume: 5e8, market_cap: 3e11 },
+    ],
+    regime: { label: 'RANGE', score: 52, reasons: ['BTC 7d -2.0%'] },
+    global: { btcDominance: 60, marketCap: 2.6e12, volume24h: 5e10 },
+    fearGreed: { now: 37, yday: 30 },
+    derivatives: { fundingBtc: 0.01, fundingEth: 0.01, fundingSol: 0.01, oiUsd: 1e10, oiDeltaPct: 1, dvol: 40 },
+    onchain: null, defi: { tvl: 150, stableSupply: null, stableDelta7dPct: null },
+    macro: null, news: [],
+  };
+  const d = stateDigest(s);
+  assert.ok(d.includes('DeFi TVL $150'), 'TVL still in the prompt');
+  assert.ok(!d.includes('null'), 'no literal null may reach the AI prompt');
+});
+
+test('v6.1.11 CPU diet: sendRich builds the classic fallback only when rich fails', async () => {
+  const { sendRich } = await import('../src/telegram.js');
+  const env = { TELEGRAM_BOT_TOKEN: 'tok', TELEGRAM_CHANNEL_ID: '-100123', ADMIN_ID: '999', ALERTS_KV: makeKVStub() };
+  const realFetch = globalThis.fetch;
+  let built = 0;
+  const fallback = () => { built++; return 'CLASSIC'; };
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('api.telegram.org')) return { ok: true, status: 200, json: async () => ({ ok: true, result: { message_id: 1 } }), text: async () => '' };
+    throw new Error('unexpected fetch');
+  };
+  try {
+    await sendRich(env, '-100123', '<b>rich</b>', fallback);
+    assert.equal(built, 0, 'classic fallback must not be built when rich succeeds');
+  } finally { globalThis.fetch = realFetch; }
+  let classicSent = null;
+  globalThis.fetch = async (url, options = {}) => {
+    const u = String(url);
+    if (u.includes('sendRichMessage')) return { ok: false, status: 400, json: async () => ({ ok: false, description: 'bad' }), text: async () => 'bad' };
+    if (u.includes('sendMessage')) { classicSent = JSON.parse(options.body); return { ok: true, status: 200, json: async () => ({ ok: true, result: {} }), text: async () => '' }; }
+    throw new Error('unexpected fetch ' + u);
+  };
+  try {
+    built = 0;
+    await sendRich(env, '-100123', '<b>rich</b>', fallback);
+    assert.equal(built, 1, 'classic fallback built exactly once on rich failure');
+    assert.ok(classicSent && classicSent.text === 'CLASSIC', 'classic text sent as the fallback');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('v6.1.11 CPU diet: watcher reuses the shared state macro without re-fetching the calendar', async () => {
+  const { checkMacroEvents } = await import('../src/senders.js');
+  const eventTs = Date.now() + 30 * 60000;
+  const shared = { macro: { today: [{ title: 'CPI YoY', country: 'USD', impact: 'High', ts: eventTs, forecast: '3.1', previous: '3.0', actual: '' }], ahead: [], nextHighImpact: null } };
+  const tg = [];
+  const fetched = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    const u = String(url);
+    fetched.push(u);
+    if (u.includes('api.telegram.org')) { tg.push(JSON.parse(options.body)); return tgOkRes; }
+    throw new Error('no non-telegram fetch expected: ' + u);
+  };
+  try {
+    const env = { TELEGRAM_BOT_TOKEN: 'tok', TELEGRAM_CHANNEL_ID: '-100123', ADMIN_ID: '999', ALERTS_KV: makeKVStub() };
+    await checkMacroEvents(env, shared);
+    assert.ok(!fetched.some((u) => u.includes('faireconomy')), 'calendar must not be re-fetched when shared state carries it');
+    assert.ok(tg.some((b) => String(b.chat_id) === '-100123'), 'watch post still sent from the shared macro');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('v6.1.11 CPU diet: fmt.price cached formatters match toLocaleString output', () => {
+  for (const n of [0, 0.00012345, 0.05, 0.5, 1, 9.99, 999.99, 1000, 123456, 78000, 1234567.89]) {
+    const expected = !n ? '$0.00'
+      : n >= 1000 ? n.toLocaleString('en-US', { maximumFractionDigits: 0 })
+      : n >= 1 ? n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : n >= 0.01 ? n.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 })
+      : n.toLocaleString('en-US', { minimumFractionDigits: 6, maximumFractionDigits: 8 });
+    assert.equal(fmt.price(n), expected, `fmt.price(${n})`);
+  }
 });

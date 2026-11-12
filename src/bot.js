@@ -74,7 +74,7 @@ async function handlePVFlagship(chatId, env) {
     const text = result?.text ?? null;
     const v = text ? validateFlagship(text, s, lang) : null;
     if (!v?.ok) { await sendMessage(env, chatId, '⚠️ AI analysis unavailable right now.'); return; }
-    await sendRich(env, chatId, buildRichFlagship(s, v.parsed, lang), buildFlagshipClassic(s, v.parsed, lang), null, lang);
+    await sendRich(env, chatId, buildRichFlagship(s, v.parsed, lang), () => buildFlagshipClassic(s, v.parsed, lang), null, lang);
   } catch (e) {
     await sendMessage(env, chatId, `❌ ${esc(e.message)}`);
   }

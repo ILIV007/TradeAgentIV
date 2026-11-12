@@ -37,20 +37,13 @@ async function getMempool() {
 }
 
 async function getDefi() {
-  const [chains, stables] = await Promise.all([
-    api('https://api.llama.fi/v2/chains'),
-    api('https://stablecoins.llama.fi/stablecoins?includePrices=false'),
-  ]);
+  // v6.1.11 CPU diet: the stablecoins payload (~435KB) cost ~4-5ms of parse
+  // per tick for two lightly-weighted regime inputs. TVL only now; the
+  // stablecoin fields stay null and every consumer already null-guards
+  // (computeRegime, the AI prompt line, the rich table, numericCorpus).
+  const chains = await api('https://api.llama.fi/v2/chains');
   const tvl = Array.isArray(chains) ? chains.reduce((a, c) => a + (c.tvl || 0), 0) : null;
-  const assets = stables?.peggedAssets || [];
-  const sum = (k) => assets.reduce((a, x) => a + (x[k]?.peggedUSD || 0), 0);
-  const supply = assets.length ? sum('circulating') : null;
-  const prevWeek = assets.length ? sum('circulatingPrevWeek') : null;
-  return {
-    tvl,
-    stableSupply: supply,
-    stableDelta7dPct: supply && prevWeek ? ((supply - prevWeek) / prevWeek) * 100 : null,
-  };
+  return { tvl, stableSupply: null, stableDelta7dPct: null };
 }
 
 async function getMacro() {
