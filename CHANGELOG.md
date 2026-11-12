@@ -3,6 +3,12 @@
 All notable changes to TradeAgent IV are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [6.1.7] — 2026-11-12
+
+### Fixed — dispatch keyed on the cron's scheduled time
+- **Flagship 21:00 on 2026-11-11 never dispatched.** `handleCron` ran `sendChannelPrice` + `checkMacroEvents` BEFORE `cronDispatch(tehranParts())`, and `tehranParts()` defaults to `Date.now()` while `cronDispatch` matches `hm === '21:00'` exactly — a tick overrunning the minute boundary silently skipped its product (no log, no notify). The PV had no AI error, proving the chain never ran.
+- Dispatch now uses `event.scheduledTime` (Cloudflare's scheduled fire time for the tick) instead of the post-send wall clock, plus a `[CRON] Dispatch tick` log line. Regression test replays the exact 2026-11-11 21:00 tick.
+
 ## [6.1.6] — 2026-11-11
 
 ### Fixed — AI provider architecture

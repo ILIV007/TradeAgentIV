@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV HYBRID v6.1.6 — Gemini Migration
+//  TRADEAGENT IV HYBRID v6.1.7 — Gemini Migration
 // ═══════════════════════════════════════════════════════════════
 // Worker entry: cron + HTTP router (webhook, /admin, /debug).
 import { CRON_PRICE, CRON_BUNDLE, CRON_MOVERS, COINS, TIER_1, TIER_2, TIER_3 } from './config.js';
@@ -18,6 +18,11 @@ import { processWebhook } from './bot.js';
 async function handleCron(event, env) {
   const cron = event.cron;
   console.log(`[CRON] Triggered: ${cron}`);
+  const tickTs = event.scheduledTime ?? Date.now();
+  // Dispatch key: the cron's SCHEDULED fire time, not the wall clock after
+  // the slow price send + watcher. tehranParts() defaults to Date.now(),
+  // so a tick overrunning the minute boundary silently skipped its product
+  // (21:00 flagship, 2026-11-11: price + watcher finished at 21:01).
   
   try {
     const autoPosts = await getConfig(env, 'auto_posts', 'true');
@@ -32,7 +37,8 @@ async function handleCron(event, env) {
       // v6 products ride this pattern, dispatched by Tehran clock.
       await checkMacroEvents(env).catch((e) => console.error('[CRON] Watcher:', e.message));
       const dispatch = { macro: sendChannelMacroCalendar, brief: sendChannelMorningBrief, flagship: sendChannelFlagship, weekly: sendChannelWeekly };
-      for (const job of cronDispatch(tehranParts())) {
+      console.log(`[CRON] Dispatch tick ${tehranParts(tickTs).hm} (wall ${tehranParts().hm})`);
+      for (const job of cronDispatch(tehranParts(tickTs))) {
         try { await dispatch[job](env); console.log(`[CRON] ✅ dispatched ${job}`); }
         catch (e) { console.error(`[CRON] ❌ ${job}:`, e.message); }
       }
@@ -144,7 +150,7 @@ async function handleDebug(env) {
     tier1: Object.keys(TIER_1).length,
     tier2: Object.keys(TIER_2).length,
     tier3: Object.keys(TIER_3).length,
-    version: '6.1.6',
+    version: '6.1.7',
   };
 
   if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHANNEL_ID) {
@@ -207,8 +213,8 @@ async function handleHttp(request, env, ctx) {
   }
   if (path === '/' && request.method === 'GET') {
     return new Response(
-      `TradeAgent IV HYBRID v6.1.6 — AI-Powered Crypto Intelligence\n\n` +
-      `Backend: v6.1.6 (Market State, Regime Engine v2, rich delivery, flagship AI products, macro watcher)\n` +
+      `TradeAgent IV HYBRID v6.1.7 — AI-Powered Crypto Intelligence\n\n` +
+      `Backend: v6.1.7 (Market State, Regime Engine v2, rich delivery, flagship AI products, macro watcher)\n` +
       `UI: Plain <blockquote> for all sections + Gemini Priority + Updated Commands\n\n` +
       `Routes:\n` +
       `  POST /webhook  → Telegram webhook\n` +
