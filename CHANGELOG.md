@@ -3,6 +3,12 @@
 All notable changes to TradeAgent IV are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [6.1.8] — 2026-11-12
+
+### Fixed — one Market State build per tick (subrequest cap)
+- **Flagship 13:00 (and brief 09:30, macro 08:00) on 2026-11-12 still missed after the v6.1.7 dispatch fix, with a completely empty admin PV.** Root cause, measured with the real code: one `buildMarketState` costs ~23 subrequests (12 data sources, `api()` retries 3× on failure), and the tick rebuilt it per product — price (23) + watcher + flagship rebuild (23) + AI chain (6) = **55 fetches on a healthy tick, 69 with CoinGecko 429s — over the free-plan 50-subrequest cap**. Past the cap every `fetch()` throws, so the flagship's second build died inside the dispatch catch (no post, no notify — the notify fetch itself was over budget too), while the price post, first in the tick, always survived. Live worker verified v6.1.7 via its root endpoint, so this was not a stale deploy.
+- The `*/30` tick now builds the Market State **once** in `handleCron` and shares it with the snapshot, the macro watcher and every dispatched product (senders take an optional shared state; panel/manual sends still build their own). Healthy flagship tick: ~32 subrequests, with headroom for retries and fallbacks.
+
 ## [6.1.7] — 2026-11-12
 
 ### Fixed — dispatch keyed on the cron's scheduled time
