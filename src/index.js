@@ -1,12 +1,12 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV HYBRID v6.1.9 — Gemini Migration
+//  TRADEAGENT IV HYBRID v6.1.10 — Gemini Migration
 // ═══════════════════════════════════════════════════════════════
 // Worker entry: cron + HTTP router (webhook, /admin, /debug).
 import { CRON_PRICE, CRON_BUNDLE, CRON_MOVERS, COINS, TIER_1, TIER_2, TIER_3 } from './config.js';
 import { checkSecret, esc } from './utils.js';
 import { getCoins, getCoinsCG, getCoinsCMC, getCoinsBinance, getBinanceFutures, getFearGreed, getTopGainersLosers } from './data.js';
 import { testGeminiConnection } from './ai.js';
-import { tgMethod, getStickerFileId, sendChannelSticker } from './telegram.js';
+import { tgMethod, getStickerFileId, sendChannelSticker, copyToAdmin } from './telegram.js';
 import { getConfig } from './store.js';
 import { checkAlerts, sendChannelPrice, sendChannelVolume, sendChannelDaily, sendChannelAI, sendChannelTrending, sendChannelFng, sendChannelFutures, sendChannelMovers, sendChannelAll, sendChannelMorningBrief, sendChannelFlagship, sendChannelWeekly, sendChannelMacroCalendar, checkMacroEvents, getFreshState, tehranParts, cronDispatch, normalizeTickTs, notifyAdmin } from './senders.js';
 import { processWebhook } from './bot.js';
@@ -119,28 +119,30 @@ async function routeAdmin(request, env, ctx) {
   }
   const url = new URL(request.url);
   const type = url.searchParams.get('type') || 'price';
+  let sent;
   try {
-    if (type === 'price') await sendChannelPrice(env);
-    if (type === 'volume') await sendChannelVolume(env);
-    if (type === 'daily') await sendChannelDaily(env);
-    if (type === 'ai') await sendChannelAI(env);
-    if (type === 'trending') await sendChannelTrending(env);
-    if (type === 'fng') await sendChannelFng(env);
-    if (type === 'futures') await sendChannelFutures(env);
-    if (type === 'movers') await sendChannelMovers(env);
-    if (type === 'all') await sendChannelAll(env, ctx);
+    if (type === 'price') sent = await sendChannelPrice(env);
+    if (type === 'volume') sent = await sendChannelVolume(env);
+    if (type === 'daily') sent = await sendChannelDaily(env);
+    if (type === 'ai') sent = await sendChannelAI(env);
+    if (type === 'trending') sent = await sendChannelTrending(env);
+    if (type === 'fng') sent = await sendChannelFng(env);
+    if (type === 'futures') sent = await sendChannelFutures(env);
+    if (type === 'movers') sent = await sendChannelMovers(env);
+    if (type === 'all') sent = await sendChannelAll(env, ctx);
     if (type === 'alert') {
       const { data } = await getCoins(env);
       await checkAlerts(env, data);
     }
-    if (type === 'macro') await sendChannelMacroCalendar(env);
-    if (type === 'brief') await sendChannelMorningBrief(env);
-    if (type === 'flagship') await sendChannelFlagship(env);
-    if (type === 'weekly') await sendChannelWeekly(env);
+    if (type === 'macro') sent = await sendChannelMacroCalendar(env);
+    if (type === 'brief') sent = await sendChannelMorningBrief(env);
+    if (type === 'flagship') sent = await sendChannelFlagship(env);
+    if (type === 'weekly') sent = await sendChannelWeekly(env);
     if (type === 'watch') await checkMacroEvents(env);
     if (type === 'sticker') {
       await sendChannelSticker(env);
     }
+    await copyToAdmin(env, sent);
     return new Response('✅ Sent!', { status: 200 });
   } catch (e) {
     return new Response(`❌ ${e.message}`, { status: 500 });
@@ -162,7 +164,7 @@ async function handleDebug(env) {
     tier1: Object.keys(TIER_1).length,
     tier2: Object.keys(TIER_2).length,
     tier3: Object.keys(TIER_3).length,
-    version: '6.1.9',
+    version: '6.1.10',
   };
 
   if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHANNEL_ID) {
@@ -225,8 +227,8 @@ async function handleHttp(request, env, ctx) {
   }
   if (path === '/' && request.method === 'GET') {
     return new Response(
-      `TradeAgent IV HYBRID v6.1.9 — AI-Powered Crypto Intelligence\n\n` +
-      `Backend: v6.1.9 (Market State, Regime Engine v2, rich delivery, flagship AI products, macro watcher)\n` +
+      `TradeAgent IV HYBRID v6.1.10 — AI-Powered Crypto Intelligence\n\n` +
+      `Backend: v6.1.10 (Market State, Regime Engine v2, rich delivery, flagship AI products, macro watcher)\n` +
       `UI: Plain <blockquote> for all sections + Gemini Priority + Updated Commands\n\n` +
       `Routes:\n` +
       `  POST /webhook  → Telegram webhook\n` +

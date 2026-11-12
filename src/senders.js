@@ -168,7 +168,7 @@ async function sendChannelPrice(env, shared = null) {
       regime: s.regime,
     };
     const lang = await getLang(env);
-    await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichSnapshot(s.prices, s.source, ctx, lang), await buildPrice(s.prices, s.source, ctx, lang), null, lang);
+    return await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichSnapshot(s.prices, s.source, ctx, lang), await buildPrice(s.prices, s.source, ctx, lang), null, lang);
   });
 }
 
@@ -176,7 +176,7 @@ async function sendChannelVolume(env) {
   ensureChannel(env);
   return await dedupSend(env, 'volume', async () => {
     const { source, data } = await getCoins(env);
-    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildVolume(data, source, await getLang(env)));
+    return await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildVolume(data, source, await getLang(env)));
   });
 }
 
@@ -186,7 +186,7 @@ async function sendChannelDaily(env) {
     const [{ source, data }, globalData, trending, fear] = await Promise.all([
       getCoins(env), getGlobal(env), getTrending(env), getFearGreed(),
     ]);
-    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildDaily(data, globalData, trending, fear, source, await getLang(env)));
+    return await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildDaily(data, globalData, trending, fear, source, await getLang(env)));
   });
 }
 
@@ -195,7 +195,7 @@ async function sendChannelTrending(env) {
   return await dedupSend(env, 'trending', async () => {
     const trending = await getTrending(env);
     if (!trending) { console.log('[TRENDING] No data, staying silent'); return; }
-    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildTrending(trending, await trendingPriceMap(env), await getLang(env)));
+    return await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildTrending(trending, await trendingPriceMap(env), await getLang(env)));
   });
 }
 
@@ -203,7 +203,7 @@ async function sendChannelFng(env) {
   ensureChannel(env);
   return await dedupSend(env, 'fng', async () => {
     const fear = await getFearGreed();
-    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildFng(fear, await getLang(env)));
+    return await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildFng(fear, await getLang(env)));
   });
 }
 
@@ -249,7 +249,7 @@ async function sendChannelAI(env, customPrompt = null) {
     }
 
     const lang = await getLang(env);
-    await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichAIAnalysis(aiResult, today, emotion, lang), await buildAIAnalysis(aiResult, today, emotion, lang), null, lang);
+    return await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichAIAnalysis(aiResult, today, emotion, lang), await buildAIAnalysis(aiResult, today, emotion, lang), null, lang);
     await storeSnapshot(env, today);
   });
 }
@@ -265,7 +265,7 @@ async function sendChannelFutures(env) {
     const hasData = Object.values(futures).some(f => f && (f.fundingRate != null || f.openInterest != null));
     if (!hasData) { console.log('[FUTURES] No data, staying silent'); return; }
     const snap = await getSnapshot(env);
-    await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildFutures(futures, snap?.futures || {}, await getLang(env)));
+    return await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildFutures(futures, snap?.futures || {}, await getLang(env)));
   });
 }
 
@@ -277,7 +277,7 @@ async function sendChannelMovers(env) {
     console.log('[MOVERS] Data:', gl ? `G:${gl.gainers?.length} L:${gl.losers?.length}` : 'null');
     if (!gl || (!gl.gainers?.length && !gl.losers?.length)) { console.log('[MOVERS] No data, staying silent'); return; }
     const lang = await getLang(env);
-    await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichMovers(gl, lang), await buildMovers(gl, lang), null, lang);
+    return await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichMovers(gl, lang), await buildMovers(gl, lang), null, lang);
   });
 }
 
@@ -299,6 +299,7 @@ async function sendChannelAll(env, ctx) {
     await new Promise(r => setTimeout(r, 2000));
     
     const results = [];
+    const sent = [];
     const senders = [
       { name: 'Price', fn: sendChannelPrice }, 
       { name: 'Volume', fn: sendChannelVolume },
@@ -311,6 +312,7 @@ async function sendChannelAll(env, ctx) {
     for (const s of senders) {
       try {
         const r = await sendWithTimeout(s.fn, env, s.name, 35000);
+        if (r && r.result && r.result.message_id) sent.push(r);
         results.push(r === DEDUP_SKIPPED ? `⏭️ ${s.name} (dedup)` : `✅ ${s.name}`);
       }
       catch (e) { 
@@ -319,6 +321,7 @@ async function sendChannelAll(env, ctx) {
     }
     console.log('[SEND ALL]\n' + results.join('\n'));
     if (results.every(r => r.startsWith('❌'))) throw new Error('All sends failed');
+    return sent;
   });
 }
 
@@ -355,7 +358,7 @@ async function sendChannelMorningBrief(env, shared = null) {
     const s = shared ?? await getFreshState(env);
     const lang = await getLang(env);
     const ds = dateStr(lang);
-    await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichMorningBrief(s, ds, lang), buildBriefClassic(s, ds, lang), null, lang);
+    return await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichMorningBrief(s, ds, lang), buildBriefClassic(s, ds, lang), null, lang);
   });
 }
 
@@ -383,10 +386,11 @@ async function sendChannelFlagship(env, shared = null) {
       await notifyAdmin(env, '⚠️ <b>Flagship analysis failed validation</b> — no post was sent to the channel.' + (block ? `\n${block}` : ''));
       return;
     }
-    await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichFlagship(s, v.parsed, lang), buildFlagshipClassic(s, v.parsed, lang), null, lang);
+    const sent = await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichFlagship(s, v.parsed, lang), buildFlagshipClassic(s, v.parsed, lang), null, lang);
     const recs = (await kvGetJSON(env, 'scen:records')) || [];
     recs.push({ ts: Date.now(), btc: s.prices.find((c) => c.id === 'bitcoin')?.current_price || 0, scenarios: v.parsed.scenarios.map(({ kind, lean, level, side }) => ({ kind, lean, level, side })) });
     await kvPutJSON(env, 'scen:records', recs.slice(-40));
+    return sent;
   });
 }
 
@@ -434,7 +438,7 @@ async function sendChannelWeekly(env, shared = null) {
     const recs = ((await kvGetJSON(env, 'scen:records')) || []).filter((r) => now - r.ts <= 7 * 86400000);
     const week = { regimePath, scorecard: evaluateScorecard(recs, path) };
     const lang = await getLang(env);
-    await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichWeekly(s, week, lang), buildWeeklyClassic(s, week, lang), null, lang);
+    return await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichWeekly(s, week, lang), buildWeeklyClassic(s, week, lang), null, lang);
   });
 }
 
@@ -504,7 +508,7 @@ async function sendChannelMacroCalendar(env, shared = null) {
     const s = shared ?? await getFreshState(env);
     const lang = await getLang(env);
     const ds = dateStr(lang);
-    await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichMacroCalendar(s, ds, lang), buildMacroCalendarClassic(s, ds, lang), null, lang);
+    return await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichMacroCalendar(s, ds, lang), buildMacroCalendarClassic(s, ds, lang), null, lang);
   });
 }
 

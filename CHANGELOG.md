@@ -3,6 +3,11 @@
 All notable changes to TradeAgent IV are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [6.1.10] — 2026-11-12
+
+### Added — PV copy for manual sends (owner rule, 2026-11-12)
+- **A post sent to the channel manually is now also delivered to the admin PV.** Manual surfaces: panel buttons, `/send*` commands, custom-prompt AI sends, admin resend, and the `/admin` HTTP trigger. The cron path never copies. Mechanism: each `sendChannel*` sender returns the Telegram result (`message_id`); manual call sites pass it to `copyToAdmin` (new helper in `src/telegram.js`), which issues `copyMessage` from the channel to `ADMIN_ID`. Copy failures are logged only and can never fail the send itself. Verified live before shipping: `copyMessage` of the 22:09 manual flagship (msg 11943) to the admin PV returned 200. `sendChannelAll` returns the array of sent results so every post in a bulk send is copied; the sticker is not copied.
+
 ## [6.1.9] — 2026-11-12
 
 ### Fixed — silent flagship miss, third in a row (21:00, 2026-11-12)

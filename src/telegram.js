@@ -49,6 +49,28 @@ async function sendPoll(env, chatId, question, options) {
   return tgMethod(env.TELEGRAM_BOT_TOKEN, 'sendPoll', body);
 }
 
+// PV-COPY RULE (owner, 2026-11-12): a post sent to the channel MANUALLY
+// (panel button, /send* command, /admin trigger) is also delivered to the
+// admin PV as an exact copy. The cron path NEVER calls this. Never throws:
+// a failed copy must not fail the send itself.
+async function copyToAdmin(env, res) {
+  if (!env.ADMIN_ID || !res) return;
+  const list = Array.isArray(res) ? res : [res];
+  for (const r of list) {
+    const mid = r?.result?.message_id;
+    if (!mid) continue;
+    try {
+      await tgMethod(env.TELEGRAM_BOT_TOKEN, 'copyMessage', {
+        chat_id: env.ADMIN_ID,
+        from_chat_id: env.TELEGRAM_CHANNEL_ID,
+        message_id: mid,
+      });
+    } catch (e) {
+      console.error('[PV-COPY] failed for msg', mid, e.message);
+    }
+  }
+}
+
 async function sendMessage(env, chatId, text, markup = null) {
   const body = { chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true };
   if (markup) body.reply_markup = markup;
@@ -252,4 +274,4 @@ function alertsInline(states) {
   return { inline_keyboard: rows };
 }
 
-export { tgMethod, sendMessage, sendRich, sendPoll, sendSticker, answerCallback, editMessage, getStickerFileId, sendChannelSticker, mainKeyboard, getAdminInline, aiModeInline, scenarioInline, alertsInline };
+export { tgMethod, sendMessage, sendRich, sendPoll, sendSticker, answerCallback, editMessage, getStickerFileId, sendChannelSticker, copyToAdmin, mainKeyboard, getAdminInline, aiModeInline, scenarioInline, alertsInline };
