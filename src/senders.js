@@ -168,7 +168,7 @@ async function sendChannelPrice(env, shared = null) {
       regime: s.regime,
     };
     const lang = await getLang(env);
-    return await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichSnapshot(s.prices, s.source, ctx, lang), await buildPrice(s.prices, s.source, ctx, lang), null, lang);
+    return await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichSnapshot(s.prices, s.source, ctx, lang), () => buildPrice(s.prices, s.source, ctx, lang), null, lang);
   });
 }
 
@@ -249,7 +249,7 @@ async function sendChannelAI(env, customPrompt = null) {
     }
 
     const lang = await getLang(env);
-    return await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichAIAnalysis(aiResult, today, emotion, lang), await buildAIAnalysis(aiResult, today, emotion, lang), null, lang);
+    return await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichAIAnalysis(aiResult, today, emotion, lang), () => buildAIAnalysis(aiResult, today, emotion, lang), null, lang);
     await storeSnapshot(env, today);
   });
 }
@@ -277,7 +277,7 @@ async function sendChannelMovers(env) {
     console.log('[MOVERS] Data:', gl ? `G:${gl.gainers?.length} L:${gl.losers?.length}` : 'null');
     if (!gl || (!gl.gainers?.length && !gl.losers?.length)) { console.log('[MOVERS] No data, staying silent'); return; }
     const lang = await getLang(env);
-    return await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichMovers(gl, lang), await buildMovers(gl, lang), null, lang);
+    return await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichMovers(gl, lang), () => buildMovers(gl, lang), null, lang);
   });
 }
 
@@ -358,7 +358,7 @@ async function sendChannelMorningBrief(env, shared = null) {
     const s = shared ?? await getFreshState(env);
     const lang = await getLang(env);
     const ds = dateStr(lang);
-    return await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichMorningBrief(s, ds, lang), buildBriefClassic(s, ds, lang), null, lang);
+    return await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichMorningBrief(s, ds, lang), () => buildBriefClassic(s, ds, lang), null, lang);
   });
 }
 
@@ -386,7 +386,7 @@ async function sendChannelFlagship(env, shared = null) {
       await notifyAdmin(env, '⚠️ <b>Flagship analysis failed validation</b> — no post was sent to the channel.' + (block ? `\n${block}` : ''));
       return;
     }
-    const sent = await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichFlagship(s, v.parsed, lang), buildFlagshipClassic(s, v.parsed, lang), null, lang);
+    const sent = await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichFlagship(s, v.parsed, lang), () => buildFlagshipClassic(s, v.parsed, lang), null, lang);
     const recs = (await kvGetJSON(env, 'scen:records')) || [];
     recs.push({ ts: Date.now(), btc: s.prices.find((c) => c.id === 'bitcoin')?.current_price || 0, scenarios: v.parsed.scenarios.map(({ kind, lean, level, side }) => ({ kind, lean, level, side })) });
     await kvPutJSON(env, 'scen:records', recs.slice(-40));
@@ -438,7 +438,7 @@ async function sendChannelWeekly(env, shared = null) {
     const recs = ((await kvGetJSON(env, 'scen:records')) || []).filter((r) => now - r.ts <= 7 * 86400000);
     const week = { regimePath, scorecard: evaluateScorecard(recs, path) };
     const lang = await getLang(env);
-    return await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichWeekly(s, week, lang), buildWeeklyClassic(s, week, lang), null, lang);
+    return await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichWeekly(s, week, lang), () => buildWeeklyClassic(s, week, lang), null, lang);
   });
 }
 
@@ -448,7 +448,11 @@ async function checkMacroEvents(env, shared = null) {
   ensureChannel(env);
   const lang = await getLang(env);
   const T = L(lang);
-  const macro = await getMacroEvents().catch(() => null);
+  // v6.1.11 CPU diet: the tick's shared state already carries the macro
+  // calendar (buildMarketState fetched it); re-fetching it here cost
+  // ~1.5-2ms of parse per tick. Only fetch when no shared state was given
+  // (e.g. the manual /admin watch trigger).
+  const macro = shared ? shared.macro : await getMacroEvents().catch(() => null);
   if (!macro) return;
   const now = Date.now();
   const markers = (await kvGetJSON(env, 'watch:markers')) || { watched: [], flashed: [], spikeDay: '' };
@@ -460,7 +464,7 @@ async function checkMacroEvents(env, shared = null) {
     if (seen.has(key)) continue;
     seen.add(key);
     if (e.ts > now && e.ts - now <= 75 * 60000 && !markers.watched.includes(key)) {
-      await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichMacroWatch(e, lang), `👀 <b>${T.watchTitle} — ${esc(e.title)}</b>\n${T.forecast} ${esc(e.forecast || '—')} · ${T.previous} ${esc(e.previous || '—')}\n\n${footerClassic(lang)}`, null, lang);
+      await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichMacroWatch(e, lang), () => `👀 <b>${T.watchTitle} — ${esc(e.title)}</b>\n${T.forecast} ${esc(e.forecast || '—')} · ${T.previous} ${esc(e.previous || '—')}\n\n${footerClassic(lang)}`, null, lang);
       await sendPoll(env, env.TELEGRAM_CHANNEL_ID, lang === 'fa'
         ? `📊 ${e.title} (${e.country}) ساعت ${tehranTime(e.ts)} تهران منتشر می‌شود — بالاتر از انتظار یا پایین‌تر؟`
         : `📊 ${e.title} (${e.country}) prints at ${tehranTime(e.ts)} Tehran — beat or miss?`,
@@ -478,7 +482,7 @@ async function checkMacroEvents(env, shared = null) {
           ? `${e.title} با عدد ${e.actual} منتشر شد؛ پیش‌بینی ${e.forecast || '—'} و مقدار قبلی ${e.previous || '—'} بود. بیت‌کوین روی $${fmt.price(btc.current_price)} (${fmt.pct(btc.price_change_percentage_24h)} روزانه) معامله می‌شود و بازار در حال هضم این خبر است.`
           : `${e.title} printed at ${e.actual} versus ${e.forecast || '—'} expected (previous ${e.previous || '—'}). Bitcoin trades at $${fmt.price(btc.current_price)} (${fmt.pct(btc.price_change_percentage_24h)} on the day) as the market digests the release.`;
       }
-      await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichEventFlash(s, e, aiText, lang), buildFlashClassic(s, e, aiText, lang), null, lang);
+      await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichEventFlash(s, e, aiText, lang), () => buildFlashClassic(s, e, aiText, lang), null, lang);
       markers.flashed.push(key); dirty = true;
     }
   }
@@ -508,7 +512,7 @@ async function sendChannelMacroCalendar(env, shared = null) {
     const s = shared ?? await getFreshState(env);
     const lang = await getLang(env);
     const ds = dateStr(lang);
-    return await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichMacroCalendar(s, ds, lang), buildMacroCalendarClassic(s, ds, lang), null, lang);
+    return await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichMacroCalendar(s, ds, lang), () => buildMacroCalendarClassic(s, ds, lang), null, lang);
   });
 }
 
@@ -528,8 +532,9 @@ function normalizeTickTs(v) {
   return Number.isFinite(p) ? p : Date.now();
 }
 
+const tehranFmt = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Tehran', weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 function tehranParts(ts = Date.now()) {
-  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Tehran', weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(ts));
+  const parts = tehranFmt.formatToParts(new Date(ts));
   const g = (t) => parts.find((x) => x.type === t)?.value;
   return { weekday: g('weekday'), hm: `${g('hour')}:${g('minute')}` };
 }

@@ -577,7 +577,7 @@ function stateDigest(s) {
   const d = s.derivatives || {};
   lines.push(`Derivatives: funding BTC ${d.fundingBtc}% / ETH ${d.fundingEth}% / SOL ${d.fundingSol}% · Deribit OI $${d.oiUsd} (Δ ${d.oiDeltaPct}%) · DVOL ${d.dvol}`);
   if (s.onchain) lines.push(`On-chain: fast fee ${s.onchain.feeFast} sat/vB · hashrate ${s.onchain.hashrateEHs} EH/s`);
-  if (s.defi) lines.push(`Liquidity: DeFi TVL $${s.defi.tvl} · stablecoin supply $${s.defi.stableSupply} (7d ${s.defi.stableDelta7dPct}%)`);
+  if (s.defi) lines.push(`Liquidity: DeFi TVL $${s.defi.tvl}` + (s.defi.stableSupply != null ? ` · stablecoin supply $${s.defi.stableSupply} (7d ${s.defi.stableDelta7dPct}%)` : ''));
   if (s.macro?.nextHighImpact) { const e = s.macro.nextHighImpact; lines.push(`Next high-impact macro: ${e.title} (${e.country}) at ${new Date(e.ts).toISOString()} · forecast ${e.forecast || '—'} · previous ${e.previous || '—'}`); }
   if (s.news?.length) lines.push('Headlines: ' + s.news.slice(0, 4).map((n) => `[${n.src}] ${n.title}`).join(' | '));
   return lines.join('\n');

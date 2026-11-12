@@ -3,6 +3,16 @@
 All notable changes to TradeAgent IV are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [6.1.11] — 2026-11-12
+
+### Fixed — CPU diet for the free-plan 10ms cron budget
+- **The warm flagship tick measured ~14–19ms of CPU against the 10ms free-plan Cron Trigger budget** (docs + profiling, 2026-11-12) — price phase first (~4ms) so it always lands, the kill lands in the first post-price compute. Three wastes cut, expected saving ~7–8ms → tick ~6–8ms:
+  1. **DefiLlama stablecoins dropped** (`getDefi` fetches chains TVL only): the ~435KB payload cost ~4–5ms of parse per tick for two lightly-weighted regime inputs. `stableSupply`/`stableDelta7dPct` stay null; every consumer null-guards (regime, AI prompt line now omits the segment when null, rich table shows —, grounding corpus filters the 0s).
+  2. **Lazy classic fallback**: `sendRich` now takes the fallback as a thunk and builds it only when rich is off or the rich send fails. Building it eagerly cost ~1.4ms on every price tick.
+  3. **Watcher reuses the shared macro**: `checkMacroEvents` takes `shared.macro` when the tick passes the shared state instead of re-fetching + re-parsing the FF calendar (~1.5–2ms). Manual `/admin watch` (no shared state) still fetches.
+- Also cached: `Intl.NumberFormat` instances behind `fmt.price` (~100 calls/tick) and the Tehran `DateTimeFormat` behind `tehranParts` — identical output, verified by test.
+- Tests: 50/50 green (5 new: no stablecoins fetch + regime still computes; prompt has no literal null; lazy fallback built 0x on rich success / 1x on failure; watcher makes no calendar fetch with shared state; fmt.price output identical). One old test updated to the new contract (stable fields null by design).
+
 ## [6.1.10] — 2026-11-12
 
 ### Added — PV copy for manual sends (owner rule, 2026-11-12)
