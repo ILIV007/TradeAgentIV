@@ -823,12 +823,16 @@ test('v6.1.9 normalizeTickTs: seconds epoch and ISO strings dispatch like ms epo
   assert.ok(Number.isFinite(garbage) && Math.abs(garbage - Date.now()) < 60000, 'garbage falls back to wall clock');
 });
 
+// Number-free flagship draft (module scope so the v6.1.9/v6.1.10 stubs share it):
+// passes validateFlagship against ANY state — grounding checks numbers only.
+const pvCopyDraft = `===VERDICT===\nBitcoin is range-bound and quiet, with no single driver dominating the session.\n===OVERVIEW===\nThe market drifted sideways through the session with low volatility and thin conviction on either side.\nTraders are waiting for the next catalyst rather than chasing price.\n===DRIVERS===\n1. Quiet spot flows — participation stayed light across the majors\n2. Calm leverage — funding stayed muted and liquidations were minimal\n3. Steady structure — price held its recent range without a decisive break\n===SCENARIOS===\n===SCENARIO:BASE===\nLean: FLAT\nLevel: NONE\nSide: NONE\nText: While the range holds, sideways drift continues and dips keep attracting patient bids.\n===SCENARIO:BULL===\nLean: UP\nLevel: NONE\nSide: NONE\nText: A decisive break above the range high would invite momentum buyers back in.\n===SCENARIO:BEAR===\nLean: DOWN\nLevel: NONE\nSide: NONE\nText: A decisive break below the range low would open the door to a deeper correction.\n===WATCH===\nThe next scheduled macro release is the event to watch for a volatility pickup.\n===INVALIDATION===\nA daily close far outside the recent range invalidates this calm read.\n===PERSIAN===\nحکم: بیت‌کوین در محدوده نوسان می‌کند و بازار آرام و خنثی است\nسطوح: حمایت و مقاومت محدوده اخیر سطوح کلیدی امروزند\nسناریو: سناریوی پایه ادامه نوسان در همین محدوده است\nمراقبت: داده‌های کلان پیش رو مهم‌ترین رویداد است`;
+
 test('v6.1.9 loud dispatch: a throw inside the flagship job notifies the admin', async () => {
   const worker = (await import('../src/index.js')).default;
   const { BINANCE_MAP } = await import('../src/config.js');
   // Number-free draft: passes validateFlagship against ANY state (grounding
   // checks numbers only), so the failure below is the send, not validation.
-  const draft = `===VERDICT===\nBitcoin is range-bound and quiet, with no single driver dominating the session.\n===OVERVIEW===\nThe market drifted sideways through the session with low volatility and thin conviction on either side.\nTraders are waiting for the next catalyst rather than chasing price.\n===DRIVERS===\n1. Quiet spot flows — participation stayed light across the majors\n2. Calm leverage — funding stayed muted and liquidations were minimal\n3. Steady structure — price held its recent range without a decisive break\n===SCENARIOS===\n===SCENARIO:BASE===\nLean: FLAT\nLevel: NONE\nSide: NONE\nText: While the range holds, sideways drift continues and dips keep attracting patient bids.\n===SCENARIO:BULL===\nLean: UP\nLevel: NONE\nSide: NONE\nText: A decisive break above the range high would invite momentum buyers back in.\n===SCENARIO:BEAR===\nLean: DOWN\nLevel: NONE\nSide: NONE\nText: A decisive break below the range low would open the door to a deeper correction.\n===WATCH===\nThe next scheduled macro release is the event to watch for a volatility pickup.\n===INVALIDATION===\nA daily close far outside the recent range invalidates this calm read.\n===PERSIAN===\nحکم: بیت‌کوین در محدوده نوسان می‌کند و بازار آرام و خنثی است\nسطوح: حمایت و مقاومت محدوده اخیر سطوح کلیدی امروزند\nسناریو: سناریوی پایه ادامه نوسان در همین محدوده است\nمراقبت: داده‌های کلان پیش رو مهم‌ترین رویداد است`;
+  // (flagshipDraft is defined at module scope below the v6.1.8 tests)
   const tg = [];
   const tickers = Object.values(BINANCE_MAP).map((sym, i) => ({ symbol: sym, lastPrice: String(100 + i), priceChangePercent: '0.5', quoteVolume: '500000000', openPrice: '100' }));
   const klines = Array.from({ length: 168 }, (_, i) => [1700000000000 + i * 3600000, '78000', '78500', '77500', '78200', '10', 0, 0, 0, 0, 0, 0]);
@@ -849,7 +853,7 @@ test('v6.1.9 loud dispatch: a throw inside the flagship job notifies the admin',
     if (u.includes('api.binance.com')) return { ok: true, status: 200, json: async () => [], text: async () => '' };
     if (u.includes('alternative.me')) return { ok: true, status: 200, json: async () => ({ data: [{ value: '60', value_classification: 'Greed' }] }), text: async () => '' };
     if (u.includes('generativelanguage.googleapis.com')) return { ok: false, status: 400, json: async () => ({}), text: async () => '{"error":{"code":400,"message":"User location is not supported"}}' };
-    if (u.includes('openrouter.ai')) return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: draft }, finish_reason: 'stop' }] }), text: async () => '' };
+    if (u.includes('openrouter.ai')) return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: pvCopyDraft }, finish_reason: 'stop' }] }), text: async () => '' };
     if (u.includes('coindesk') || u.includes('cointelegraph') || u.includes('decrypt')) return { ok: true, status: 200, json: async () => ({}), text: async () => RSS };
     return { ok: true, status: 200, json: async () => ({}), text: async () => '{}' };
   };
@@ -864,5 +868,86 @@ test('v6.1.9 loud dispatch: a throw inside the flagship job notifies the admin',
     const notify = tg.find((b) => String(b.chat_id) === '999');
     assert.ok(notify && notify.text.includes('[CRON] flagship failed'), 'dispatch throw must notify the admin, not die in console.error');
     assert.ok(notify.text.includes('21:00'), 'notify names the tick');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+// ── v6.1.10: PV-COPY RULE — manual sends also land in the admin PV ──
+// Shared stub: Telegram calls recorded (with the message_id each returned),
+// data/AI routes mirror the v6.1.9 replay (CoinGecko 429, Binance fallback,
+// Gemini geo-400, OpenRouter returns the number-free flagship draft).
+function installPvStub(tg) {
+  const tickers = Object.values(BINANCE_MAP).map((sym, i) => ({ symbol: sym, lastPrice: String(100 + i), priceChangePercent: '0.5', quoteVolume: '500000000', openPrice: '100' }));
+  const klines = Array.from({ length: 168 }, (_, i) => [1700000000000 + i * 3600000, '78000', '78500', '77500', '78200', '10', 0, 0, 0, 0, 0, 0]);
+  const RSS = `<?xml version="1.0"?><rss><channel><item><title>Bitcoin holds steady</title><link>https://example.com/a</link><pubDate>Wed, 12 Nov 2026 17:00:00 GMT</pubDate></item></channel></rss>`;
+  let msgId = 100;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    const u = String(url);
+    if (u.includes('api.telegram.org')) {
+      const method = u.split('/').pop();
+      const b = JSON.parse(options.body || '{}');
+      const res = { ok: true, result: { message_id: ++msgId } };
+      tg.push({ method, ...b, _returnedId: res.result.message_id });
+      return { ok: true, status: 200, json: async () => res, text: async () => '' };
+    }
+    if (u.includes('coingecko.com')) return { ok: false, status: 429, json: async () => ({}), text: async () => '429' };
+    if (u.includes('api.binance.com') && u.includes('ticker/24hr')) return { ok: true, status: 200, json: async () => tickers, text: async () => '' };
+    if (u.includes('api.binance.com') && u.includes('klines')) return { ok: true, status: 200, json: async () => klines, text: async () => '' };
+    if (u.includes('api.binance.com')) return { ok: true, status: 200, json: async () => [], text: async () => '' };
+    if (u.includes('alternative.me')) return { ok: true, status: 200, json: async () => ({ data: [{ value: '60', value_classification: 'Greed' }] }), text: async () => '' };
+    if (u.includes('generativelanguage.googleapis.com')) return { ok: false, status: 400, json: async () => ({}), text: async () => '{"error":{"code":400,"message":"User location is not supported"}}' };
+    if (u.includes('openrouter.ai')) return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: pvCopyDraft }, finish_reason: 'stop' }] }), text: async () => '' };
+    if (u.includes('coindesk') || u.includes('cointelegraph') || u.includes('decrypt')) return { ok: true, status: 200, json: async () => ({}), text: async () => RSS };
+    return { ok: true, status: 200, json: async () => ({}), text: async () => '{}' };
+  };
+  return () => { globalThis.fetch = realFetch; };
+}
+
+test('v6.1.10 PV copy: manual /sendflagship also delivers the channel post to the admin PV', async () => {
+  const worker = (await import('../src/index.js')).default;
+  const tg = [];
+  const restore = installPvStub(tg);
+  try {
+    const env = { TELEGRAM_BOT_TOKEN: 'tok', TELEGRAM_CHANNEL_ID: '-100123', ADMIN_ID: '999', GEMINI_API_KEY: 'g', OPENROUTER_API_KEY: 'or', COINGECKO_API_KEY: 'cg', ALERTS_KV: makeKVStub() };
+    const update = { update_id: 1, message: { message_id: 1, chat: { id: 999 }, from: { id: 999 }, text: '/sendflagship' } };
+    const res = await worker.fetch(new Request('https://worker/webhook', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(update) }), env, { waitUntil: () => {} });
+    assert.equal(res.status, 200);
+    const channelPost = tg.find((b) => b.method === 'sendRichMessage' && String(b.chat_id) === '-100123');
+    assert.ok(channelPost, 'flagship must post to the channel');
+    const copy = tg.find((b) => b.method === 'copyMessage');
+    assert.ok(copy, 'manual send must copy the post to the admin PV');
+    assert.equal(String(copy.chat_id), '999');
+    assert.equal(String(copy.from_chat_id), '-100123');
+    assert.equal(copy.message_id, channelPost._returnedId, 'copy must reference the channel message just sent');
+    assert.ok(tg.some((b) => b.method === 'sendMessage' && String(b.chat_id) === '999' && b.text.includes('✅ Done!')), 'Done confirmation still sent');
+  } finally { restore(); }
+});
+
+test('v6.1.10 PV copy: the cron flagship does NOT copy to the admin PV', async () => {
+  const worker = (await import('../src/index.js')).default;
+  const tg = [];
+  const restore = installPvStub(tg);
+  try {
+    const env = { TELEGRAM_BOT_TOKEN: 'tok', TELEGRAM_CHANNEL_ID: '-100123', ADMIN_ID: '999', GEMINI_API_KEY: 'g', OPENROUTER_API_KEY: 'or', COINGECKO_API_KEY: 'cg', ALERTS_KV: makeKVStub() };
+    let done;
+    const ctx = { waitUntil: (p) => { done = p; } };
+    await worker.scheduled({ cron: '*/30 * * * *', scheduledTime: Date.parse('2026-11-12T17:30:00Z') }, env, ctx);
+    await done;
+    const channelPosts = tg.filter((b) => b.method === 'sendRichMessage' && String(b.chat_id) === '-100123');
+    assert.ok(channelPosts.length >= 2, 'price + flagship must both post on the cron tick');
+    assert.ok(!tg.some((b) => b.method === 'copyMessage'), 'cron sends must never copy to PV');
+  } finally { restore(); }
+});
+
+test('v6.1.10 PV copy: copyToAdmin never throws when the copy fails', async () => {
+  const { copyToAdmin } = await import('../src/telegram.js');
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error('telegram down'); };
+  try {
+    const env = { TELEGRAM_BOT_TOKEN: 'tok', TELEGRAM_CHANNEL_ID: '-100123', ADMIN_ID: '999' };
+    await copyToAdmin(env, { result: { message_id: 777 } });
+    await copyToAdmin(env, null);
+    await copyToAdmin(env, 'dedup-skipped');
+    await copyToAdmin(env, [{ result: { message_id: 1 } }, { result: {} }]);
   } finally { globalThis.fetch = realFetch; }
 });

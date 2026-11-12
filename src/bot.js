@@ -6,7 +6,7 @@ import { testGeminiConnection, getAIAnalysis, buildFlagshipPrompt, validateFlags
 import { buildPrice, buildVolume, buildDaily, buildTrending, buildFng, buildAIAnalysis, buildFlagshipClassic } from './posts.js';
 import { buildRichFlagship } from './rich.js';
 import { footerClassic } from './i18n.js';
-import { sendMessage, sendRich, editMessage, answerCallback, mainKeyboard, getAdminInline, aiModeInline, scenarioInline, alertsInline } from './telegram.js';
+import { sendMessage, sendRich, editMessage, answerCallback, copyToAdmin, mainKeyboard, getAdminInline, aiModeInline, scenarioInline, alertsInline } from './telegram.js';
 import { getConfig, setConfig, getUserState, setUserState } from './store.js';
 import { getAllAlertStates, getAlertState, setAlertState, getLang, trendingPriceMap, sendChannelPrice, sendChannelVolume, sendChannelDaily, sendChannelTrending, sendChannelFng, sendChannelAI, sendChannelFutures, sendChannelMovers, sendChannelAll, sendChannelMorningBrief, sendChannelFlagship, sendChannelWeekly, sendChannelMacroCalendar, getFreshState } from './senders.js';
 
@@ -217,7 +217,7 @@ async function processWebhook(update, env, ctx) {
         await setUserState(env, userId, null);
         await sendMessage(env, chatId, '⏳ Processing custom prompt...');
         try {
-          await sendChannelAI(env, text);
+          await copyToAdmin(env, await sendChannelAI(env, text));
           await sendMessage(env, chatId, '✅ Custom AI analysis sent to channel!');
         } catch (e) {
           await sendMessage(env, chatId, `❌ Error: ${esc(e.message)}`);
@@ -248,17 +248,17 @@ async function processWebhook(update, env, ctx) {
       }
       else if (text === '/sendprice') {
         if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
-        await sendMessage(env, chatId, '⏳ Sending snapshot...'); await sendChannelPrice(env); await sendMessage(env, chatId, '✅ Done!');
+        await sendMessage(env, chatId, '⏳ Sending snapshot...'); await copyToAdmin(env, await sendChannelPrice(env)); await sendMessage(env, chatId, '✅ Done!');
       }
       else if (text === '/sendvolume') {
         if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
-        await sendMessage(env, chatId, '⏳ Sending volume...'); await sendChannelVolume(env); await sendMessage(env, chatId, '✅ Done!');
+        await sendMessage(env, chatId, '⏳ Sending volume...'); await copyToAdmin(env, await sendChannelVolume(env)); await sendMessage(env, chatId, '✅ Done!');
       }
       else if (text === '/sendai') {
         if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
         await sendMessage(env, chatId, '⏳ Generating AI analysis...'); 
         try {
-          await sendChannelAI(env); 
+          await copyToAdmin(env, await sendChannelAI(env));
           await sendMessage(env, chatId, '✅ Done!');
         } catch (e) {
           await sendMessage(env, chatId, `❌ AI Failed: ${esc(e.message)}`);
@@ -266,24 +266,26 @@ async function processWebhook(update, env, ctx) {
       }
       else if (text === '/senddaily') {
         if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
-        await sendMessage(env, chatId, '⏳ Sending daily report...'); await sendChannelDaily(env); await sendMessage(env, chatId, '✅ Done!');
+        await sendMessage(env, chatId, '⏳ Sending daily report...'); await copyToAdmin(env, await sendChannelDaily(env)); await sendMessage(env, chatId, '✅ Done!');
       }
       else if (text === '/sendfutures') {
         if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
-        await sendMessage(env, chatId, '⏳ Sending futures...'); await sendChannelFutures(env); await sendMessage(env, chatId, '✅ Done!');
+        await sendMessage(env, chatId, '⏳ Sending futures...'); await copyToAdmin(env, await sendChannelFutures(env)); await sendMessage(env, chatId, '✅ Done!');
       }
       else if (text === '/sendmovers') {
         if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
-        await sendMessage(env, chatId, '⏳ Sending movers...'); await sendChannelMovers(env); await sendMessage(env, chatId, '✅ Done!');
+        await sendMessage(env, chatId, '⏳ Sending movers...'); await copyToAdmin(env, await sendChannelMovers(env)); await sendMessage(env, chatId, '✅ Done!');
       }
       else if (text === '/sendbrief' || text === '/sendflagship' || text === '/sendmacro' || text === '/sendweekly') {
         if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
         await sendMessage(env, chatId, '⏳ Sending to channel...');
+        let sent;
         try {
-          if (text === '/sendbrief') await sendChannelMorningBrief(env);
-          if (text === '/sendflagship') await sendChannelFlagship(env);
-          if (text === '/sendmacro') await sendChannelMacroCalendar(env);
-          if (text === '/sendweekly') await sendChannelWeekly(env);
+          if (text === '/sendbrief') sent = await sendChannelMorningBrief(env);
+          if (text === '/sendflagship') sent = await sendChannelFlagship(env);
+          if (text === '/sendmacro') sent = await sendChannelMacroCalendar(env);
+          if (text === '/sendweekly') sent = await sendChannelWeekly(env);
+          await copyToAdmin(env, sent);
           await sendMessage(env, chatId, '✅ Done!');
         } catch (e) { await sendMessage(env, chatId, `❌ ${esc(e.message)}`); }
       }
@@ -291,7 +293,7 @@ async function processWebhook(update, env, ctx) {
         if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
         await sendMessage(env, chatId, '⏳ Sending all reports...'); 
         try {
-          await sendChannelAll(env, ctx); 
+          await copyToAdmin(env, await sendChannelAll(env, ctx));
           await sendMessage(env, chatId, '✅ All done! Sticker sent first.');
         } catch (e) {
           await sendMessage(env, chatId, `❌ Error: ${esc(e.message)}`);
@@ -307,7 +309,7 @@ async function processWebhook(update, env, ctx) {
         }
         await sendMessage(env, chatId, '⏳ Processing...');
         try {
-          await sendChannelAI(env, prompt);
+          await copyToAdmin(env, await sendChannelAI(env, prompt));
           await sendMessage(env, chatId, '✅ Custom AI sent to channel!');
         } catch (e) {
           await sendMessage(env, chatId, `❌ AI Failed: ${esc(e.message)}`);
@@ -332,19 +334,21 @@ async function processWebhook(update, env, ctx) {
       if (data.startsWith('send_')) {
         if (!isAdmin(userId, env)) { await sendMessage(env, chatId, '⛔️ Forbidden'); return; }
         await sendMessage(env, chatId, '⏳ Sending to channel...');
+        let sent;
         try {
-          if (data === 'send_price') await sendChannelPrice(env);
-          if (data === 'send_brief') await sendChannelMorningBrief(env);
-          if (data === 'send_flagship') await sendChannelFlagship(env);
-          if (data === 'send_macro') await sendChannelMacroCalendar(env);
-          if (data === 'send_weekly') await sendChannelWeekly(env);
-          if (data === 'send_volume') await sendChannelVolume(env);
-          if (data === 'send_ai') await sendChannelAI(env);
-          if (data === 'send_trending') await sendChannelTrending(env);
-          if (data === 'send_fng') await sendChannelFng(env);
-          if (data === 'send_all') await sendChannelAll(env, ctx);
-          if (data === 'send_futures') await sendChannelFutures(env);
-          if (data === 'send_movers') await sendChannelMovers(env);
+          if (data === 'send_price') sent = await sendChannelPrice(env);
+          if (data === 'send_brief') sent = await sendChannelMorningBrief(env);
+          if (data === 'send_flagship') sent = await sendChannelFlagship(env);
+          if (data === 'send_macro') sent = await sendChannelMacroCalendar(env);
+          if (data === 'send_weekly') sent = await sendChannelWeekly(env);
+          if (data === 'send_volume') sent = await sendChannelVolume(env);
+          if (data === 'send_ai') sent = await sendChannelAI(env);
+          if (data === 'send_trending') sent = await sendChannelTrending(env);
+          if (data === 'send_fng') sent = await sendChannelFng(env);
+          if (data === 'send_all') sent = await sendChannelAll(env, ctx);
+          if (data === 'send_futures') sent = await sendChannelFutures(env);
+          if (data === 'send_movers') sent = await sendChannelMovers(env);
+          await copyToAdmin(env, sent);
           const mode = await getConfig(env, 'ai_mode', 'normal');
           const scenario = await getConfig(env, 'scenario', 'neutral');
           const autoPosts = await getConfig(env, 'auto_posts', 'true');
@@ -421,7 +425,7 @@ async function processWebhook(update, env, ctx) {
           const lastToday = env.ALERTS_KV ? JSON.parse(await env.ALERTS_KV.get('last:today') || 'null') : null;
           const lastEmotion = env.ALERTS_KV ? JSON.parse(await env.ALERTS_KV.get('last:emotion') || 'null') : null;
           if (lastResult && lastToday) {
-            await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildAIAnalysis(lastResult, lastToday, lastEmotion, await getLang(env)));
+            await copyToAdmin(env, await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildAIAnalysis(lastResult, lastToday, lastEmotion, await getLang(env))));
             await sendMessage(env, chatId, '✅ Resent to channel!');
           } else {
             await sendMessage(env, chatId, '⚠️ No previous analysis found.');
