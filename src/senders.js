@@ -331,7 +331,7 @@ async function trendingPriceMap(env) {
   } catch (e) { return {}; }
 }
 
-export { trendingPriceMap, getAllAlertStates, getAlertState, setAlertState, getLang, checkAlerts, collectMarketData, sendChannelPrice, sendChannelVolume, sendChannelDaily, sendChannelTrending, sendChannelFng, sendChannelAI, sendChannelFutures, sendChannelMovers, sendChannelAll, sendChannelMorningBrief, sendChannelFlagship, sendChannelWeekly, sendChannelMacroCalendar, checkMacroEvents, evaluateScorecard, getFreshState, tehranParts, cronDispatch };
+export { trendingPriceMap, getAllAlertStates, getAlertState, setAlertState, getLang, checkAlerts, collectMarketData, sendChannelPrice, sendChannelVolume, sendChannelDaily, sendChannelTrending, sendChannelFng, sendChannelAI, sendChannelFutures, sendChannelMovers, sendChannelAll, sendChannelMorningBrief, sendChannelFlagship, sendChannelWeekly, sendChannelMacroCalendar, checkMacroEvents, evaluateScorecard, getFreshState, tehranParts, cronDispatch, normalizeTickTs, notifyAdmin };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // v6 SENDERS — Morning Brief, Flagship, Weekly, Macro Watcher
@@ -511,6 +511,19 @@ async function sendChannelMacroCalendar(env, shared = null) {
 // The cron PATTERN count never changes (3, as in production). The */30
 // price cron additionally dispatches the daily products by Tehran clock
 // so each post lands at its own time.
+// scheduledTime is documented as a ms epoch, but a seconds-epoch (or
+// string) value silently shifts dispatch off its minute: a seconds epoch
+// replays as hm 21:58, so cronDispatch returns [] and every product misses
+// while the price snapshot posts (2026-11-12, third flagship miss in a row).
+// Normalize defensively; garbage falls back to the wall clock.
+function normalizeTickTs(v) {
+  if (v == null) return Date.now();
+  const n = typeof v === 'number' ? v : Number(v);
+  if (Number.isFinite(n) && n > 0) return n < 1e12 ? n * 1000 : n;
+  const p = typeof v === 'string' ? Date.parse(v) : NaN;
+  return Number.isFinite(p) ? p : Date.now();
+}
+
 function tehranParts(ts = Date.now()) {
   const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Tehran', weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(ts));
   const g = (t) => parts.find((x) => x.type === t)?.value;

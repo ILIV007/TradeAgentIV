@@ -3,6 +3,13 @@
 All notable changes to TradeAgent IV are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [6.1.9] — 2026-11-12
+
+### Fixed — silent flagship miss, third in a row (21:00, 2026-11-12)
+- **The 21:00 flagship missed AGAIN after v6.1.8 — only the price snapshot posted, third consecutive miss (2026-11-11 21:00, 2026-11-12 13:00 + 21:00).** A full-tick replay of the shipped v6.1.8 code (bad CoinGecko night + production AI failure pattern) totals **40 subrequests, under the 50 cap**, posts the snapshot AND sends the admin failure notice — so the cap theory does not explain this miss, and the AI chain is exonerated again (it would have notified). Two silent paths remain, both console-only:
+  1. **`scheduledTime` shape:** a seconds-epoch value replays as hm `21:58`, so `cronDispatch` returns `[]` and every product misses while the price snapshot posts. `normalizeTickTs` now accepts ms epoch, seconds epoch, ISO/numeric strings, and falls back to the wall clock on garbage.
+  2. **Dispatch catch:** any throw inside a dispatched job died in `console.error` only. The catch now also calls `notifyAdmin`, so a dispatch failure reaches the admin PV with the job name, tick time and error.
+
 ## [6.1.8] — 2026-11-12
 
 ### Fixed — one Market State build per tick (subrequest cap)
