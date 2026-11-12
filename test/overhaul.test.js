@@ -811,3 +811,58 @@ test('v6.1.8 shared state: price/brief/flagship with a prebuilt state make ZERO 
     assert.equal(dataCalls.length, 0, `shared state must skip data fetches, got: ${dataCalls.join(', ')}`);
   } finally { globalThis.fetch = realFetch; }
 });
+
+test('v6.1.9 normalizeTickTs: seconds epoch and ISO strings dispatch like ms epoch', async () => {
+  const { normalizeTickTs, tehranParts, cronDispatch } = await import('../src/senders.js');
+  const ms = Date.parse('2026-11-12T17:30:00Z');
+  assert.equal(tehranParts(normalizeTickTs(ms)).hm, '21:00');
+  assert.deepEqual(cronDispatch(tehranParts(normalizeTickTs(ms / 1000))), ['flagship'], 'seconds epoch must not silently skip');
+  assert.deepEqual(cronDispatch(tehranParts(normalizeTickTs('2026-11-12T17:30:00Z'))), ['flagship'], 'ISO string must dispatch');
+  assert.deepEqual(cronDispatch(tehranParts(normalizeTickTs(String(ms / 1000)))), ['flagship'], 'numeric seconds string must dispatch');
+  const garbage = normalizeTickTs('not-a-date');
+  assert.ok(Number.isFinite(garbage) && Math.abs(garbage - Date.now()) < 60000, 'garbage falls back to wall clock');
+});
+
+test('v6.1.9 loud dispatch: a throw inside the flagship job notifies the admin', async () => {
+  const worker = (await import('../src/index.js')).default;
+  const { BINANCE_MAP } = await import('../src/config.js');
+  // Number-free draft: passes validateFlagship against ANY state (grounding
+  // checks numbers only), so the failure below is the send, not validation.
+  const draft = `===VERDICT===\nBitcoin is range-bound and quiet, with no single driver dominating the session.\n===OVERVIEW===\nThe market drifted sideways through the session with low volatility and thin conviction on either side.\nTraders are waiting for the next catalyst rather than chasing price.\n===DRIVERS===\n1. Quiet spot flows — participation stayed light across the majors\n2. Calm leverage — funding stayed muted and liquidations were minimal\n3. Steady structure — price held its recent range without a decisive break\n===SCENARIOS===\n===SCENARIO:BASE===\nLean: FLAT\nLevel: NONE\nSide: NONE\nText: While the range holds, sideways drift continues and dips keep attracting patient bids.\n===SCENARIO:BULL===\nLean: UP\nLevel: NONE\nSide: NONE\nText: A decisive break above the range high would invite momentum buyers back in.\n===SCENARIO:BEAR===\nLean: DOWN\nLevel: NONE\nSide: NONE\nText: A decisive break below the range low would open the door to a deeper correction.\n===WATCH===\nThe next scheduled macro release is the event to watch for a volatility pickup.\n===INVALIDATION===\nA daily close far outside the recent range invalidates this calm read.\n===PERSIAN===\nحکم: بیت‌کوین در محدوده نوسان می‌کند و بازار آرام و خنثی است\nسطوح: حمایت و مقاومت محدوده اخیر سطوح کلیدی امروزند\nسناریو: سناریوی پایه ادامه نوسان در همین محدوده است\nمراقبت: داده‌های کلان پیش رو مهم‌ترین رویداد است`;
+  const tg = [];
+  const tickers = Object.values(BINANCE_MAP).map((sym, i) => ({ symbol: sym, lastPrice: String(100 + i), priceChangePercent: '0.5', quoteVolume: '500000000', openPrice: '100' }));
+  const klines = Array.from({ length: 168 }, (_, i) => [1700000000000 + i * 3600000, '78000', '78500', '77500', '78200', '10', 0, 0, 0, 0, 0, 0]);
+  const RSS = `<?xml version="1.0"?><rss><channel><item><title>Bitcoin holds steady</title><link>https://example.com/a</link><pubDate>Wed, 12 Nov 2026 17:00:00 GMT</pubDate></item></channel></rss>`;
+  const realFetch = globalThis.fetch;
+  let pricePosted = false;
+  globalThis.fetch = async (url, options = {}) => {
+    const u = String(url);
+    if (u.includes('api.telegram.org')) {
+      const b = JSON.parse(options.body || '{}');
+      if (String(b.chat_id) === '999') { tg.push(b); return { ok: true, status: 200, json: async () => ({ ok: true, result: {} }), text: async () => '' }; }
+      if (b.rich_message && !pricePosted) { pricePosted = true; tg.push(b); return { ok: true, status: 200, json: async () => ({ ok: true, result: {} }), text: async () => '' }; }
+      throw new Error('telegram boom'); // every later channel send fails (rich AND classic fallback)
+    }
+    if (u.includes('coingecko.com')) return { ok: false, status: 429, json: async () => ({}), text: async () => '429' };
+    if (u.includes('api.binance.com') && u.includes('ticker/24hr')) return { ok: true, status: 200, json: async () => tickers, text: async () => '' };
+    if (u.includes('api.binance.com') && u.includes('klines')) return { ok: true, status: 200, json: async () => klines, text: async () => '' };
+    if (u.includes('api.binance.com')) return { ok: true, status: 200, json: async () => [], text: async () => '' };
+    if (u.includes('alternative.me')) return { ok: true, status: 200, json: async () => ({ data: [{ value: '60', value_classification: 'Greed' }] }), text: async () => '' };
+    if (u.includes('generativelanguage.googleapis.com')) return { ok: false, status: 400, json: async () => ({}), text: async () => '{"error":{"code":400,"message":"User location is not supported"}}' };
+    if (u.includes('openrouter.ai')) return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: draft }, finish_reason: 'stop' }] }), text: async () => '' };
+    if (u.includes('coindesk') || u.includes('cointelegraph') || u.includes('decrypt')) return { ok: true, status: 200, json: async () => ({}), text: async () => RSS };
+    return { ok: true, status: 200, json: async () => ({}), text: async () => '{}' };
+  };
+  try {
+    const store = new Map();
+    const env = { TELEGRAM_BOT_TOKEN: 'x', TELEGRAM_CHANNEL_ID: '-100123', ADMIN_ID: 999, GEMINI_API_KEY: 'g', OPENROUTER_API_KEY: 'o', COINGECKO_API_KEY: 'cg', ALERTS_KV: { get: async (k) => store.get(k) ?? null, put: async (k, v) => { store.set(k, v); }, delete: async (k) => { store.delete(k); }, list: async () => ({ keys: [] }) } };
+    let done;
+    const ctx = { waitUntil: (p) => { done = p; } };
+    await worker.scheduled({ cron: '*/30 * * * *', scheduledTime: Date.parse('2026-11-12T17:30:00Z') }, env, ctx);
+    await done;
+    assert.ok(pricePosted, 'price snapshot must land first');
+    const notify = tg.find((b) => String(b.chat_id) === '999');
+    assert.ok(notify && notify.text.includes('[CRON] flagship failed'), 'dispatch throw must notify the admin, not die in console.error');
+    assert.ok(notify.text.includes('21:00'), 'notify names the tick');
+  } finally { globalThis.fetch = realFetch; }
+});

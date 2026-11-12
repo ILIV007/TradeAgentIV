@@ -1,14 +1,14 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV HYBRID v6.1.8 — Gemini Migration
+//  TRADEAGENT IV HYBRID v6.1.9 — Gemini Migration
 // ═══════════════════════════════════════════════════════════════
 // Worker entry: cron + HTTP router (webhook, /admin, /debug).
 import { CRON_PRICE, CRON_BUNDLE, CRON_MOVERS, COINS, TIER_1, TIER_2, TIER_3 } from './config.js';
-import { checkSecret } from './utils.js';
+import { checkSecret, esc } from './utils.js';
 import { getCoins, getCoinsCG, getCoinsCMC, getCoinsBinance, getBinanceFutures, getFearGreed, getTopGainersLosers } from './data.js';
 import { testGeminiConnection } from './ai.js';
 import { tgMethod, getStickerFileId, sendChannelSticker } from './telegram.js';
 import { getConfig } from './store.js';
-import { checkAlerts, sendChannelPrice, sendChannelVolume, sendChannelDaily, sendChannelAI, sendChannelTrending, sendChannelFng, sendChannelFutures, sendChannelMovers, sendChannelAll, sendChannelMorningBrief, sendChannelFlagship, sendChannelWeekly, sendChannelMacroCalendar, checkMacroEvents, getFreshState, tehranParts, cronDispatch } from './senders.js';
+import { checkAlerts, sendChannelPrice, sendChannelVolume, sendChannelDaily, sendChannelAI, sendChannelTrending, sendChannelFng, sendChannelFutures, sendChannelMovers, sendChannelAll, sendChannelMorningBrief, sendChannelFlagship, sendChannelWeekly, sendChannelMacroCalendar, checkMacroEvents, getFreshState, tehranParts, cronDispatch, normalizeTickTs, notifyAdmin } from './senders.js';
 import { processWebhook } from './bot.js';
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -18,11 +18,11 @@ import { processWebhook } from './bot.js';
 async function handleCron(event, env) {
   const cron = event.cron;
   console.log(`[CRON] Triggered: ${cron}`);
-  const tickTs = event.scheduledTime ?? Date.now();
   // Dispatch key: the cron's SCHEDULED fire time, not the wall clock after
-  // the slow price send + watcher. tehranParts() defaults to Date.now(),
-  // so a tick overrunning the minute boundary silently skipped its product
-  // (21:00 flagship, 2026-11-11: price + watcher finished at 21:01).
+  // the slow price send + watcher. normalizeTickTs also guards the shape:
+  // a seconds-epoch scheduledTime replays as the wrong minute (21:58) and
+  // silently skips every product (2026-11-12).
+  const tickTs = normalizeTickTs(event.scheduledTime);
   
   try {
     const autoPosts = await getConfig(env, 'auto_posts', 'true');
@@ -46,7 +46,13 @@ async function handleCron(event, env) {
       console.log(`[CRON] Dispatch tick ${tehranParts(tickTs).hm} (wall ${tehranParts().hm})`);
       for (const job of cronDispatch(tehranParts(tickTs))) {
         try { await dispatch[job](env, s); console.log(`[CRON] ✅ dispatched ${job}`); }
-        catch (e) { console.error(`[CRON] ❌ ${job}:`, e.message); }
+        catch (e) {
+          // A throw inside a dispatched job used to die in console.error
+          // only — no post, no PV notice (flagship 21:00, 2026-11-12).
+          // Make it loud: the admin hears about every dispatch failure.
+          console.error(`[CRON] ❌ ${job}:`, e.message);
+          await notifyAdmin(env, `⚠️ <b>[CRON] ${job} failed at ${tehranParts(tickTs).hm}</b> — no post was sent to the channel.\n• ${esc(e.message)}`);
+        }
       }
     }
     else if (cron === CRON_BUNDLE) {
@@ -156,7 +162,7 @@ async function handleDebug(env) {
     tier1: Object.keys(TIER_1).length,
     tier2: Object.keys(TIER_2).length,
     tier3: Object.keys(TIER_3).length,
-    version: '6.1.8',
+    version: '6.1.9',
   };
 
   if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHANNEL_ID) {
@@ -219,8 +225,8 @@ async function handleHttp(request, env, ctx) {
   }
   if (path === '/' && request.method === 'GET') {
     return new Response(
-      `TradeAgent IV HYBRID v6.1.8 — AI-Powered Crypto Intelligence\n\n` +
-      `Backend: v6.1.8 (Market State, Regime Engine v2, rich delivery, flagship AI products, macro watcher)\n` +
+      `TradeAgent IV HYBRID v6.1.9 — AI-Powered Crypto Intelligence\n\n` +
+      `Backend: v6.1.9 (Market State, Regime Engine v2, rich delivery, flagship AI products, macro watcher)\n` +
       `UI: Plain <blockquote> for all sections + Gemini Priority + Updated Commands\n\n` +
       `Routes:\n` +
       `  POST /webhook  → Telegram webhook\n` +
