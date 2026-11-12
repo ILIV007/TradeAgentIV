@@ -149,13 +149,13 @@ function ensureChannel(env) {
   if (!env.TELEGRAM_CHANNEL_ID) throw new Error('TELEGRAM_CHANNEL_ID not set');
 }
 
-async function sendChannelPrice(env) {
+async function sendChannelPrice(env, shared = null) {
   ensureChannel(env);
   return await dedupSend(env, 'price', async () => {
     // v6: the snapshot is built from the unified Market State (persisted
     // to KV for the AI cycle) and delivered rich-first with the classic
     // HTML post as automatic fallback.
-    const s = await getFreshState(env);
+    const s = shared ?? await getFreshState(env);
     await checkAlerts(env, s.prices);
     const sorted = [...s.prices].sort((a, b) => (b.price_change_percentage_24h || 0) - (a.price_change_percentage_24h || 0));
     const sym = (c) => COINS[c.id]?.symbol || c.id;
@@ -349,20 +349,20 @@ async function getFreshState(env) {
   return s;
 }
 
-async function sendChannelMorningBrief(env) {
+async function sendChannelMorningBrief(env, shared = null) {
   ensureChannel(env);
   return await dedupSend(env, 'brief', async () => {
-    const s = await getFreshState(env);
+    const s = shared ?? await getFreshState(env);
     const lang = await getLang(env);
     const ds = dateStr(lang);
     await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichMorningBrief(s, ds, lang), buildBriefClassic(s, ds, lang), null, lang);
   });
 }
 
-async function sendChannelFlagship(env) {
+async function sendChannelFlagship(env, shared = null) {
   ensureChannel(env);
   return await dedupSend(env, 'flagship', async () => {
-    const s = await getFreshState(env);
+    const s = shared ?? await getFreshState(env);
     const lang = await getLang(env);
     const prompt = buildFlagshipPrompt(s, lang);
     let result = await getAIAnalysis(env, prompt, { raw: true });
@@ -411,10 +411,10 @@ function evaluateScorecard(records, path) {
   return out;
 }
 
-async function sendChannelWeekly(env) {
+async function sendChannelWeekly(env, shared = null) {
   ensureChannel(env);
   return await dedupSend(env, 'weekly', async () => {
-    const s = await getFreshState(env);
+    const s = shared ?? await getFreshState(env);
     let path = [], regimePath = '';
     try {
       if (env.ALERTS_KV?.list) {
@@ -440,7 +440,7 @@ async function sendChannelWeekly(env) {
 
 const macroKey = (e) => `${e.title}|${e.ts}`;
 
-async function checkMacroEvents(env) {
+async function checkMacroEvents(env, shared = null) {
   ensureChannel(env);
   const lang = await getLang(env);
   const T = L(lang);
@@ -464,7 +464,7 @@ async function checkMacroEvents(env) {
       markers.watched.push(key); dirty = true;
     }
     if (e.actual && e.ts <= now && now - e.ts <= 3 * 3600000 && !markers.flashed.includes(key)) {
-      const s = await getFreshState(env);
+      const s = shared ?? await getFreshState(env);
       const aiResult = await getAIAnalysis(env, buildFlashPrompt(s, e, lang), { raw: true });
       let aiText = aiResult?.text ?? null;
       if (aiText && !validateGrounded(aiText, s, [e]).ok) aiText = null;
@@ -498,10 +498,10 @@ async function checkMacroEvents(env) {
   if (dirty) await kvPutJSON(env, 'watch:markers', { watched: markers.watched.slice(-30), flashed: markers.flashed.slice(-30), spikeDay: markers.spikeDay });
 }
 
-async function sendChannelMacroCalendar(env) {
+async function sendChannelMacroCalendar(env, shared = null) {
   ensureChannel(env);
   return await dedupSend(env, 'macro', async () => {
-    const s = await getFreshState(env);
+    const s = shared ?? await getFreshState(env);
     const lang = await getLang(env);
     const ds = dateStr(lang);
     await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichMacroCalendar(s, ds, lang), buildMacroCalendarClassic(s, ds, lang), null, lang);

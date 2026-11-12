@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV HYBRID v6.1.7 — Gemini Migration
+//  TRADEAGENT IV HYBRID v6.1.8 — Gemini Migration
 // ═══════════════════════════════════════════════════════════════
 // Worker entry: cron + HTTP router (webhook, /admin, /debug).
 import { CRON_PRICE, CRON_BUNDLE, CRON_MOVERS, COINS, TIER_1, TIER_2, TIER_3 } from './config.js';
@@ -8,7 +8,7 @@ import { getCoins, getCoinsCG, getCoinsCMC, getCoinsBinance, getBinanceFutures, 
 import { testGeminiConnection } from './ai.js';
 import { tgMethod, getStickerFileId, sendChannelSticker } from './telegram.js';
 import { getConfig } from './store.js';
-import { checkAlerts, sendChannelPrice, sendChannelVolume, sendChannelDaily, sendChannelAI, sendChannelTrending, sendChannelFng, sendChannelFutures, sendChannelMovers, sendChannelAll, sendChannelMorningBrief, sendChannelFlagship, sendChannelWeekly, sendChannelMacroCalendar, checkMacroEvents, tehranParts, cronDispatch } from './senders.js';
+import { checkAlerts, sendChannelPrice, sendChannelVolume, sendChannelDaily, sendChannelAI, sendChannelTrending, sendChannelFng, sendChannelFutures, sendChannelMovers, sendChannelAll, sendChannelMorningBrief, sendChannelFlagship, sendChannelWeekly, sendChannelMacroCalendar, checkMacroEvents, getFreshState, tehranParts, cronDispatch } from './senders.js';
 import { processWebhook } from './bot.js';
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -33,13 +33,19 @@ async function handleCron(event, env) {
     
     if (cron === CRON_PRICE) {
       console.log('[CRON] Price + Alerts (30min)');
-      await sendChannelPrice(env);
+      // ONE Market State build per tick, shared by the snapshot, the watcher
+      // and every dispatched product. Each build costs ~23 subrequests;
+      // rebuilding per product blew the free-plan 50-subrequest cap
+      // (measured 55 on a healthy flagship tick) and silently killed
+      // flagship/brief/macro while the price post survived (2026-11-11/12).
+      const s = await getFreshState(env);
+      await sendChannelPrice(env, s);
       // v6 products ride this pattern, dispatched by Tehran clock.
-      await checkMacroEvents(env).catch((e) => console.error('[CRON] Watcher:', e.message));
+      await checkMacroEvents(env, s).catch((e) => console.error('[CRON] Watcher:', e.message));
       const dispatch = { macro: sendChannelMacroCalendar, brief: sendChannelMorningBrief, flagship: sendChannelFlagship, weekly: sendChannelWeekly };
       console.log(`[CRON] Dispatch tick ${tehranParts(tickTs).hm} (wall ${tehranParts().hm})`);
       for (const job of cronDispatch(tehranParts(tickTs))) {
-        try { await dispatch[job](env); console.log(`[CRON] ✅ dispatched ${job}`); }
+        try { await dispatch[job](env, s); console.log(`[CRON] ✅ dispatched ${job}`); }
         catch (e) { console.error(`[CRON] ❌ ${job}:`, e.message); }
       }
     }
@@ -150,7 +156,7 @@ async function handleDebug(env) {
     tier1: Object.keys(TIER_1).length,
     tier2: Object.keys(TIER_2).length,
     tier3: Object.keys(TIER_3).length,
-    version: '6.1.7',
+    version: '6.1.8',
   };
 
   if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHANNEL_ID) {
@@ -213,8 +219,8 @@ async function handleHttp(request, env, ctx) {
   }
   if (path === '/' && request.method === 'GET') {
     return new Response(
-      `TradeAgent IV HYBRID v6.1.7 — AI-Powered Crypto Intelligence\n\n` +
-      `Backend: v6.1.7 (Market State, Regime Engine v2, rich delivery, flagship AI products, macro watcher)\n` +
+      `TradeAgent IV HYBRID v6.1.8 — AI-Powered Crypto Intelligence\n\n` +
+      `Backend: v6.1.8 (Market State, Regime Engine v2, rich delivery, flagship AI products, macro watcher)\n` +
       `UI: Plain <blockquote> for all sections + Gemini Priority + Updated Commands\n\n` +
       `Routes:\n` +
       `  POST /webhook  → Telegram webhook\n` +

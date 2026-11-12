@@ -786,3 +786,28 @@ test('v6.1.7 dispatch: flagship fires on the cron scheduled time, not the wall c
   assert.ok(idxSrc.includes('event.scheduledTime'), 'handleCron must read event.scheduledTime');
   assert.ok(idxSrc.includes('cronDispatch(tehranParts(tickTs))'), 'dispatch must use the scheduled tick');
 });
+
+test('v6.1.8 shared state: price/brief/flagship with a prebuilt state make ZERO data-API fetches', async () => {
+  const { sendChannelPrice, sendChannelMorningBrief, sendChannelFlagship } = await import('../src/senders.js');
+  const dataHosts = ['coingecko', 'coinmarketcap', 'binance', 'deribit', 'mempool.space', 'llama.fi', 'faireconomy', 'cointelegraph', 'decrypt', 'coindesk', 'alternative.me'];
+  const tg = [];
+  const dataCalls = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    const u = String(url);
+    if (u.includes('api.telegram.org')) { tg.push(JSON.parse(options.body)); return { ok: true, status: 200, json: async () => ({ ok: true, result: {} }), text: async () => '' }; }
+    if (dataHosts.some((h) => u.includes(h))) { dataCalls.push(u); return { ok: false, status: 503, json: async () => ({}), text: async () => 'down' }; }
+    return { ok: false, status: 503, json: async () => ({}), text: async () => 'ai down' }; // Gemini / OpenRouter fail fast
+  };
+  try {
+    const env = { TELEGRAM_BOT_TOKEN: 'x', TELEGRAM_CHANNEL_ID: '-100123', ADMIN_ID: 999, ALERTS_KV: kvStub() };
+    await sendChannelPrice(env, v6State());
+    assert.ok(tg.some((b) => String(b.chat_id) === '-100123' && b.rich_message), 'price posted rich');
+    await sendChannelMorningBrief(env, v6State());
+    assert.ok(tg.filter((b) => String(b.chat_id) === '-100123').length >= 2, 'brief posted');
+    await sendChannelFlagship(env, v6State());
+    const notify = tg.find((b) => String(b.chat_id) === '999');
+    assert.ok(notify && notify.text.includes('Flagship analysis failed validation'), 'flagship AI failure notifies admin instead of dying silently');
+    assert.equal(dataCalls.length, 0, `shared state must skip data fetches, got: ${dataCalls.join(', ')}`);
+  } finally { globalThis.fetch = realFetch; }
+});
