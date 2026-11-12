@@ -771,3 +771,18 @@ test('v6.1.6 chain: a Gemini geo-block skips the remaining Gemini steps', async 
     assert.ok(getLastAIFailureReasons().join(' ').includes('geo-blocked'));
   } finally { globalThis.fetch = realFetch; }
 });
+
+test('v6.1.7 dispatch: flagship fires on the cron scheduled time, not the wall clock after the slow price send', async () => {
+  const { tehranParts, cronDispatch } = await import('../src/senders.js');
+  // 2026-11-11 21:00 Tehran = 17:30 UTC (the missed tick).
+  const tick = Date.UTC(2026, 10, 11, 17, 30, 0);
+  assert.equal(tehranParts(tick).hm, '21:00');
+  assert.ok(cronDispatch(tehranParts(tick)).includes('flagship'));
+  // One minute later the old code (tehranParts() = Date.now()) would skip it.
+  assert.equal(tehranParts(Date.UTC(2026, 10, 11, 17, 31, 0)).hm, '21:01');
+  assert.ok(!cronDispatch(tehranParts(Date.UTC(2026, 10, 11, 17, 31, 0))).includes('flagship'));
+  // handleCron must pass the event's scheduled time into the dispatch.
+  const idxSrc = (await import('node:fs')).readFileSync(new URL('../src/index.js', import.meta.url), 'utf8');
+  assert.ok(idxSrc.includes('event.scheduledTime'), 'handleCron must read event.scheduledTime');
+  assert.ok(idxSrc.includes('cronDispatch(tehranParts(tickTs))'), 'dispatch must use the scheduled tick');
+});
