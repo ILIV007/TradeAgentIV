@@ -159,18 +159,21 @@ async function getStickerFileId(env) {
 async function sendChannelSticker(env) {
   if (!env.TELEGRAM_CHANNEL_ID) {
     console.log('[STICKER] No TELEGRAM_CHANNEL_ID');
-    return;
+    return 'skipped';
   }
   try {
     const fileId = await getStickerFileId(env);
     if (fileId) {
       await sendSticker(env, env.TELEGRAM_CHANNEL_ID, fileId);
       console.log('[STICKER] Sent sticker to channel');
+      return 'sent';
     } else {
       console.log('[STICKER] No file_id available, skipping');
+      return 'skipped';
     }
   } catch (e) {
     console.error('[STICKER] Send error:', e.message);
+    return `error: ${e.message}`;
   }
 }
 

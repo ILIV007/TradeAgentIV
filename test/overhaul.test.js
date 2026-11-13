@@ -1115,3 +1115,85 @@ test('v6.1.13 grounding: a figure from a shown headline is grounded', async () =
   assert.ok(validateGrounded('ETF inflows hit $1.6B', s).ok);
   assert.equal(validateGrounded('ETF inflows hit $2.4B', s).ok, false);
 });
+
+test('v6.1.14 dispatch: trending/volume/daily fire at their approved hours', async () => {
+  const { cronDispatch } = await import('../src/senders.js');
+  assert.deepEqual(cronDispatch({ weekday: 'Mon', hm: '10:30' }), ['trending']);
+  assert.deepEqual(cronDispatch({ weekday: 'Mon', hm: '16:30' }), ['trending']);
+  assert.deepEqual(cronDispatch({ weekday: 'Mon', hm: '22:30' }), ['trending']);
+  assert.deepEqual(cronDispatch({ weekday: 'Mon', hm: '12:00' }), ['volume']);
+  assert.deepEqual(cronDispatch({ weekday: 'Mon', hm: '18:00' }), ['volume']);
+  assert.deepEqual(cronDispatch({ weekday: 'Mon', hm: '23:30' }), ['daily']);
+  // Nothing else moved: the old jobs still fire only at their own hours.
+  assert.deepEqual(cronDispatch({ weekday: 'Mon', hm: '11:30' }), []);
+  assert.deepEqual(cronDispatch({ weekday: 'Mon', hm: '23:00' }), []);
+});
+
+test('v6.1.14 futures: no Binance data notifies the admin instead of staying silent', async () => {
+  const { sendChannelFutures } = await import('../src/senders.js');
+  const tg = [];
+  const realFetch = globalThis.fetch;
+  // fapi returns JSON null for every endpoint: getBinanceFutures yields
+  // all-null fields, so hasData is false (the 2026-11-13 bundle failure).
+  globalThis.fetch = async (url, options = {}) => {
+    const u = String(url);
+    if (u.includes('api.telegram.org')) { tg.push(JSON.parse(options.body)); return tgOkRes; }
+    if (u.includes('fapi.binance.com')) return httpRes(200, null);
+    return httpRes(200, {});
+  };
+  try {
+    const env = { TELEGRAM_BOT_TOKEN: 'tok', TELEGRAM_CHANNEL_ID: '-100123', ADMIN_ID: '999', ALERTS_KV: makeKVStub() };
+    await sendChannelFutures(env);
+    const notice = tg.find((b) => b.chat_id === '999');
+    assert.ok(notice, 'admin must be notified when futures has no data');
+    assert.ok(notice.text.includes('Futures skipped'), 'notice names the skipped product');
+    assert.ok(!tg.some((b) => b.chat_id === '-100123'), 'nothing is posted to the channel');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('v6.1.14 sticker: skipped sticker returns its status and the bundle notifies', async () => {
+  const { sendChannelSticker } = await import('../src/telegram.js');
+  // No KV at all: getStickerFileId returns null, so the sender skips.
+  assert.equal(await sendChannelSticker({ TELEGRAM_CHANNEL_ID: '-100123', TELEGRAM_BOT_TOKEN: 'tok' }), 'skipped');
+  // Cached file_id + Telegram OK: the sticker sends.
+  const tg = [];
+  const seenUrls = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    const u = String(url);
+    if (u.includes('api.telegram.org')) { seenUrls.push(u); tg.push(JSON.parse(options.body)); return tgOkRes; }
+    return httpRes(200, {});
+  };
+  try {
+    const env = { TELEGRAM_CHANNEL_ID: '-100123', TELEGRAM_BOT_TOKEN: 'tok', ALERTS_KV: makeKVStub({ 'sticker:file_id': 'FILE123' }) };
+    assert.equal(await sendChannelSticker(env), 'sent');
+    assert.ok(seenUrls.some((u) => u.endsWith('/sendSticker')), 'must call sendSticker');
+    assert.ok(tg.some((b) => b.sticker === 'FILE123'), 'must send the cached file_id');
+  } finally { globalThis.fetch = realFetch; }
+  // The bundle must turn a non-'sent' status into an admin notice.
+  const idxSrc = (await import('node:fs')).readFileSync(new URL('../src/index.js', import.meta.url), 'utf8');
+  assert.ok(idxSrc.includes('stickerStatus'), 'bundle must read the sticker status');
+  assert.ok(idxSrc.includes('[BUNDLE] Sticker skipped'), 'bundle must notify on a skipped sticker');
+});
+
+test('v6.1.14 trending: no trending data notifies the admin instead of staying silent', async () => {
+  const { sendChannelTrending } = await import('../src/senders.js');
+  const tg = [];
+  const realFetch = globalThis.fetch;
+  // CoinGecko returns JSON null: getTrendingCG yields null, no CMC key, so
+  // getTrending returns null (the CG-429-day path from the v6.1.14 replay).
+  globalThis.fetch = async (url, options = {}) => {
+    const u = String(url);
+    if (u.includes('api.telegram.org')) { tg.push(JSON.parse(options.body)); return tgOkRes; }
+    if (u.includes('coingecko.com')) return httpRes(200, null);
+    return httpRes(200, {});
+  };
+  try {
+    const env = { TELEGRAM_BOT_TOKEN: 'tok', TELEGRAM_CHANNEL_ID: '-100123', ADMIN_ID: '999', ALERTS_KV: makeKVStub() };
+    await sendChannelTrending(env);
+    const notice = tg.find((b) => b.chat_id === '999');
+    assert.ok(notice, 'admin must be notified when trending has no data');
+    assert.ok(notice.text.includes('Trending skipped'), 'notice names the skipped product');
+    assert.ok(!tg.some((b) => b.chat_id === '-100123'), 'nothing is posted to the channel');
+  } finally { globalThis.fetch = realFetch; }
+});

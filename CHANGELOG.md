@@ -3,6 +3,15 @@
 All notable changes to TradeAgent IV are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [6.1.14] — 2026-11-13
+
+### Added — fixed daily hours for Trending / Volume / Daily; silent bundle skips are now loud
+- **Trending, Volume and Daily had no cron at all** — they only posted when someone tapped the panel. A full-day channel audit on 2026-11-13 found zero auto posts for all three (Trending appeared once, 22:15, from a manual burst). They now ride the 30-min pattern, dispatched by Tehran clock (same 3 cron patterns, no new pattern): Trending 10:30 / 16:30 / 22:30, Volume 12:00 / 18:00, Daily 23:30.
+- **The bundle delivered only 2 of its 4 products**: F&G and AI posted at all 3 bundle ticks, but Futures missed all 3 (Binance fapi returns no data) and Sticker missed all 3 (no file_id / send fails) — both died in `console.log` only, with no notice. Both are loud now: Futures notifies the admin when it has no data; `sendChannelSticker` returns its status (`sent` / `skipped` / `error: …`) and the bundle notifies the admin on anything but `sent`. The channel still never gets an error post — notices go to the admin PV only.
+- **Replay finding**: the new Trending job also skipped silently on a CoinGecko-429 day (no Binance fallback for trending data), so it notifies the admin on no-data too. Volume and Daily fall back to Binance, so they post through a CG outage.
+- Subrequest replay of the three new ticks (healthy CG + CG-429): 25–28 healthy, 33–42 on a CG-429 day — under the 50 cap (worst case 42 on the 23:30 Daily tick).
+- Tests: 57/57 green (4 new: dispatch hours, futures/trending no-data notices, sticker status + bundle wiring).
+
 ## [6.1.13] — 2026-11-13
 
 ### Fixed — flagship validator rejected a faithful rounding as ungrounded
