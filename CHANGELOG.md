@@ -3,6 +3,15 @@
 All notable changes to TradeAgent IV are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [6.1.12] — 2026-11-13
+
+### Fixed — flagship AI drafts truncated at the 4096-token cap
+- **The 13:00 flagship on 2026-11-13 ran but its draft was rejected**: missing exactly the tail sections (INVALIDATION + PERSIAN) and the invalidation line, while the head (verdict, drivers, scenarios, grounded numbers) was fully valid — the signature of an output cut off at `max_tokens: 4096`. The retry hit the same cap and failed identically. (Same day, the diet worked: macro 08:00, brief 09:30 and movers 12:30 all landed for the first time in days — the silent-miss problem is fixed; this was the AI-output problem underneath it.)
+- **Output ceiling raised 4096 → 8192** for Groq, OpenRouter and Gemini direct (all support >=8192 output tokens; Workers AI stays at 4096, the Qwen3-30B cap — and it is unbound in production anyway).
+- **Truncation is now visible**: in raw mode a non-empty draft with `finish_reason: 'length'` (OpenRouter/Groq) or `finishReason: 'MAX_TOKENS'` (Gemini) records a `truncated at max_tokens` failure reason instead of passing silently.
+- **The failure notice now carries the cause**: AI failure reasons + the rejected draft's length, and the full rejected draft is kept in KV (`flagship:lastRejected`, 7d TTL) with its errors and provider, so the next failure is diagnosable from the notice alone.
+- Tests: 51/51 green (1 new: a truncated head-only draft via OpenRouter with `finish_reason: 'length'` posts nothing, notifies with 'truncated' + draft length, keeps the draft in KV, and asserts the 8192 request cap).
+
 ## [6.1.11] — 2026-11-12
 
 ### Fixed — CPU diet for the free-plan 10ms cron budget

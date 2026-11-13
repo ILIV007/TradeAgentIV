@@ -1054,3 +1054,42 @@ test('v6.1.11 CPU diet: fmt.price cached formatters match toLocaleString output'
     assert.equal(fmt.price(n), expected, `fmt.price(${n})`);
   }
 });
+
+test('v6.1.12 flagship truncation: a draft cut off at the token cap notifies with the cause and keeps the rejected draft', async () => {
+  const { sendChannelFlagship } = await import('../src/senders.js');
+  const coins = senderCoins();
+  const kv = makeKVStub();
+  const tg = [];
+  const orBodies = [];
+  // The production 13:00 failure shape: head valid, tail (INVALIDATION +
+  // PERSIAN) cut off — the draft the model returns when it hits max_tokens.
+  const truncDraft = flagshipE2EDraft.split('===INVALIDATION===')[0].trim();
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    const u = String(url);
+    if (u.includes('api.telegram.org')) { tg.push(JSON.parse(options.body)); return tgOkRes; }
+    // Gemini is geo-blocked in production AND in this process (an earlier
+    // test memos the block for 30 min), so the chain reaches OpenRouter —
+    // exactly the flagship's real production path.
+    if (u.includes('generativelanguage.googleapis.com')) return httpRes(400, {});
+    if (u.includes('openrouter.ai')) { orBodies.push(JSON.parse(options.body)); return httpRes(200, { choices: [{ message: { content: truncDraft }, finish_reason: 'length' }] }); }
+    return httpRes(200, stateDataRoute(u, coins));
+  };
+  try {
+    const env = { TELEGRAM_BOT_TOKEN: 'tok', TELEGRAM_CHANNEL_ID: '-100123', ADMIN_ID: '999', GEMINI_API_KEY: 'g', OPENROUTER_API_KEY: 'or', COINGECKO_API_KEY: 'cg', ALERTS_KV: kv };
+    await sendChannelFlagship(env);
+    assert.ok(!tg.some((b) => String(b.chat_id) === '-100123'), 'no channel post on rejected draft');
+    const notify = tg.find((b) => String(b.chat_id) === '999');
+    assert.ok(notify, 'admin got the failure notice');
+    const txt = JSON.stringify(notify);
+    assert.ok(txt.includes('Flagship analysis failed validation'), 'notice names the failure');
+    assert.ok(txt.includes('missing section INVALIDATION'), 'notice lists the missing tail section');
+    assert.ok(txt.includes('truncated'), 'notice names the truncation cause');
+    assert.ok(txt.includes(`rejected draft: ${truncDraft.length} chars`), 'notice carries the draft length');
+    const rej = JSON.parse(await kv.get('flagship:lastRejected'));
+    assert.ok(rej && rej.errors.includes('missing section INVALIDATION'), 'rejected draft kept in KV with its errors');
+    assert.equal(rej.draft, truncDraft, 'full rejected draft kept for inspection');
+    assert.ok(orBodies.length >= 1, 'OpenRouter was asked (initial + retry)');
+    assert.ok(orBodies.every((b) => b.max_tokens === 8192), 'flagship asks for 8192 output tokens');
+  } finally { globalThis.fetch = realFetch; }
+});
