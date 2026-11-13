@@ -379,9 +379,13 @@ async function sendChannelFlagship(env, shared = null) {
       v = text ? validateFlagship(text, s, lang) : null;
     }
     if (!v?.ok) {
+      const reasons = getLastAIFailureReasons();
       const detail = !text
-        ? ['AI returned no result', ...getLastAIFailureReasons()]
-        : (v?.errors || []).slice(0, 3);
+        ? ['AI returned no result', ...reasons]
+        : [...(v?.errors || []).slice(0, 3), ...reasons.slice(0, 3), `rejected draft: ${text.length} chars`];
+      // Keep the rejected draft for inspection — the notice alone cannot show
+      // whether the model stopped early (truncated) or skipped the sections.
+      await kvPutJSON(env, 'flagship:lastRejected', { ts: Date.now(), errors: v?.errors || [], source: result?.source || null, draftLen: text?.length || 0, draft: text || null }, 7 * 86400);
       const block = detail.slice(0, 8).map((l) => `• ${esc(l)}`).join('\n');
       await notifyAdmin(env, '⚠️ <b>Flagship analysis failed validation</b> — no post was sent to the channel.' + (block ? `\n${block}` : ''));
       return;

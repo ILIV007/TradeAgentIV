@@ -139,7 +139,7 @@ async function tryGeminiDirect(env, prompt, modelUrl, name, raw = false, opts = 
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.3, maxOutputTokens: 4096, ...(opts.thinkingLevel ? { thinkingConfig: { thinkingLevel: opts.thinkingLevel } } : {}) }
+        generationConfig: { temperature: 0.3, maxOutputTokens: 8192, ...(opts.thinkingLevel ? { thinkingConfig: { thinkingLevel: opts.thinkingLevel } } : {}) }
       }),
     }, opts.timeoutMs || 20000);
     
@@ -161,6 +161,9 @@ async function tryGeminiDirect(env, prompt, modelUrl, name, raw = false, opts = 
     if (raw) {
       // Raw mode: any non-empty draft passes; the caller's validator judges it.
       if (text && text.trim()) {
+        // ...but a MAX_TOKENS finish means the draft was cut off at the cap —
+        // record it so the caller can tell truncation from a format skip.
+        if (data?.candidates?.[0]?.finishReason === 'MAX_TOKENS') noteAIFailure(`${name}: truncated at max_tokens`);
         console.log(`[AI] ${name} SUCCESS (raw), length:`, text.length);
         await closeCircuit(env, name);
         return text.trim();
@@ -247,7 +250,7 @@ async function getAIAnalysis(env, prompt, opts = {}) {
   const groq = remain() > 3000 ? await tryGroq(env, prompt, raw, Math.min(15000, remain())) : null;
   if (groq) return await accept(groq, 'Groq');
 
-  // STEP 4: OpenRouter Nemotron Ultra (reasoning tamed: low effort, 4096 cap).
+  // STEP 4: OpenRouter Nemotron Ultra (reasoning tamed: low effort, 8192 cap).
   const orNemotron = await tryOpenRouter(env, prompt, ['nvidia/nemotron-3-ultra-550b-a55b:free'], raw, promptHash, deadline);
   if (orNemotron) return orNemotron;
 
@@ -316,7 +319,7 @@ async function tryGroq(env, prompt, raw, timeoutMs) {
     const res = await fetchWithTimeout(GROQ_URL, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${env.GROQ_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: GROQ_MODEL, messages: [{ role: 'user', content: prompt }], max_tokens: 4096, temperature: 0.3 }),
+      body: JSON.stringify({ model: GROQ_MODEL, messages: [{ role: 'user', content: prompt }], max_tokens: 8192, temperature: 0.3 }),
     }, timeoutMs);
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
@@ -325,6 +328,10 @@ async function tryGroq(env, prompt, raw, timeoutMs) {
     const { text, error, finish } = extractChatText(await res.json());
     if (error) throw new Error(error);
     if (raw ? (text && text.trim()) : isValidAIResponse(text)) {
+      // Raw mode: a non-empty draft passes, but a finish_reason of 'length'
+      // means the model was cut off at the token cap — the caller's validator
+      // will reject the tail-less draft, so record the cause here.
+      if (raw && finish === 'length') noteAIFailure('groq: truncated at max_tokens');
       console.log('[AI] Groq SUCCESS, length:', text.length);
       return text;
     }
@@ -361,7 +368,7 @@ async function tryOpenRouter(env, prompt, models, raw, promptHash, deadline) {
         body: JSON.stringify({
           model,
           messages: [{ role: 'user', content: prompt }],
-          max_tokens: 4096,
+          max_tokens: 8192,
           temperature: 0.3,
           // Nemotron Ultra is a reasoning model: at 1500 tokens its chain of
           // thought ate the whole budget and content came back empty.
@@ -389,6 +396,10 @@ async function tryOpenRouter(env, prompt, models, raw, promptHash, deadline) {
       }
 
       if (raw ? (text && text.trim()) : isValidAIResponse(text)) {
+        // Raw mode: a non-empty draft passes, but finish_reason 'length' means
+        // the model was cut off at the token cap — the caller's validator will
+        // reject the tail-less draft, so record the cause here.
+        if (raw && finish === 'length') noteAIFailure(`openrouter ${getShortModelName(model)}: truncated at max_tokens`);
         const result = { text: raw ? text.trim() : cleanMarkdown(text.trim()), source: getShortModelName(model) };
         if (!raw) await setAICache(env, promptHash, result);
         await setConfig(env, 'last_ai_provider', getShortModelName(model));
