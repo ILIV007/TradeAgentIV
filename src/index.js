@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV HYBRID v6.1.13 — Gemini Migration
+//  TRADEAGENT IV HYBRID v6.1.14 — Gemini Migration
 // ═══════════════════════════════════════════════════════════════
 // Worker entry: cron + HTTP router (webhook, /admin, /debug).
 import { CRON_PRICE, CRON_BUNDLE, CRON_MOVERS, COINS, TIER_1, TIER_2, TIER_3 } from './config.js';
@@ -42,7 +42,7 @@ async function handleCron(event, env) {
       await sendChannelPrice(env, s);
       // v6 products ride this pattern, dispatched by Tehran clock.
       await checkMacroEvents(env, s).catch((e) => console.error('[CRON] Watcher:', e.message));
-      const dispatch = { macro: sendChannelMacroCalendar, brief: sendChannelMorningBrief, flagship: sendChannelFlagship, weekly: sendChannelWeekly };
+      const dispatch = { macro: sendChannelMacroCalendar, brief: sendChannelMorningBrief, flagship: sendChannelFlagship, weekly: sendChannelWeekly, trending: sendChannelTrending, volume: sendChannelVolume, daily: sendChannelDaily };
       console.log(`[CRON] Dispatch tick ${tehranParts(tickTs).hm} (wall ${tehranParts().hm})`);
       for (const job of cronDispatch(tehranParts(tickTs))) {
         try { await dispatch[job](env, s); console.log(`[CRON] ✅ dispatched ${job}`); }
@@ -58,8 +58,15 @@ async function handleCron(event, env) {
     else if (cron === CRON_BUNDLE) {
       console.log('[CRON] Bundle: Sticker + AI + F&G + Funding (8h)');
       try {
-        await sendChannelSticker(env);
-        console.log('[CRON] ✅ Sticker sent first');
+        const stickerStatus = await sendChannelSticker(env);
+        if (stickerStatus === 'sent') {
+          console.log('[CRON] ✅ Sticker sent first');
+        } else {
+          // v6.1.14: a skipped/failed sticker used to die in console.log
+          // only — 0/3 bundle ticks on 2026-11-13, nobody told.
+          console.log(`[CRON] ⚠️ Sticker skipped (${stickerStatus})`);
+          await notifyAdmin(env, `⚠️ <b>[BUNDLE] Sticker skipped</b> — no sticker was sent to the channel (${esc(stickerStatus)}). Check the sticker set / file_id.`);
+        }
       } catch (e) {
         console.error(`[CRON] ❌ Sticker: ${e.message}`);
       }
@@ -164,7 +171,7 @@ async function handleDebug(env) {
     tier1: Object.keys(TIER_1).length,
     tier2: Object.keys(TIER_2).length,
     tier3: Object.keys(TIER_3).length,
-    version: '6.1.13',
+    version: '6.1.14',
   };
 
   if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHANNEL_ID) {
@@ -227,8 +234,8 @@ async function handleHttp(request, env, ctx) {
   }
   if (path === '/' && request.method === 'GET') {
     return new Response(
-      `TradeAgent IV HYBRID v6.1.13 — AI-Powered Crypto Intelligence\n\n` +
-      `Backend: v6.1.13 (Market State, Regime Engine v2, rich delivery, flagship AI products, macro watcher)\n` +
+      `TradeAgent IV HYBRID v6.1.14 — AI-Powered Crypto Intelligence\n\n` +
+      `Backend: v6.1.14 (Market State, Regime Engine v2, rich delivery, flagship AI products, macro watcher)\n` +
       `UI: Plain <blockquote> for all sections + Gemini Priority + Updated Commands\n\n` +
       `Routes:\n` +
       `  POST /webhook  → Telegram webhook\n` +

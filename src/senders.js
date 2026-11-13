@@ -194,7 +194,13 @@ async function sendChannelTrending(env) {
   ensureChannel(env);
   return await dedupSend(env, 'trending', async () => {
     const trending = await getTrending(env);
-    if (!trending) { console.log('[TRENDING] No data, staying silent'); return; }
+    if (!trending) {
+      // v6.1.14: same silent-skip trap as Futures — the replay showed the
+      // trending job skipping with no trace on a CoinGecko-429 day.
+      console.log('[TRENDING] No data, staying silent');
+      await notifyAdmin(env, '⚠️ <b>Trending skipped — no data</b>\nNo trending data was available (CoinGecko/CMC), so no post was sent to the channel.');
+      return;
+    }
     return await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildTrending(trending, await trendingPriceMap(env), await getLang(env)));
   });
 }
@@ -263,7 +269,13 @@ async function sendChannelFutures(env) {
       futures[sym] = await getBinanceFutures(sym);
     }
     const hasData = Object.values(futures).some(f => f && (f.fundingRate != null || f.openInterest != null));
-    if (!hasData) { console.log('[FUTURES] No data, staying silent'); return; }
+    if (!hasData) {
+      // v6.1.14: a no-data skip used to die in console.log only — Futures
+      // missed all 3 bundle ticks on 2026-11-13 with nobody told.
+      console.log('[FUTURES] No data, staying silent');
+      await notifyAdmin(env, '⚠️ <b>Futures skipped — no data</b>\nBinance futures returned no data for any of the 6 symbols, so no post was sent to the channel.');
+      return;
+    }
     const snap = await getSnapshot(env);
     return await sendMessage(env, env.TELEGRAM_CHANNEL_ID, await buildFutures(futures, snap?.futures || {}, await getLang(env)));
   });
@@ -549,5 +561,11 @@ function cronDispatch(parts) {
   if (parts.hm === '09:30') out.push('brief');
   if (parts.hm === '13:00' || parts.hm === '21:00') out.push('flagship');
   if (parts.weekday === 'Fri' && parts.hm === '20:00') out.push('weekly');
+  // v6.1.14: Trending/Volume/Daily finally have fixed hours — they were
+  // manual-only, so they never posted unless someone tapped the panel
+  // (audit 2026-11-13: zero auto posts all day).
+  if (parts.hm === '10:30' || parts.hm === '16:30' || parts.hm === '22:30') out.push('trending');
+  if (parts.hm === '12:00' || parts.hm === '18:00') out.push('volume');
+  if (parts.hm === '23:30') out.push('daily');
   return out;
 }
