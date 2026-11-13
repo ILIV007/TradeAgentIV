@@ -3,6 +3,16 @@
 All notable changes to TradeAgent IV are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [6.1.13] — 2026-11-13
+
+### Fixed — flagship validator rejected a faithful rounding as ungrounded
+- **The 21:00 flagship on 2026-11-13 ran and produced a full draft (2,358 chars) but was rejected**: `ungrounded numbers: 1600000000` — a NEW failure mode, not truncation. The draft cited $1.6B; the validator only accepts a big value within 0.5% of the raw figure, while its [10, 100, 1000] rounding ladder cannot round at B/M scale — so a faithful rounding ($1.6B for $1.62B) was rejected, and the retry (told only the number) repeated it. Three gaps, all fixed:
+  1. **2-significant-figure grounding**: `isGrounded` now also accepts a corpus value rounded to 2 significant figures ($1.6B for $1.62B, $150B for $146B). A far value ($1.6B for $1.71B) and wild inventions ($1.6B for an $85.5B TVL) are still rejected.
+  2. **Headline figures ground the draft**: numbers from the headlines shown in the DATA block are now part of the grounding corpus — a draft citing them is grounded, not invented.
+  3. **Prompt rule**: GROUND_RULES now says the DATA lists no per-coin market cap or 24h volume and to never cite one — the model was citing figures it was never shown.
+- Note: the rejected draft itself lives only in KV (`flagship:lastRejected`) — Nova cannot read it (no CF access, no route exposes it); the fix covers all three mechanisms the $1.6B could have come from, so the next failure (if any) will show which one remains.
+- Tests: 53/53 green (2 new grounding tests).
+
 ## [6.1.12] — 2026-11-13
 
 ### Fixed — flagship AI drafts truncated at the 4096-token cap

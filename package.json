@@ -1,1 +1,1 @@
-{"name":"tradeagent-iv","private":true,"scripts":{"test":"for f in src/*.js; do node --check $f || exit 1; done && node --test"},"type":"module","version":"6.1.12"}
+{"name":"tradeagent-iv","private":true,"scripts":{"test":"for f in src/*.js; do node --check $f || exit 1; done && node --test"},"type":"module","version":"6.1.13"}

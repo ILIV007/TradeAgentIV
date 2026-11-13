@@ -1093,3 +1093,25 @@ test('v6.1.12 flagship truncation: a draft cut off at the token cap notifies wit
     assert.ok(orBodies.every((b) => b.max_tokens === 8192), 'flagship asks for 8192 output tokens');
   } finally { globalThis.fetch = realFetch; }
 });
+
+test('v6.1.13 grounding: a faithful 2-significant-figure rounding of a big value passes, a far value fails', async () => {
+  const { validateGrounded } = await import('../src/ai.js');
+  const coin = (market_cap) => ({ id: 'x', current_price: 100, price_change_percentage_24h: 1, price_change_percentage_7d_in_currency: 2, price_change_percentage_30d_in_currency: 3, total_volume: 5e6, market_cap });
+  // The 21:00 shape: draft cited $1.6B, true value $1.6234B — a faithful rounding.
+  assert.ok(validateGrounded('Market cap $1.6B', { prices: [coin(1623400000)] }).ok);
+  // Same citation against a $1.71B truth is NOT a faithful rounding — still rejected.
+  const bad = validateGrounded('Market cap $1.6B', { prices: [coin(1710000000)] });
+  assert.equal(bad.ok, false);
+  assert.ok(bad.bad.includes(1600000000));
+  // A wild invention stays rejected: $1.6B against a $85.5B TVL-only state.
+  const wild = validateGrounded('TVL $1.6B', { prices: [], defi: { tvl: 8.55e10 } });
+  assert.equal(wild.ok, false);
+  assert.ok(wild.bad.includes(1600000000));
+});
+
+test('v6.1.13 grounding: a figure from a shown headline is grounded', async () => {
+  const { validateGrounded } = await import('../src/ai.js');
+  const s = { prices: [], news: [{ title: 'ETF inflows hit $1.6B', src: 'X' }] };
+  assert.ok(validateGrounded('ETF inflows hit $1.6B', s).ok);
+  assert.equal(validateGrounded('ETF inflows hit $2.4B', s).ok, false);
+});

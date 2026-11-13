@@ -596,6 +596,7 @@ function stateDigest(s) {
 
 const GROUND_RULES = `HARD RULES:
 - Use ONLY numbers that appear in the DATA block. Never invent a price, level, percentage or figure. If a number is not in the DATA, do not write it.
+- The DATA lists no per-coin market cap or 24h volume — never cite one. Cite only the figures shown (prices, changes, global cap/volume, funding, OI, TVL, F&G).
 - No price predictions. Ever. Speak in scenarios with triggers taken from the DATA.
 - Your read must agree with the REGIME line; if you argue against it, say so explicitly and why.
 - Plain, literate, professional English. No hype, no emojis inside the analysis text.`;
@@ -751,6 +752,15 @@ function extractNumbers(text) {
   return out;
 }
 
+// Two-significant-figure rounding ($1.6B for $1.62B, $150B for $146B):
+// large values are cited rounded, so the validator must accept the faithful
+// rounding, not just the raw figure.
+function round2sig(x) {
+  if (!x) return 0;
+  const m = Math.pow(10, Math.floor(Math.log10(Math.abs(x))) - 1);
+  return Math.round(x / m) * m;
+}
+
 function isGrounded(n, corpus) {
   // Sign carries no grounding information (direction words do), so all
   // comparisons run on absolute values: "down 1.38%" is grounded by -1.38.
@@ -762,6 +772,10 @@ function isGrounded(n, corpus) {
       if (av > 0 && Math.abs(a - av) / av <= 0.005) return true;
       // rounded forms of big values (78,000 / 78.0k / 3.2B)
       for (const r of [10, 100, 1000]) if (Math.abs(Math.round(av / r) * r - a) / (av || 1) <= 0.005) return true;
+      // rounded to 2 significant figures (1.6B for 1.62B — the ladder above
+      // cannot round at B/M scale, so a faithful rounding was rejected)
+      const r2 = round2sig(av);
+      if (r2 > 0 && Math.abs(a - r2) / r2 <= 0.005) return true;
     } else if (Math.abs(a - av) <= 1.6) return true;
   }
   return false;
@@ -769,6 +783,9 @@ function isGrounded(n, corpus) {
 
 function validateGrounded(text, s, extra = []) {
   const corpus = numericCorpus(s, extra);
+  // Headline figures are shown in the DATA block too — a draft citing them
+  // is grounded, not invented. (Only the headlines actually shown.)
+  for (const n of (s.news || []).slice(0, 4)) for (const x of extractNumbers(n.title || '')) corpus.push(x);
   const bad = extractNumbers(text).filter((n) => !isGrounded(n, corpus));
   return { ok: bad.length === 0, bad };
 }
