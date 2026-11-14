@@ -3,6 +3,12 @@
 All notable changes to TradeAgent IV are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [6.1.16] — 2026-11-14
+
+### Fixed — sticker posts again via a verified fallback file_id
+- **The 11:30 bundle on 2026-11-14 skipped the sticker again, now with the reason `(skipped: no file_id)`**: the fetch succeeded but returned zero stickers — while the set provably holds 1 sticker (verified live via the Bot API twice, and the repo's own `getStickerFileId` run against the real API returns it). Code, token, name and set are all proven fine; the worker's lookup sees zero stickers at bundle ticks for an unknown reason, and the worker log was unavailable. Fallback: when `getStickerSet` returns an empty set, use the live-verified file_id of the set's first sticker (📊) so the sticker posts instead of skipping. The fallback is deliberately NOT cached in KV — if the lookup ever recovers, the real first sticker is used and cached again. A file_id is a public content address (readable via `getStickerSet`), not a credential. If the sticker is ever removed from the set, the send fails loudly with `error: …`.
+- Tests: 58/58 green (empty-set case now asserts the fallback sends).
+
 ## [6.1.15] — 2026-11-14
 
 ### Fixed — the sticker skip notice now carries the reason

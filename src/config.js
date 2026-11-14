@@ -114,5 +114,14 @@ const EMOTION_STATES = {
 };
 
 const STICKER_SET_NAME = 'TradeAgentIVstickers';
+// v6.1.16: the set's first sticker (📊), verified live via the Bot API on
+// 2026-11-14 (twice) and by running the repo's own lookup against the real
+// API. Fallback ONLY when getStickerSet returns an empty set at a bundle
+// tick — the worker sees zero stickers there for an unknown reason (its log
+// was unavailable), while the same lookup from outside returns this sticker.
+// A file_id is a public content address (anyone can read it via
+// getStickerSet), not a credential. If the sticker is ever removed from the
+// set, sendSticker fails loudly with `error: …` instead of skipping.
+const FALLBACK_STICKER_FILE_ID = 'CAACAgQAAxUAAWr34rcAAYpFhcCrVouQEcs_WxLTDQACCx8AAgdRMFE3yIYdb4nt5j0E';
 
-export { TIER_1, TIER_2, TIER_3, COINS, COIN_IDS, CRON_PRICE, CRON_BUNDLE, CRON_MOVERS, ALERT_PRESETS, COINGECKO_BASE, CMC_BASE, GEMINI_URL, GEMINI_FALLBACK_URL, GEMINI_FALLBACK_URL_2, OPENROUTER_URL, GROQ_URL, FNG_URL, BINANCE_MAP, SYMBOL_TO_ID, CMC_SYMBOLS, FOOTER, AI_MODES, SCENARIOS, EMOTION_STATES, STICKER_SET_NAME };
+export { TIER_1, TIER_2, TIER_3, COINS, COIN_IDS, CRON_PRICE, CRON_BUNDLE, CRON_MOVERS, ALERT_PRESETS, COINGECKO_BASE, CMC_BASE, GEMINI_URL, GEMINI_FALLBACK_URL, GEMINI_FALLBACK_URL_2, OPENROUTER_URL, GROQ_URL, FNG_URL, BINANCE_MAP, SYMBOL_TO_ID, CMC_SYMBOLS, FOOTER, AI_MODES, SCENARIOS, EMOTION_STATES, STICKER_SET_NAME, FALLBACK_STICKER_FILE_ID };
