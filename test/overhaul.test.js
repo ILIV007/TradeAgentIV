@@ -1201,14 +1201,20 @@ test('v6.1.14 trending: no trending data notifies the admin instead of staying s
 test('v6.1.15 sticker: empty set skips with a reason, failed fetch returns the error', async () => {
   const { sendChannelSticker } = await import('../src/telegram.js');
   const realFetch = globalThis.fetch;
-  // Empty set: getStickerSet succeeds but lists no stickers.
-  globalThis.fetch = async (url) => {
-    if (String(url).includes('getStickerSet')) return httpRes(200, { ok: true, result: { name: 'TradeAgentIVstickers', stickers: [] } });
+  // Empty set: getStickerSet succeeds but lists no stickers. v6.1.16: the
+  // verified fallback file_id is used instead, so the sticker sends.
+  const tg = [];
+  globalThis.fetch = async (url, options = {}) => {
+    const u = String(url);
+    if (u.includes('getStickerSet')) return httpRes(200, { ok: true, result: { name: 'TradeAgentIVstickers', stickers: [] } });
+    if (u.includes('api.telegram.org')) { tg.push(JSON.parse(options.body)); return tgOkRes; }
     return httpRes(200, {});
   };
   try {
+    const { FALLBACK_STICKER_FILE_ID } = await import('../src/config.js');
     const env = { TELEGRAM_CHANNEL_ID: '-100123', TELEGRAM_BOT_TOKEN: 'tok', ALERTS_KV: makeKVStub() };
-    assert.equal(await sendChannelSticker(env), 'skipped: no file_id');
+    assert.equal(await sendChannelSticker(env), 'sent');
+    assert.ok(tg.some((b) => b.sticker === FALLBACK_STICKER_FILE_ID), 'must send the verified fallback file_id');
   } finally { globalThis.fetch = realFetch; }
   // Failed fetch: Telegram answers ok:false — the status must carry the error.
   globalThis.fetch = async (url) => {

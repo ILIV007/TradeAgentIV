@@ -1,5 +1,5 @@
 // TradeAgent IV — Telegram API wrappers, stickers, keyboards.
-import { STICKER_SET_NAME, AI_MODES, SCENARIOS, ALERT_PRESETS, COINS } from './config.js';
+import { STICKER_SET_NAME, FALLBACK_STICKER_FILE_ID, AI_MODES, SCENARIOS, ALERT_PRESETS, COINS } from './config.js';
 import { fetchWithTimeout } from './utils.js';
 import { getConfig } from './store.js';
 
@@ -147,7 +147,14 @@ async function getStickerFileId(env) {
       console.log('[STICKER] Cached new file_id:', fileId.slice(0, 20) + '...');
       return fileId;
     } else {
-      console.error('[STICKER] Set exists but empty:', STICKER_SET_NAME);
+      // v6.1.16: the worker's getStickerSet returns an empty set at bundle
+      // ticks even though the set provably holds this sticker (verified live
+      // twice + the repo's own lookup returns it) — cause unknown, worker log
+      // unavailable. Fall back to the verified file_id so the sticker posts
+      // instead of skipping. Deliberately NOT cached in KV: if the lookup
+      // ever recovers, the real first sticker is used and cached again.
+      console.error('[STICKER] Set exists but empty:', STICKER_SET_NAME, '— using verified fallback file_id');
+      return FALLBACK_STICKER_FILE_ID;
     }
   } catch (e) {
     console.error(`[STICKER] getStickerSet FAILED: ${e.message} | Set: ${STICKER_SET_NAME}`);
