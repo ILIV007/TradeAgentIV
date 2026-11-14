@@ -99,10 +99,17 @@ function getShortModelName(fullName) {
   if (lower.includes('deepseek')) return 'DeepSeek';
   if (lower.includes('qwen')) return 'Qwen';
   if (lower.includes('claude')) return 'Claude';
-  if (lower.includes('gpt')) return 'GPT';
+  if (lower.includes('gpt')) return 'ChatGPT';
   if (lower.includes('llama')) return 'Llama';
   if (lower.includes('kimi')) return 'Kimi';
   if (lower.includes('gemma')) return 'Gemma';
+  if (lower.includes('nemotron')) return 'Nemotron';
+  // Provider labels, not model IDs: Workers AI runs Qwen3 30B, Groq runs
+  // Llama 3.3 70B — the post shows the model family, not the platform.
+  if (lower.includes('workers')) return 'Qwen';
+  if (lower.includes('groq')) return 'Llama';
+  // The /free fallback resolves to an unknown model — show the provider.
+  if (lower.includes('openrouter')) return 'OpenRouter';
   return clean;
 }
 

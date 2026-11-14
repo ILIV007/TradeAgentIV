@@ -5,7 +5,7 @@
 // footer. Delivery (telegram.js sendRich) falls back to the classic HTML
 // post if Telegram rejects the rich payload.
 import { COINS } from './config.js';
-import { esc, fmt } from './utils.js';
+import { esc, fmt, getShortModelName } from './utils.js';
 import { L, footerRich, regimeName } from './i18n.js';
 
 const pct = (v) => (v == null || isNaN(v) ? '—' : v > 0 ? `🟢 +${Number(v).toFixed(1)}%` : v < 0 ? `🔴 ${Number(v).toFixed(1)}%` : '⚪ 0.0%');
@@ -279,7 +279,7 @@ function buildRichAIAnalysis(aiResult, today, emotion, lang = 'en') {
 
   let h = `<h2>🧠 ${T.aiIntel}</h2>`;
   h += `<p>${emo.emoji} <b>${T.marketState}: ${emo.state}</b> · ${emo.color} ${T.intensity}: ${emo.intensity}/100 · ${esc(t.mode || 'Normal')} ${T.mode}</p>`;
-  h += `<p><i>${esc(t.date || '')} · ${esc(aiResult.source || 'AI')}</i></p>`;
+  h += `<p><i>${esc(t.date || '')} · ${esc(getShortModelName(aiResult.source))}</i></p>`;
   const HEAD = /^<b>(Market Overview|Bullish Factors|Bearish Factors|Risk Factors|Sector Rotation|Tomorrow Watchlist|Conclusion)<\/b>\s*/;
   for (const part of englishText.split(/\n\s*\n/).map((x) => x.trim()).filter(Boolean)) {
     const hm = part.match(HEAD);

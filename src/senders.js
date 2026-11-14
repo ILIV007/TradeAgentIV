@@ -213,6 +213,23 @@ async function sendChannelFng(env) {
   });
 }
 
+// v6.1.19: the sticker always precedes an AI analysis post so the
+// analysis stands out in the channel. Called only AFTER the analysis
+// is ready — a failed analysis stays silent (rule 1: no placeholder
+// posts), so the sticker never lands alone. Best-effort: a sticker
+// failure never blocks the analysis; the admin hears about a skip
+// (the bundle used to go silent on this, 2026-11-13).
+async function sendStickerBeforeAnalysis(env) {
+  try {
+    const status = await sendChannelSticker(env);
+    if (status === 'sent') { console.log('[AI] ✅ Sticker sent before analysis'); return; }
+    console.log(`[AI] ⚠️ Sticker skipped (${status}) before analysis`);
+    await notifyAdmin(env, `⚠️ <b>Sticker skipped before AI analysis</b> — no sticker was sent to the channel (${esc(status)}). Check the sticker set / file_id.`);
+  } catch (e) {
+    console.error('[AI] ❌ Sticker before analysis:', e.message);
+  }
+}
+
 async function sendChannelAI(env, customPrompt = null) {
   ensureChannel(env);
   return await dedupSend(env, 'ai', async () => {
@@ -255,6 +272,7 @@ async function sendChannelAI(env, customPrompt = null) {
     }
 
     const lang = await getLang(env);
+    await sendStickerBeforeAnalysis(env);
     return await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichAIAnalysis(aiResult, today, emotion, lang), () => buildAIAnalysis(aiResult, today, emotion, lang), null, lang);
     await storeSnapshot(env, today);
   });
@@ -302,14 +320,8 @@ async function sendWithTimeout(fn, env, name, timeoutMs = 35000) {
 
 async function sendChannelAll(env, ctx) {
   await dedupSend(env, 'all_bundle', async () => {
-    try {
-      await sendChannelSticker(env);
-      console.log('[SEND ALL] ✅ Sticker sent first');
-    } catch (e) {
-      console.error('[SEND ALL] ❌ Sticker failed:', e.message);
-    }
-    await new Promise(r => setTimeout(r, 2000));
-    
+    // v6.1.19: no opener sticker here anymore — the sticker rides inside
+    // sendChannelAI, right before the AI Daily post it belongs to.
     const results = [];
     const sent = [];
     const senders = [
@@ -418,6 +430,7 @@ async function sendChannelFlagship(env, shared = null) {
       await notifyAdmin(env, '⚠️ <b>Flagship analysis failed validation</b> — no post was sent to the channel.' + (block ? `\n${block}` : ''));
       return;
     }
+    await sendStickerBeforeAnalysis(env);
     const sent = await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichFlagship(s, v.parsed, lang), () => buildFlagshipClassic(s, v.parsed, lang), null, lang);
     const recs = (await kvGetJSON(env, 'scen:records')) || [];
     recs.push({ ts: Date.now(), btc: s.prices.find((c) => c.id === 'bitcoin')?.current_price || 0, scenarios: v.parsed.scenarios.map(({ kind, lean, level, side }) => ({ kind, lean, level, side })) });

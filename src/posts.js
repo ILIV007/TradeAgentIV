@@ -1,6 +1,6 @@
 // TradeAgent IV — post builders (pure: data in, Telegram HTML out).
 import { COINS, BINANCE_MAP, SYMBOL_TO_ID } from './config.js';
-import { esc, fmt, progressBar } from './utils.js';
+import { esc, fmt, progressBar, getShortModelName } from './utils.js';
 import { L, footerClassic, regimeName, fngName, biasText, fngSignal, timeStr, RLM } from './i18n.js';
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -237,7 +237,7 @@ async function buildAIAnalysis(aiResult, todayData, emotion, lang = 'en') {
   m += `${emo.color} ${T.intensity}: ${emo.intensity}/100  ·  ${t.mode || 'Normal'} ${T.mode}\n\n`;
   
   m += `🧠 <b>${T.aiIntel}</b>\n`;
-  m += `<i>${t.date} · ${aiResult.source || 'AI'} · ${t.mode || 'Normal'}</i>\n\n`;
+  m += `<i>${t.date} · ${getShortModelName(aiResult.source)} · ${t.mode || 'Normal'}</i>\n\n`;
   
   if (englishText) {
     m += `<blockquote>\n${englishText}\n</blockquote>\n\n`;

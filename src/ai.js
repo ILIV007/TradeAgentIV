@@ -225,6 +225,9 @@ async function getAIAnalysis(env, prompt, opts = {}) {
   // the retry must rotate to a different provider, not re-run the identical
   // chain (same order, same first-live-provider, temp 0.3 ≈ same output).
   const skip = new Set(opts?.skipSources || []);
+  // v6.1.19: skip entries arrive in mixed forms — raw model IDs from older
+  // callers, short family names from result.source — so index both forms.
+  for (const s of [...skip]) skip.add(getShortModelName(s));
 
   if (!raw) {
     const cached = await getAICache(env, promptHash);

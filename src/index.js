@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-//  TRADEAGENT IV HYBRID v6.1.18 — Gemini Migration
+//  TRADEAGENT IV HYBRID v6.1.19 — Short model names + sticker before AI
 // ═══════════════════════════════════════════════════════════════
 // Worker entry: cron + HTTP router (webhook, /admin, /debug).
 import { CRON_PRICE, CRON_BUNDLE, CRON_MOVERS, COINS, TIER_1, TIER_2, TIER_3 } from './config.js';
@@ -56,22 +56,10 @@ async function handleCron(event, env) {
       }
     }
     else if (cron === CRON_BUNDLE) {
-      console.log('[CRON] Bundle: Sticker + AI + F&G + Funding (8h)');
-      try {
-        const stickerStatus = await sendChannelSticker(env);
-        if (stickerStatus === 'sent') {
-          console.log('[CRON] ✅ Sticker sent first');
-        } else {
-          // v6.1.14: a skipped/failed sticker used to die in console.log
-          // only — 0/3 bundle ticks on 2026-11-13, nobody told.
-          console.log(`[CRON] ⚠️ Sticker skipped (${stickerStatus})`);
-          await notifyAdmin(env, `⚠️ <b>[BUNDLE] Sticker skipped</b> — no sticker was sent to the channel (${esc(stickerStatus)}). Check the sticker set / file_id.`);
-        }
-      } catch (e) {
-        console.error(`[CRON] ❌ Sticker: ${e.message}`);
-      }
-      await new Promise(r => setTimeout(r, 2000));
-      
+      console.log('[CRON] Bundle: AI + F&G + Funding (8h)');
+      // v6.1.19: no sticker block here anymore — the sticker rides inside
+      // sendChannelAI, right before the AI analysis it belongs to (so a
+      // failed or dedup-skipped AI never leaves an orphan sticker).
       const tasks = [
         { name: 'AI', fn: sendChannelAI, delay: 0 },
         { name: 'F&G', fn: sendChannelFng, delay: 5000 },
@@ -234,8 +222,8 @@ async function handleHttp(request, env, ctx) {
   }
   if (path === '/' && request.method === 'GET') {
     return new Response(
-      `TradeAgent IV HYBRID v6.1.18 — AI-Powered Crypto Intelligence\n\n` +
-      `Backend: v6.1.18 (Market State, Regime Engine v2, rich delivery, flagship AI products, macro watcher)\n` +
+      `TradeAgent IV HYBRID v6.1.19 — AI-Powered Crypto Intelligence\n\n` +
+      `Backend: v6.1.19 (Market State, Regime Engine v2, rich delivery, flagship AI products, macro watcher)\n` +
       `UI: Plain <blockquote> for all sections + Gemini Priority + Updated Commands\n\n` +
       `Routes:\n` +
       `  POST /webhook  → Telegram webhook\n` +
@@ -243,14 +231,14 @@ async function handleHttp(request, env, ctx) {
       `  GET  /debug    → Status check + API tests (admin secret required)\n\n` +
       `Cron: ${CRON_PRICE}, ${CRON_BUNDLE}, ${CRON_MOVERS}\n` +
       `Coins: ${Object.keys(COINS).length} (T1:${Object.keys(TIER_1).length} T2:${Object.keys(TIER_2).length} T3:${Object.keys(TIER_3).length})\n` +
-      `AI: Gemini 3.5 Flash-Lite → Gemini 3.6 Flash → OpenRouter Nemotron → Gemini 3.8 Flash → openrouter/free\n` +
+      `AI: Gemini 3.5 Flash-Lite → Workers AI Qwen3 30B → Groq Llama 3.3 70B → OpenRouter Nemotron 3 Ultra → Gemini 3.6 Flash → OpenRouter Gemma 4 31B → openrouter/free\n` +
       `Movers: Binance 24h ticker (no CMC required)\n` +
       `Dedup: v3 (10min gap + 5min lock + race-proof)\n` +
       `F&G: Modern visual bar + signal interpretation\n` +
       `Persian: Plain <blockquote> (stable across all clients)\n` +
-      `Sticker: Auto-send after bundle via getStickerSet\n` +
+      `Sticker: Always right before an AI analysis (flagship + AI Daily)\n` +
       `Timeout: All fetches capped at 15-25s with AbortController\n` +
-      `SendAll/Cron: Sticker FIRST, then posts with 2s gap\n` +
+      `SendAll/Cron: Sticker right before the AI analysis, then the post\n` +
       `AI Fail: Silent in channel + admin notified in PV\n` +
       `EditMsg: "not modified" errors ignored silently (case-insensitive)
   AI Validation: Structure check (length, sections, Persian, conclusion)

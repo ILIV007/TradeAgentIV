@@ -3,6 +3,14 @@
 All notable changes to TradeAgent IV are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [6.1.19] — 2026-11-14
+
+### Changed — short model names in AI posts, sticker before every AI analysis
+- **Model name in the AI post is now the family name only.** The AI Daily line used to show the full provider label or model ID (`nvidia/nemotron-3-ultra-550b-a55b`, `Workers AI`, `Groq`, `openrouter/free`). `getShortModelName` now maps every source to its short family name — Gemini, Qwen, Llama, Nemotron, Gemma, ChatGPT, OpenRouter — and both AI builders (classic + rich) render it. No chain order or model changed; the internal provider labels used for failure notes and the v6.1.17 skip-rotation are untouched.
+- **The sticker now always precedes an AI analysis.** It rides inside `sendChannelAI` and `sendChannelFlagship` (all paths: cron, bundle, send-all, manual, /admin) instead of the bundle/send-all opener, so the sticker lands right before the analysis it belongs to. It is sent only AFTER the analysis is ready — a failed analysis still stays fully silent (no orphan sticker, rule 1) — and a sticker failure never blocks the analysis; the admin is notified on a skip, keeping the v6.1.14 loudness.
+- Also fixed: the worker root status line still listed the removed Gemini 3.8 Flash in the wrong chain order — it now shows the real v6.1.18 chain.
+- Tests: 66/66 green (4 new: short-name mapping, AI builders show the short name, sticker precedes the flagship post, sticker failure never blocks the analysis but notifies).
+
 ## [6.1.18] — 2026-11-14
 
 ### Changed — Google's own API is now the chain's primary

@@ -10,7 +10,7 @@
 ![Telegram Bot](https://img.shields.io/badge/Telegram-2CA5E0?style=flat-square&logo=telegram&logoColor=white)
 ![AI Models](https://img.shields.io/badge/AI-Gemini%20%7C%20OpenRouter-blueviolet?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
-![Version](https://img.shields.io/badge/Version-6.1.18-orange?style=flat-square)
+![Version](https://img.shields.io/badge/Version-6.1.19-orange?style=flat-square)
 
 ---
 

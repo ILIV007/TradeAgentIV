@@ -568,7 +568,7 @@ test('v6.1.17 flagship: a 62-char stub falls through, and the failure notice nam
     const notify = tg.find((b) => String(b.chat_id) === '999');
     assert.ok(notify, 'admin notify sent');
     assert.ok(notify.text.includes('<b>Flagship analysis failed validation</b>'), notify.text);
-    assert.ok(notify.text.includes('source: openrouter/free'), notify.text);
+    assert.ok(notify.text.includes('source: OpenRouter'), notify.text);
     assert.ok(notify.text.includes('preview:'), notify.text);
     assert.ok(notify.text.includes('Market Overview'), notify.text);
     assert.ok(notify.text.includes('too short (62 chars)'), notify.text);
@@ -962,8 +962,10 @@ test('v6.1.9 loud dispatch: a throw inside the flagship job notifies the admin',
     await worker.scheduled({ cron: '*/30 * * * *', scheduledTime: Date.parse('2026-11-12T17:30:00Z') }, env, ctx);
     await done;
     assert.ok(pricePosted, 'price snapshot must land first');
-    const notify = tg.find((b) => String(b.chat_id) === '999');
-    assert.ok(notify && notify.text.includes('[CRON] flagship failed'), 'dispatch throw must notify the admin, not die in console.error');
+    // v6.1.19: the sticker attempt fires its own skip notice first, so find
+    // the dispatch-failure notice by its text, not just by admin chat id.
+    const notify = tg.find((b) => String(b.chat_id) === '999' && b.text.includes('[CRON] flagship failed'));
+    assert.ok(notify, 'dispatch throw must notify the admin, not die in console.error');
     assert.ok(notify.text.includes('21:00'), 'notify names the tick');
   } finally { globalThis.fetch = realFetch; }
 });
@@ -1264,10 +1266,13 @@ test('v6.1.14 sticker: skipped sticker returns its status and the bundle notifie
     assert.ok(seenUrls.some((u) => u.endsWith('/sendSticker')), 'must call sendSticker');
     assert.ok(tg.some((b) => b.sticker === 'FILE123'), 'must send the cached file_id');
   } finally { globalThis.fetch = realFetch; }
-  // The bundle must turn a non-'sent' status into an admin notice.
+  // v6.1.19: the sticker rides inside the AI senders, not the bundle —
+  // the notice lives there now, and the bundle owns no sticker block.
+  const sendersSrc = (await import('node:fs')).readFileSync(new URL('../src/senders.js', import.meta.url), 'utf8');
+  assert.ok(sendersSrc.includes('sendStickerBeforeAnalysis'), 'AI senders must call the sticker helper');
+  assert.ok(sendersSrc.includes('Sticker skipped before AI analysis'), 'a skipped sticker must notify the admin');
   const idxSrc = (await import('node:fs')).readFileSync(new URL('../src/index.js', import.meta.url), 'utf8');
-  assert.ok(idxSrc.includes('stickerStatus'), 'bundle must read the sticker status');
-  assert.ok(idxSrc.includes('[BUNDLE] Sticker skipped'), 'bundle must notify on a skipped sticker');
+  assert.ok(!idxSrc.includes('[BUNDLE] Sticker skipped'), 'the bundle no longer owns the sticker notice');
 });
 
 test('v6.1.14 trending: no trending data notifies the admin instead of staying silent', async () => {
@@ -1318,5 +1323,84 @@ test('v6.1.15 sticker: empty set skips with a reason, failed fetch returns the e
   try {
     const env = { TELEGRAM_CHANNEL_ID: '-100123', TELEGRAM_BOT_TOKEN: 'tok', ALERTS_KV: makeKVStub() };
     assert.equal(await sendChannelSticker(env), 'error: Bad Request: STICKERSET_INVALID');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('v6.1.19 model name: only the short family name is shown (Nemotron, Qwen, ChatGPT)', async () => {
+  const { getShortModelName } = await import('../src/utils.js');
+  assert.equal(getShortModelName('nvidia/nemotron-3-ultra-550b-a55b'), 'Nemotron');
+  assert.equal(getShortModelName('nvidia/nemotron-3-ultra-550b-a55b:free'), 'Nemotron');
+  assert.equal(getShortModelName('openrouter/free'), 'OpenRouter');
+  assert.equal(getShortModelName('Workers AI'), 'Qwen');
+  assert.equal(getShortModelName('Groq'), 'Llama');
+  assert.equal(getShortModelName('Gemini 3.5 Flash-Lite'), 'Gemini');
+  assert.equal(getShortModelName('openai/gpt-oss-120b'), 'ChatGPT');
+  assert.equal(getShortModelName('google/gemma-3-27b-it'), 'Gemma');
+  assert.equal(getShortModelName(undefined), 'AI');
+});
+
+test('v6.1.19 AI builders: the byline shows the short name, never the full model ID', async () => {
+  const { buildRichAIAnalysis } = await import('../src/rich.js');
+  const ai = { text: '<b>Market Overview</b> — Calm.\n---PERSIAN---\n<b>خلاصه بازار</b>\n• یک', source: 'nvidia/nemotron-3-ultra-550b-a55b' };
+  const classic = await buildAIAnalysis(ai, todayFixture, null);
+  assert.ok(classic.includes('Nemotron'), classic);
+  assert.ok(!classic.includes('nvidia/nemotron'), 'full model ID must not leak into the post');
+  const rich = buildRichAIAnalysis(ai, todayFixture, null);
+  assert.ok(JSON.stringify(rich).includes('Nemotron'), 'rich byline shows Nemotron');
+  assert.ok(!JSON.stringify(rich).includes('nvidia/nemotron'), 'rich byline must not leak the full ID');
+  const wai = { ...ai, source: 'Workers AI' };
+  const classicWai = await buildAIAnalysis(wai, todayFixture, null);
+  assert.ok(classicWai.includes('Qwen'), classicWai);
+  assert.ok(!classicWai.includes('Workers AI'), 'provider label must not leak into the post');
+});
+
+test('v6.1.19 flagship: the sticker is sent before the analysis post', async () => {
+  const { sendChannelFlagship } = await import('../src/senders.js');
+  const coins = senderCoins();
+  const kv = makeKVStub();
+  const tg = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    const u = String(url);
+    if (u.includes('getStickerSet')) return httpRes(200, { ok: true, result: { name: 'TradeAgentIVstickers', stickers: [] } });
+    if (u.includes('api.telegram.org')) { tg.push(JSON.parse(options.body)); return tgOkRes; }
+    // OpenRouter, not Gemini: earlier tests memo the Gemini geo-block for
+    // 30 min, so a Gemini draft would never arrive in this process.
+    if (u.includes('openrouter')) return httpRes(200, { choices: [{ message: { content: flagshipE2EDraft }, finish_reason: 'stop' }] });
+    return httpRes(200, stateDataRoute(u, coins));
+  };
+  try {
+    const env = { TELEGRAM_BOT_TOKEN: 'tok', TELEGRAM_CHANNEL_ID: '-100123', ADMIN_ID: '999', OPENROUTER_API_KEY: 'or', COINGECKO_API_KEY: 'test', ALERTS_KV: kv };
+    await sendChannelFlagship(env);
+    assert.ok(tg.length >= 2, 'sticker + post');
+    assert.ok(tg[0].sticker, 'first Telegram call is the sticker');
+    assert.equal(String(tg[0].chat_id), '-100123');
+    assert.ok(JSON.stringify(tg.slice(1)).includes('orderly tape'), 'the analysis post follows the sticker');
+    assert.ok(!tg.some((b) => String(b.chat_id) === '999'), 'no admin notify on success');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('v6.1.19 sticker: a failed sticker never blocks the analysis, but the admin is told', async () => {
+  const { sendChannelFlagship } = await import('../src/senders.js');
+  const coins = senderCoins();
+  const kv = makeKVStub();
+  const tg = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    const u = String(url);
+    if (u.includes('getStickerSet')) return httpRes(200, { ok: false, error_code: 400, description: 'Bad Request: STICKERSET_INVALID' });
+    if (u.includes('api.telegram.org')) { tg.push(JSON.parse(options.body)); return tgOkRes; }
+    // OpenRouter, not Gemini: earlier tests memo the Gemini geo-block for
+    // 30 min, so a Gemini draft would never arrive in this process.
+    if (u.includes('openrouter')) return httpRes(200, { choices: [{ message: { content: flagshipE2EDraft }, finish_reason: 'stop' }] });
+    return httpRes(200, stateDataRoute(u, coins));
+  };
+  try {
+    const env = { TELEGRAM_BOT_TOKEN: 'tok', TELEGRAM_CHANNEL_ID: '-100123', ADMIN_ID: '999', OPENROUTER_API_KEY: 'or', COINGECKO_API_KEY: 'test', ALERTS_KV: kv };
+    await sendChannelFlagship(env);
+    assert.ok(JSON.stringify(tg).includes('orderly tape'), 'the analysis still posts when the sticker fails');
+    const notice = tg.find((b) => String(b.chat_id) === '999');
+    assert.ok(notice, 'admin is told about the skipped sticker');
+    assert.ok(notice.text.includes('Sticker skipped before AI analysis'), notice.text);
   } finally { globalThis.fetch = realFetch; }
 });
