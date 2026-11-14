@@ -152,6 +152,10 @@ async function getStickerFileId(env) {
   } catch (e) {
     console.error(`[STICKER] getStickerSet FAILED: ${e.message} | Set: ${STICKER_SET_NAME}`);
     console.error(`[STICKER] HINT: Bot must be owner/admin of sticker set "${STICKER_SET_NAME}"`);
+    // v6.1.15: rethrow instead of returning null — the caller must know WHY
+    // there is no file_id (fetch failure vs empty set). /debug already
+    // try/catches this call; sendChannelSticker maps it to `error: …`.
+    throw e;
   }
   return null;
 }
@@ -159,7 +163,7 @@ async function getStickerFileId(env) {
 async function sendChannelSticker(env) {
   if (!env.TELEGRAM_CHANNEL_ID) {
     console.log('[STICKER] No TELEGRAM_CHANNEL_ID');
-    return 'skipped';
+    return 'skipped: no channel id';
   }
   try {
     const fileId = await getStickerFileId(env);
@@ -169,7 +173,7 @@ async function sendChannelSticker(env) {
       return 'sent';
     } else {
       console.log('[STICKER] No file_id available, skipping');
-      return 'skipped';
+      return 'skipped: no file_id';
     }
   } catch (e) {
     console.error('[STICKER] Send error:', e.message);
