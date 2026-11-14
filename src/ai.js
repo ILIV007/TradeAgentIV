@@ -234,13 +234,13 @@ async function getAIAnalysis(env, prompt, opts = {}) {
     }
   }
 
-  // Chain v6.1.6 (architecture fix, 2026-11-11): v6.1.4 put THREE slots on
-  // one vendor, so a single Gemini failure mode (egress geo-block 400s,
-  // capacity 503s) burned most of the chain, and the two OpenRouter slots
-  // shared one extraction bug. Now every step is a different infrastructure,
-  // Gemini is geo-aware, and same-platform Workers AI anchors reliability.
-  // Steps whose binding/secret is absent skip silently. One global ~90s
-  // deadline bounds the chain; every step gets min(cap, rest).
+  // Chain (v6.1.18 order, owner's call): Google's own API is the PRIMARY —
+  // the GEMINI_API_KEY secret is registered, so Gemini direct is tried
+  // first and the chain falls back only when Google has no capacity (geo-
+  // block 400, 503, quota). Workers AI is the same-platform anchor right
+  // behind it; every step is a different infrastructure, Gemini is
+  // geo-aware, and steps whose binding/secret is absent skip silently. One
+  // global ~90s deadline bounds the chain; every step gets min(cap, rest).
   const deadline = Date.now() + 90000;
   const remain = () => deadline - Date.now();
   const geminiResult = async (t) => {
@@ -258,13 +258,13 @@ async function getAIAnalysis(env, prompt, opts = {}) {
     return result;
   };
 
-  // STEP 1: Workers AI Qwen3 30B — same platform, cannot geo-block.
-  const wai = !skip.has('Workers AI') && remain() > 3000 ? await tryWorkersAI(env, prompt, raw, Math.min(25000, remain())) : null;
-  if (wai) return await accept(wai, 'Workers AI');
-
-  // STEP 2: Gemini 3.5 Flash-Lite (fast + 500 req/day free when reachable).
+  // STEP 1: Gemini 3.5 Flash-Lite direct — Google's own API, first.
   let text = skip.has('Gemini') ? null : await tryGeminiDirect(env, prompt, GEMINI_URL, 'gemini-3.5-flash-lite', raw, { timeoutMs: Math.min(15000, remain()) });
   if (text) return await geminiResult(text);
+
+  // STEP 2: Workers AI Qwen3 30B — same platform, cannot geo-block.
+  const wai = !skip.has('Workers AI') && remain() > 3000 ? await tryWorkersAI(env, prompt, raw, Math.min(25000, remain())) : null;
+  if (wai) return await accept(wai, 'Workers AI');
 
   // STEP 3: Groq Llama 3.3 70B — separate infra, ~280 tok/s.
   const groq = !skip.has('Groq') && remain() > 3000 ? await tryGroq(env, prompt, raw, Math.min(15000, remain())) : null;

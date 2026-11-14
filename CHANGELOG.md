@@ -3,6 +3,13 @@
 All notable changes to TradeAgent IV are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [6.1.18] — 2026-11-14
+
+### Changed — Google's own API is now the chain's primary
+- **Chain order (owner's call): Gemini direct first.** The GEMINI_API_KEY secret is registered, so Gemini 3.5 Flash-Lite direct is now step 1 and the chain falls back only when Google has no capacity (geo-block 400, 503, quota). Workers AI moves to step 2 as the same-platform anchor; Groq, Nemotron, Gemini 3.6, Gemma/free follow unchanged. No model added or removed, no acceptance logic changed.
+- Honest note: in production today Gemini direct is still refused by Google (geo-block 400 from the worker's egress), so Nemotron remains the first provider that actually answers — the reorder changes what serves only once that block lifts or the Workers AI binding lands. The v6.1.17 guard + rotation still cover a bad Nemotron draft either way.
+- Tests: 61/61 green + 1 new (Gemini-first; Workers AI anchor test updated for the new order).
+
 ## [6.1.17] — 2026-11-14
 
 ### Fixed — flagship reliability surgery (root cause, not a patch)

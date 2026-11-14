@@ -740,13 +740,30 @@ test('v6.1.6 validator judges content, not markup dialect', async () => {
   assert.equal(isValidAIResponse(AI_MD), true); // **bold** + ## heading + bare Conclusion line
 });
 
-test('v6.1.6 chain: Workers AI answers first when the binding exists', async () => {
+test('v6.1.18 chain: Gemini direct answers first - Google API is the primary', async () => {
+  const { getAIAnalysis } = await import('../src/ai.js');
+  const realFetch = globalThis.fetch;
+  let aiRuns = 0;
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    if (u.includes('generativelanguage')) return geminiRes(AI_OK);
+    throw new Error('unexpected ' + u);
+  };
+  try {
+    const env = { ALERTS_KV: kvStub(), GEMINI_API_KEY: 'g', OPENROUTER_API_KEY: 'o', AI: { run: async () => { aiRuns++; return { response: AI_OK }; } } };
+    const r = await getAIAnalysis(env, 'test prompt');
+    assert.ok(r && r.source === 'Gemini', JSON.stringify(r));
+    assert.equal(aiRuns, 0, 'Workers AI must not be reached when Gemini answers');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('v6.1.18 chain: Workers AI anchors when Gemini has no key', async () => {
   const { getAIAnalysis } = await import('../src/ai.js');
   const realFetch = globalThis.fetch;
   let fetchCalls = 0;
   globalThis.fetch = async () => { fetchCalls++; throw new Error('no HTTP expected'); };
   try {
-    const env = { ALERTS_KV: kvStub(), GEMINI_API_KEY: 'g', OPENROUTER_API_KEY: 'o', AI: { run: async () => ({ response: AI_OK }) } };
+    const env = { ALERTS_KV: kvStub(), OPENROUTER_API_KEY: 'o', AI: { run: async () => ({ response: AI_OK }) } };
     const r = await getAIAnalysis(env, 'test prompt');
     assert.ok(r && r.source === 'Workers AI');
     assert.equal(fetchCalls, 0);
