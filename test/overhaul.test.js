@@ -1154,7 +1154,7 @@ test('v6.1.14 futures: no Binance data notifies the admin instead of staying sil
 test('v6.1.14 sticker: skipped sticker returns its status and the bundle notifies', async () => {
   const { sendChannelSticker } = await import('../src/telegram.js');
   // No KV at all: getStickerFileId returns null, so the sender skips.
-  assert.equal(await sendChannelSticker({ TELEGRAM_CHANNEL_ID: '-100123', TELEGRAM_BOT_TOKEN: 'tok' }), 'skipped');
+  assert.equal(await sendChannelSticker({ TELEGRAM_CHANNEL_ID: '-100123', TELEGRAM_BOT_TOKEN: 'tok' }), 'skipped: no file_id');
   // Cached file_id + Telegram OK: the sticker sends.
   const tg = [];
   const seenUrls = [];
@@ -1195,5 +1195,28 @@ test('v6.1.14 trending: no trending data notifies the admin instead of staying s
     assert.ok(notice, 'admin must be notified when trending has no data');
     assert.ok(notice.text.includes('Trending skipped'), 'notice names the skipped product');
     assert.ok(!tg.some((b) => b.chat_id === '-100123'), 'nothing is posted to the channel');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('v6.1.15 sticker: empty set skips with a reason, failed fetch returns the error', async () => {
+  const { sendChannelSticker } = await import('../src/telegram.js');
+  const realFetch = globalThis.fetch;
+  // Empty set: getStickerSet succeeds but lists no stickers.
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('getStickerSet')) return httpRes(200, { ok: true, result: { name: 'TradeAgentIVstickers', stickers: [] } });
+    return httpRes(200, {});
+  };
+  try {
+    const env = { TELEGRAM_CHANNEL_ID: '-100123', TELEGRAM_BOT_TOKEN: 'tok', ALERTS_KV: makeKVStub() };
+    assert.equal(await sendChannelSticker(env), 'skipped: no file_id');
+  } finally { globalThis.fetch = realFetch; }
+  // Failed fetch: Telegram answers ok:false — the status must carry the error.
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('getStickerSet')) return httpRes(200, { ok: false, error_code: 400, description: 'Bad Request: STICKERSET_INVALID' });
+    return httpRes(200, {});
+  };
+  try {
+    const env = { TELEGRAM_CHANNEL_ID: '-100123', TELEGRAM_BOT_TOKEN: 'tok', ALERTS_KV: makeKVStub() };
+    assert.equal(await sendChannelSticker(env), 'error: Bad Request: STICKERSET_INVALID');
   } finally { globalThis.fetch = realFetch; }
 });

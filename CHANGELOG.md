@@ -3,6 +3,12 @@
 All notable changes to TradeAgent IV are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [6.1.15] — 2026-11-14
+
+### Fixed — the sticker skip notice now carries the reason
+- **The 03:30 bundle on 2026-11-14 skipped the sticker and the new v6.1.14 notice fired — but it only said `(skipped)`**: the set `TradeAgentIVstickers` was verified live to exist (1 sticker 📊), so the notice alone could not say why the worker's lookup returned nothing. `getStickerFileId` now rethrows a fetch failure instead of collapsing it to null, and `sendChannelSticker` returns distinct statuses (`sent` / `skipped: no file_id` / `skipped: no channel id` / `error: <Telegram message>`) — the bundle notice carries the reason, so the next skip self-diagnoses. /debug already try/catches the call, so it now reports the real error instead of 'No sticker cached'.
+- Tests: 58/58 green (1 new: empty-set skip + failed fetch returns `error: …`).
+
 ## [6.1.14] — 2026-11-13
 
 ### Added — fixed daily hours for Trending / Volume / Daily; silent bundle skips are now loud
