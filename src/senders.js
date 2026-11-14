@@ -224,7 +224,11 @@ async function sendStickerBeforeAnalysis(env) {
     const status = await sendChannelSticker(env);
     if (status === 'sent') { console.log('[AI] ✅ Sticker sent before analysis'); return; }
     console.log(`[AI] ⚠️ Sticker skipped (${status}) before analysis`);
-    await notifyAdmin(env, `⚠️ <b>Sticker skipped before AI analysis</b> — no sticker was sent to the channel (${esc(status)}). Check the sticker set / file_id.`);
+    // v6.1.20: name the KV state in the notice — a missing ALERTS_KV
+    // binding degrades dedup/state too, and the next skip is diagnosable
+    // from the PV alone.
+    const kvState = env.ALERTS_KV ? '' : ' (KV binding: missing)';
+    await notifyAdmin(env, `⚠️ <b>Sticker skipped before AI analysis</b> — no sticker was sent to the channel (${esc(status)}). Check the sticker set / file_id.${kvState}`);
   } catch (e) {
     console.error('[AI] ❌ Sticker before analysis:', e.message);
   }

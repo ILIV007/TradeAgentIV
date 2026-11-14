@@ -130,20 +130,24 @@ async function editMessage(env, chatId, messageId, text, markup = null) {
 }
 
 async function getStickerFileId(env) {
-  if (!env.ALERTS_KV) return null;
+  // v6.1.20: the KV cache is optional — every other store helper degrades
+  // gracefully without ALERTS_KV, but this one early-returned null, so a
+  // worker WITHOUT the binding could never send a sticker at all (the
+  // 19:30 bundle on 2026-11-14 skipped with 'no file_id' twice). The
+  // lookup + verified fallback run with or without KV now.
   try {
-    const cached = await env.ALERTS_KV.get('sticker:file_id');
+    const cached = env.ALERTS_KV ? await env.ALERTS_KV.get('sticker:file_id') : null;
     if (cached) {
       console.log('[STICKER] Using cached file_id');
       return cached;
     }
-    
+
     console.log(`[STICKER] Fetching set: ${STICKER_SET_NAME}`);
     const set = await tgMethod(env.TELEGRAM_BOT_TOKEN, 'getStickerSet', { name: STICKER_SET_NAME });
-    
+
     if (set.result?.stickers?.length > 0) {
       const fileId = set.result.stickers[0].file_id;
-      await env.ALERTS_KV.put('sticker:file_id', fileId, { expirationTtl: 2592000 });
+      if (env.ALERTS_KV) await env.ALERTS_KV.put('sticker:file_id', fileId, { expirationTtl: 2592000 });
       console.log('[STICKER] Cached new file_id:', fileId.slice(0, 20) + '...');
       return fileId;
     } else {
@@ -164,7 +168,6 @@ async function getStickerFileId(env) {
     // try/catches this call; sendChannelSticker maps it to `error: …`.
     throw e;
   }
-  return null;
 }
 
 async function sendChannelSticker(env) {

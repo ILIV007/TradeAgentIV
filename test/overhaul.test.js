@@ -1249,8 +1249,22 @@ test('v6.1.14 futures: no Binance data notifies the admin instead of staying sil
 
 test('v6.1.14 sticker: skipped sticker returns its status and the bundle notifies', async () => {
   const { sendChannelSticker } = await import('../src/telegram.js');
-  // No KV at all: getStickerFileId returns null, so the sender skips.
-  assert.equal(await sendChannelSticker({ TELEGRAM_CHANNEL_ID: '-100123', TELEGRAM_BOT_TOKEN: 'tok' }), 'skipped: no file_id');
+  // v6.1.20: no KV at all — the lookup + fallback run anyway (the old
+  // early-return made a worker without the ALERTS_KV binding skip every
+  // sticker with 'no file_id', exactly what the 19:30 bundle hit).
+  const tgNoKv = [];
+  const realFetchNoKv = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    const u = String(url);
+    if (u.includes('getStickerSet')) return httpRes(200, { ok: true, result: { name: 'TradeAgentIVstickers', stickers: [] } });
+    if (u.includes('api.telegram.org')) { tgNoKv.push(JSON.parse(options.body)); return tgOkRes; }
+    return httpRes(200, {});
+  };
+  try {
+    const { FALLBACK_STICKER_FILE_ID } = await import('../src/config.js');
+    assert.equal(await sendChannelSticker({ TELEGRAM_CHANNEL_ID: '-100123', TELEGRAM_BOT_TOKEN: 'tok' }), 'sent');
+    assert.ok(tgNoKv.some((b) => b.sticker === FALLBACK_STICKER_FILE_ID), 'no-KV worker must still send the verified fallback file_id');
+  } finally { globalThis.fetch = realFetchNoKv; }
   // Cached file_id + Telegram OK: the sticker sends.
   const tg = [];
   const seenUrls = [];
@@ -1324,6 +1338,28 @@ test('v6.1.15 sticker: empty set skips with a reason, failed fetch returns the e
     const env = { TELEGRAM_CHANNEL_ID: '-100123', TELEGRAM_BOT_TOKEN: 'tok', ALERTS_KV: makeKVStub() };
     assert.equal(await sendChannelSticker(env), 'error: Bad Request: STICKERSET_INVALID');
   } finally { globalThis.fetch = realFetch; }
+});
+
+test('v6.1.20 sticker: lookup works without KV and the skip notice names the KV state', async () => {
+  const { sendChannelSticker } = await import('../src/telegram.js');
+  const realFetch = globalThis.fetch;
+  // No KV + set HAS a sticker: the live file_id is used, and nothing
+  // throws trying to cache it.
+  const tg = [];
+  globalThis.fetch = async (url, options = {}) => {
+    const u = String(url);
+    if (u.includes('getStickerSet')) return httpRes(200, { ok: true, result: { name: 'TradeAgentIVstickers', stickers: [{ file_id: 'LIVE123' }] } });
+    if (u.includes('api.telegram.org')) { tg.push(JSON.parse(options.body)); return tgOkRes; }
+    return httpRes(200, {});
+  };
+  try {
+    assert.equal(await sendChannelSticker({ TELEGRAM_CHANNEL_ID: '-100123', TELEGRAM_BOT_TOKEN: 'tok' }), 'sent');
+    assert.ok(tg.some((b) => b.sticker === 'LIVE123'), 'must send the live first sticker even without KV');
+  } finally { globalThis.fetch = realFetch; }
+  // The skip notice must name the KV state so the next skip is
+  // diagnosable from the PV alone.
+  const sendersSrc = (await import('node:fs')).readFileSync(new URL('../src/senders.js', import.meta.url), 'utf8');
+  assert.ok(sendersSrc.includes('KV binding: missing'), 'the sticker-skip notice must name a missing KV binding');
 });
 
 test('v6.1.19 model name: only the short family name is shown (Nemotron, Qwen, ChatGPT)', async () => {

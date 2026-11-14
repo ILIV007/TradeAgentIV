@@ -3,6 +3,15 @@
 All notable changes to TradeAgent IV are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [6.1.20] — 2026-11-14
+
+### Fixed — the sticker works even when the worker has no KV binding (root cause of the 19:30 bundle skips)
+- **Root cause: the deployed worker has no `ALERTS_KV` binding.** The 19:30 bundle skipped the sticker twice with `skipped: no file_id` — and the code path proves why: with the v6.1.16 fallback in place, the only way `getStickerFileId` returns nothing is its `!env.ALERTS_KV` early return. `wrangler.toml` declares no `kv_namespaces` (the block was removed 2026-06-02 for public-repo hygiene), and dashboard-only bindings are wiped by the next Workers Builds deploy — wrangler.toml is the source of truth — so no deploy since has carried the binding. Every other store helper degrades gracefully without KV (dedup is bypassed, which also explains the 18:31 snapshot/movers doubles; cache/state/config fall back to defaults), which is why the missing binding went unnoticed for months. The sticker was the only loud symptom, misread until now as a Telegram lookup issue.
+- **The sticker no longer needs KV.** `getStickerFileId` now runs the lookup + verified fallback with or without the binding; only the cache read/write still use KV. A worker without the binding sends the sticker (live first sticker, or the verified fallback) instead of skipping.
+- **The skip notice names the KV state.** A skipped sticker now reports `(KV binding: missing)` when the binding is absent, so the next skip is diagnosable from the PV alone.
+- **The binding is restored in this release.** The `[[kv_namespaces]]` block is back in `wrangler.toml` (owner-approved 2026-11-14) with the namespace id — dashboard-only does not stick, so the binding must live in the file for deploys to carry it. This also restores dedup, the AI cache, the circuit breakers, and the `flagship:lastRejected` record, so the next flagship failure is fully diagnosable instead of silent. (Repo rule 5 updated: the id is an identifier, not a credential — it grants no access without the Cloudflare login.)
+- Tests: 67/67 green + 1 new (sticker sends without KV via the live first sticker; the no-KV fallback case in the v6.1.14 test updated; skip notice names the KV state).
+
 ## [6.1.19] — 2026-11-14
 
 ### Changed — short model names in AI posts, sticker before every AI analysis

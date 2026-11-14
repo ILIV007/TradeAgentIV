@@ -17,7 +17,7 @@ TradeAgent IV is a free-tier crypto market intelligence bot running as a **singl
 2. **Every displayed number goes through `fmt`.** Raw floats (e.g. an unrounded BTC dominance) must never reach a post.
 3. **Coin list changes need ID verification.** CoinGecko IDs get renamed (polygon → polygon-ecosystem-token, injective → injective-protocol, dogwifhat → dogwifcoin). Verify each ID against the live CoinGecko API before adding it, and keep the missing-coin guard in `getCoins` — a renamed ID must log loudly, never silently drop a coin from posts.
 4. **AI model changes only after a catalog audit.** Verify model IDs and free-tier status against the provider's official catalog (Google AI / OpenRouter) before touching the fallback chain. Model names in logs and status output must match the model actually called.
-5. **No secrets or resource IDs in the repo.** Tokens and API keys live in Worker secrets only. The `ALERTS_KV` namespace id is deliberately **not** committed (public repo): the binding is managed in the Cloudflare dashboard; `wrangler.toml` carries only a placeholder comment.
+5. **No secrets in the repo.** Tokens and API keys live in Worker secrets only. The `ALERTS_KV` namespace id IS committed in `wrangler.toml` (owner-approved 2026-11-14): dashboard-only bindings are wiped by the next Workers Builds deploy, so the binding must live in the file to survive. A namespace id alone grants no access without the Cloudflare login — it is an identifier, not a credential.
 6. **Admin-only actions stay admin-only.** Channel sends, AI config and alert toggles check `isAdmin` — including callback queries, not just commands.
 7. **Free tier only.** Data and AI providers must stay within their free quotas; the cron schedule and dedup windows are part of that budget and must not be widened casually.
 
@@ -27,7 +27,7 @@ TradeAgent IV is a free-tier crypto market intelligence bot running as a **singl
 2. Bump the version in `package.json`, the header of `src/index.js`, and `README.md` together.
 3. Open a PR; tests must be green.
 4. Squash-merge; Workers Builds deploys from `main`. Verify `GET /` on the live worker after deploy.
-5. Telegram/Cloudflare dashboard settings (bot admin in the channel, KV binding, secrets) are manual owner steps — code changes cannot set them.
+5. Telegram/Cloudflare dashboard settings (bot admin in the channel, secrets) are manual owner steps — code changes cannot set them. The KV binding ships in `wrangler.toml`.
 
 ## Style
 

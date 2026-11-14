@@ -2,12 +2,13 @@ name = "tradeagentiv"
 main = "src/index.js"
 compatibility_date = "2026-06-01"
 
-# ALERTS_KV binding is managed in the Cloudflare dashboard on purpose:
-# the owner does not commit the KV namespace id to this public repo.
-# A local deploy must add it first:
-#   [[kv_namespaces]]
-#   binding = "ALERTS_KV"
-#   id = "<namespace id>"
+# ALERTS_KV binding — committed deliberately (owner-approved 2026-11-14):
+# dashboard-only bindings are wiped by the next Workers Builds deploy
+# (wrangler.toml is the source of truth), so the binding must live here.
+# The namespace id alone grants no access without the Cloudflare login.
+[[kv_namespaces]]
+binding = "ALERTS_KV"
+id = "9d52537a39ff42feb02dedcc5fd740a3"
 
 [triggers]
 crons = ["*/30 * * * *", "0 */8 * * *", "0 9,15,21 * * *"]
