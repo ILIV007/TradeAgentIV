@@ -3,6 +3,16 @@
 All notable changes to TradeAgent IV are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [6.1.17] — 2026-11-14
+
+### Fixed — flagship reliability surgery (root cause, not a patch)
+- **The 13:00 flagship on 2026-11-14 failed with a 62-char draft** (missing OVERVIEW/DRIVERS/WATCH) — the third distinct failure mode after truncation (v6.1.12) and an ungrounded number (v6.1.13). Root-cause review of the whole AI pipeline found three structural holes, all fixed here:
+  1. **Degenerate output counted as SUCCESS.** Raw-mode acceptance was "any non-empty string", so a 62-char Nemotron stub stopped the chain before Gemma/free were ever tried — even though the codebase already defines "too short" as invalid. New shared floor `isRawDraftUsable` (≥100 chars — between the observed 62-char stub and the shortest legitimate raw output, a flash analysis) at every provider step: a stub is now a provider failure and the chain moves on. The failure note says exactly what happened (`too short (62 chars)`).
+  2. **The retry re-ran the identical chain.** Same order, same first-live-provider, temperature 0.3 — the same failure mode reproduced (Nov 13: same cap, same number). `getAIAnalysis` now takes `skipSources`; the flagship retry skips the provider that produced the rejected draft, so attempt 2 is a different model, not a rerun.
+  3. **The notice hid the cause.** It named no provider, showed no draft text, and the retry wiped attempt 1's failure reasons. The notice now leads with `source: <provider>`, `rejected draft: N chars` and a 120-char preview, keeps both attempts' reasons, and falls back to attempt 1's validation errors when the retry returns nothing.
+- No model changed, no chain order changed, no new provider: Nemotron stays the first live step (Workers AI + Groq are still unbound dashboard steps), but a bad Nemotron draft now falls through to Gemma/free instead of poisoning the chain.
+- Tests: 58/58 green + 3 new (62-char stub falls through to Gemma; skipSources rotation; end-to-end failure notice with source + preview + `too short (62 chars)`).
+
 ## [6.1.16] — 2026-11-14
 
 ### Fixed — sticker posts again via a verified fallback file_id

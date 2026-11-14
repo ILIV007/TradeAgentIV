@@ -541,6 +541,37 @@ test('v6.1.3 flagship: validation failure notify carries the validation errors',
     const notify = tg.find((b) => String(b.chat_id) === '999');
     assert.ok(notify, 'admin notify sent');
     assert.ok(notify.text.includes('<b>Flagship analysis failed validation</b>'), notify.text);
+    assert.ok(notify.text.includes('source: Gemini'), notify.text);
+    assert.ok(notify.text.includes('missing section VERDICT'), notify.text);
+    assert.ok(!tg.some((b) => String(b.chat_id) === '-100123'), 'channel stays silent');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('v6.1.17 flagship: a 62-char stub falls through, and the failure notice names the source with a draft preview', async () => {
+  const { sendChannelFlagship } = await import('../src/senders.js');
+  const coins = senderCoins();
+  const tg = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    const u = String(url);
+    if (u.includes('api.telegram.org')) { tg.push(JSON.parse(options.body)); return tgOkRes; }
+    if (u.includes('openrouter')) {
+      const model = JSON.parse(options.body).model;
+      if (model.includes('nemotron')) return httpRes(200, { choices: [{ message: { content: 'x'.repeat(62) }, finish_reason: 'stop' }] });
+      return httpRes(200, { choices: [{ message: { content: legacyValidText }, finish_reason: 'stop' }] });
+    }
+    return httpRes(200, stateDataRoute(u, coins));
+  };
+  try {
+    const env = { TELEGRAM_BOT_TOKEN: 'tok', TELEGRAM_CHANNEL_ID: '-100123', ADMIN_ID: '999', OPENROUTER_API_KEY: 'or', COINGECKO_API_KEY: 'test', ALERTS_KV: makeKVStub() };
+    await sendChannelFlagship(env);
+    const notify = tg.find((b) => String(b.chat_id) === '999');
+    assert.ok(notify, 'admin notify sent');
+    assert.ok(notify.text.includes('<b>Flagship analysis failed validation</b>'), notify.text);
+    assert.ok(notify.text.includes('source: openrouter/free'), notify.text);
+    assert.ok(notify.text.includes('preview:'), notify.text);
+    assert.ok(notify.text.includes('Market Overview'), notify.text);
+    assert.ok(notify.text.includes('too short (62 chars)'), notify.text);
     assert.ok(notify.text.includes('missing section VERDICT'), notify.text);
     assert.ok(!tg.some((b) => String(b.chat_id) === '-100123'), 'channel stays silent');
   } finally { globalThis.fetch = realFetch; }
@@ -772,6 +803,52 @@ test('v6.1.6 chain: a Gemini geo-block skips the remaining Gemini steps', async 
     assert.ok(seen.some((u) => u.includes('gemini-3.5-flash-lite')));
     assert.ok(!seen.some((u) => u.includes('gemini-3.6-flash')), '3.6 must be skipped after a geo-block');
     assert.ok(getLastAIFailureReasons().join(' ').includes('geo-blocked'));
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('v6.1.17 raw guard: a 62-char Nemotron stub falls through to Gemma instead of stopping the chain', async () => {
+  const { getAIAnalysis, getLastAIFailureReasons } = await import('../src/ai.js');
+  const realFetch = globalThis.fetch;
+  const called = [];
+  globalThis.fetch = async (url, options = {}) => {
+    const u = String(url);
+    if (u.includes('openrouter')) {
+      const model = JSON.parse(options.body).model;
+      called.push(model);
+      if (model.includes('nemotron')) return httpRes(200, { choices: [{ message: { content: 'x'.repeat(62) }, finish_reason: 'stop' }] });
+      return httpRes(200, { choices: [{ message: { content: AI_OK }, finish_reason: 'stop' }] });
+    }
+    throw new Error('unexpected ' + u);
+  };
+  try {
+    const env = { ALERTS_KV: kvStub(), OPENROUTER_API_KEY: 'o' };
+    const r = await getAIAnalysis(env, 'test prompt', { raw: true });
+    assert.ok(r && r.source === 'Gemma', JSON.stringify(r));
+    assert.equal(r.text, AI_OK);
+    assert.ok(called.some((m) => m.includes('nemotron')) && called.some((m) => m.includes('gemma')));
+    assert.ok(!called.some((m) => m === 'openrouter/free'), 'chain must stop at Gemma');
+    assert.ok(getLastAIFailureReasons().join(' ').includes('too short (62 chars)'));
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('v6.1.17 rotation: skipSources skips the provider that produced the rejected draft', async () => {
+  const { getAIAnalysis, getLastAIFailureReasons } = await import('../src/ai.js');
+  const realFetch = globalThis.fetch;
+  const called = [];
+  globalThis.fetch = async (url, options = {}) => {
+    const u = String(url);
+    if (u.includes('openrouter')) {
+      called.push(JSON.parse(options.body).model);
+      return httpRes(200, { choices: [{ message: { content: AI_OK }, finish_reason: 'stop' }] });
+    }
+    throw new Error('unexpected ' + u);
+  };
+  try {
+    const env = { ALERTS_KV: kvStub(), OPENROUTER_API_KEY: 'o' };
+    const r = await getAIAnalysis(env, 'test prompt', { raw: true, skipSources: ['nvidia/nemotron-3-ultra-550b-a55b'] });
+    assert.ok(r && r.source === 'Gemma', JSON.stringify(r));
+    assert.ok(!called.some((m) => m.includes('nemotron')), 'Nemotron must be skipped');
+    assert.ok(getLastAIFailureReasons().join(' ').includes('skipped (produced the rejected draft)'));
   } finally { globalThis.fetch = realFetch; }
 });
 

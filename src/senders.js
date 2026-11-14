@@ -383,21 +383,37 @@ async function sendChannelFlagship(env, shared = null) {
     let result = await getAIAnalysis(env, prompt, { raw: true });
     let text = result?.text ?? null;
     let v = text ? validateFlagship(text, s, lang) : null;
+    // v6.1.17: the retry must not re-run the identical chain — same order,
+    // same first-live-provider, temperature 0.3 means the same failure mode
+    // reproduces (Nov 13: same cap, same number; Nov 14: a 62-char stub
+    // would come back again). Rotate: skip the provider that produced the
+    // rejected draft. And keep the first attempt's diagnostics — every
+    // getAIAnalysis call resets them, so the notice would otherwise show
+    // only attempt 2.
+    const firstSource = result?.source || null;
+    const firstErrors = v?.errors || [];
+    const firstReasons = getLastAIFailureReasons();
     if (!v?.ok) {
       const errs = v ? v.errors.join('; ') : 'AI unavailable';
       console.error('[FLAGSHIP] draft rejected:', errs);
-      result = await getAIAnalysis(env, `${prompt}\n\nIMPORTANT: a previous draft was rejected (${errs}). Rewrite completely, fixing every issue.`, { raw: true });
+      result = await getAIAnalysis(env, `${prompt}\n\nIMPORTANT: a previous draft was rejected (${errs}). Rewrite completely, fixing every issue.`, { raw: true, skipSources: firstSource ? [firstSource] : [] });
       text = result?.text ?? null;
       v = text ? validateFlagship(text, s, lang) : null;
     }
     if (!v?.ok) {
       const reasons = getLastAIFailureReasons();
-      const detail = !text
-        ? ['AI returned no result', ...reasons]
-        : [...(v?.errors || []).slice(0, 3), ...reasons.slice(0, 3), `rejected draft: ${text.length} chars`];
+      const errors = v?.errors?.length ? v.errors : firstErrors;
+      const preview = text ? text.replace(/\s+/g, ' ').trim().slice(0, 120) : '';
+      const detail = [
+        `source: ${result?.source || firstSource || 'unknown'}`,
+        ...(text ? [`rejected draft: ${text.length} chars`, ...(preview ? [`preview: “${preview}”`] : [])] : ['AI returned no result']),
+        ...errors.slice(0, 3),
+        ...firstReasons.slice(0, 2),
+        ...reasons.slice(0, 2),
+      ];
       // Keep the rejected draft for inspection — the notice alone cannot show
       // whether the model stopped early (truncated) or skipped the sections.
-      await kvPutJSON(env, 'flagship:lastRejected', { ts: Date.now(), errors: v?.errors || [], source: result?.source || null, draftLen: text?.length || 0, draft: text || null }, 7 * 86400);
+      await kvPutJSON(env, 'flagship:lastRejected', { ts: Date.now(), errors, source: result?.source || firstSource || null, draftLen: text?.length || 0, draft: text || null }, 7 * 86400);
       const block = detail.slice(0, 8).map((l) => `• ${esc(l)}`).join('\n');
       await notifyAdmin(env, '⚠️ <b>Flagship analysis failed validation</b> — no post was sent to the channel.' + (block ? `\n${block}` : ''));
       return;

@@ -110,6 +110,19 @@ function aiValidationReason(text) {
   return '';
 }
 
+// Raw-mode floor (v6.1.17): the flagship/flash callers use raw mode, where
+// acceptance was ANY non-empty string — so a 62-char Nemotron stub counted
+// as SUCCESS and stopped the chain before Gemma/free were ever tried. The
+// floor sits between the observed 62-char degenerate stub and the shortest
+// legitimate raw output (a flash analysis: ~115 chars in tests, typically
+// 150+ live); anything shorter is not an analysis in any product. Structure
+// is the caller's validator's job — a 150-char flagship stub still fails
+// validation and the retry rotates to another provider.
+const MIN_RAW_DRAFT_LEN = 100;
+function isRawDraftUsable(text) {
+  return !!text && typeof text === 'string' && text.trim().length >= MIN_RAW_DRAFT_LEN;
+}
+
 function isValidAIResponse(text) {
   const reason = aiValidationReason(text);
   if (reason) console.log('[AI] Invalid response:', reason);
@@ -159,8 +172,10 @@ async function tryGeminiDirect(env, prompt, modelUrl, name, raw = false, opts = 
     }
     
     if (raw) {
-      // Raw mode: any non-empty draft passes; the caller's validator judges it.
-      if (text && text.trim()) {
+      // Raw mode: the caller's validator judges structure, but a degenerate
+      // stub (<200 chars) is a provider failure, not a draft — the chain
+      // must move on to the next provider instead of accepting it.
+      if (isRawDraftUsable(text)) {
         // ...but a MAX_TOKENS finish means the draft was cut off at the cap —
         // record it so the caller can tell truncation from a format skip.
         if (data?.candidates?.[0]?.finishReason === 'MAX_TOKENS') noteAIFailure(`${name}: truncated at max_tokens`);
@@ -169,6 +184,7 @@ async function tryGeminiDirect(env, prompt, modelUrl, name, raw = false, opts = 
         return text.trim();
       }
       console.log(`[AI] ${name} returned empty text`);
+      noteAIFailure(`${name}: invalid response (${aiValidationReason(text)})`);
       return null;
     }
 
@@ -205,6 +221,10 @@ async function getAIAnalysis(env, prompt, opts = {}) {
   // written, so raw drafts never enter or are served from it.
   const raw = !!opts?.raw;
   const promptHash = raw ? null : await hashPrompt(prompt);
+  // v6.1.17: providers that produced a rejected draft are skipped on retry —
+  // the retry must rotate to a different provider, not re-run the identical
+  // chain (same order, same first-live-provider, temp 0.3 ≈ same output).
+  const skip = new Set(opts?.skipSources || []);
 
   if (!raw) {
     const cached = await getAICache(env, promptHash);
@@ -239,29 +259,29 @@ async function getAIAnalysis(env, prompt, opts = {}) {
   };
 
   // STEP 1: Workers AI Qwen3 30B — same platform, cannot geo-block.
-  const wai = remain() > 3000 ? await tryWorkersAI(env, prompt, raw, Math.min(25000, remain())) : null;
+  const wai = !skip.has('Workers AI') && remain() > 3000 ? await tryWorkersAI(env, prompt, raw, Math.min(25000, remain())) : null;
   if (wai) return await accept(wai, 'Workers AI');
 
   // STEP 2: Gemini 3.5 Flash-Lite (fast + 500 req/day free when reachable).
-  let text = await tryGeminiDirect(env, prompt, GEMINI_URL, 'gemini-3.5-flash-lite', raw, { timeoutMs: Math.min(15000, remain()) });
+  let text = skip.has('Gemini') ? null : await tryGeminiDirect(env, prompt, GEMINI_URL, 'gemini-3.5-flash-lite', raw, { timeoutMs: Math.min(15000, remain()) });
   if (text) return await geminiResult(text);
 
   // STEP 3: Groq Llama 3.3 70B — separate infra, ~280 tok/s.
-  const groq = remain() > 3000 ? await tryGroq(env, prompt, raw, Math.min(15000, remain())) : null;
+  const groq = !skip.has('Groq') && remain() > 3000 ? await tryGroq(env, prompt, raw, Math.min(15000, remain())) : null;
   if (groq) return await accept(groq, 'Groq');
 
   // STEP 4: OpenRouter Nemotron Ultra (reasoning tamed: low effort, 8192 cap).
-  const orNemotron = await tryOpenRouter(env, prompt, ['nvidia/nemotron-3-ultra-550b-a55b:free'], raw, promptHash, deadline);
+  const orNemotron = await tryOpenRouter(env, prompt, ['nvidia/nemotron-3-ultra-550b-a55b:free'], raw, promptHash, deadline, skip);
   if (orNemotron) return orNemotron;
 
   // STEP 5: Gemini 3.6 Flash — skipped instantly while geo-blocked.
-  if (remain() > 5000) {
+  if (!skip.has('Gemini') && remain() > 5000) {
     text = await tryGeminiDirect(env, prompt, GEMINI_FALLBACK_URL, 'gemini-3.6-flash', raw, { timeoutMs: Math.min(12000, remain()), thinkingLevel: 'low' });
     if (text) return await geminiResult(text);
   }
 
   // STEP 6: OpenRouter final net — Gemma 4 31B, then the free auto-router.
-  const orFree = await tryOpenRouter(env, prompt, ['google/gemma-4-31b-it:free', 'openrouter/free'], raw, promptHash, deadline);
+  const orFree = await tryOpenRouter(env, prompt, ['google/gemma-4-31b-it:free', 'openrouter/free'], raw, promptHash, deadline, skip);
   if (orFree) return orFree;
 
   console.log('[AI] All AI sources failed');
@@ -297,7 +317,7 @@ async function tryWorkersAI(env, prompt, raw, timeoutMs) {
       new Promise((_, rej) => setTimeout(() => rej(new Error(`Timeout after ${timeoutMs}ms`)), timeoutMs)),
     ]);
     const text = data?.response ?? data?.result?.response ?? null;
-    if (raw ? (text && text.trim()) : isValidAIResponse(text)) {
+    if (raw ? isRawDraftUsable(text) : isValidAIResponse(text)) {
       console.log('[AI] Workers AI SUCCESS, length:', text.length);
       return text;
     }
@@ -327,7 +347,7 @@ async function tryGroq(env, prompt, raw, timeoutMs) {
     }
     const { text, error, finish } = extractChatText(await res.json());
     if (error) throw new Error(error);
-    if (raw ? (text && text.trim()) : isValidAIResponse(text)) {
+    if (raw ? isRawDraftUsable(text) : isValidAIResponse(text)) {
       // Raw mode: a non-empty draft passes, but a finish_reason of 'length'
       // means the model was cut off at the token cap — the caller's validator
       // will reject the tail-less draft, so record the cause here.
@@ -344,7 +364,7 @@ async function tryGroq(env, prompt, raw, timeoutMs) {
   }
 }
 
-async function tryOpenRouter(env, prompt, models, raw, promptHash, deadline) {
+async function tryOpenRouter(env, prompt, models, raw, promptHash, deadline, skipSources = new Set()) {
   console.log('[AI] Trying OpenRouter FREE models...');
   if (!env.OPENROUTER_API_KEY) {
     console.log('[AI] No OpenRouter key, giving up');
@@ -355,6 +375,11 @@ async function tryOpenRouter(env, prompt, models, raw, promptHash, deadline) {
   for (const model of models) {
     const remaining = deadline - Date.now();
     if (remaining < 3000) { console.log('[AI] Global AI deadline reached, stopping chain'); break; }
+    if (skipSources.has(getShortModelName(model))) {
+      console.log(`[AI] ${model} skipped: produced the rejected draft`);
+      noteAIFailure(`openrouter ${getShortModelName(model)}: skipped (produced the rejected draft)`);
+      continue;
+    }
     try {
       console.log(`[AI] Trying OpenRouter FREE: ${getShortModelName(model)}...`);
       const res = await fetchWithTimeout(OPENROUTER_URL, {
@@ -395,7 +420,7 @@ async function tryOpenRouter(env, prompt, models, raw, promptHash, deadline) {
         continue;
       }
 
-      if (raw ? (text && text.trim()) : isValidAIResponse(text)) {
+      if (raw ? isRawDraftUsable(text) : isValidAIResponse(text)) {
         // Raw mode: a non-empty draft passes, but finish_reason 'length' means
         // the model was cut off at the token cap — the caller's validator will
         // reject the tail-less draft, so record the cause here.
@@ -567,7 +592,7 @@ ${y.fearGreed != null ? `Fear & Greed: ${y.fearGreed}/100` : ''}
 Write the analysis now.`;
 }
 
-export { getAIAnalysis, getLastAIFailureReasons, testGeminiConnection, buildAIPrompt, isValidAIResponse, stateDigest, buildFlagshipPrompt, buildFlashPrompt, numericCorpus, extractNumbers, validateGrounded, parseFlagship, validateFlagship };
+export { getAIAnalysis, getLastAIFailureReasons, testGeminiConnection, buildAIPrompt, isValidAIResponse, isRawDraftUsable, stateDigest, buildFlagshipPrompt, buildFlashPrompt, numericCorpus, extractNumbers, validateGrounded, parseFlagship, validateFlagship };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // v6 AI PRODUCTS — prompts + grounding/structure validation (§3)
