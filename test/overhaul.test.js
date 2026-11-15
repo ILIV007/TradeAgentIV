@@ -1362,6 +1362,12 @@ test('v6.1.20 sticker: lookup works without KV and the skip notice names the KV 
   assert.ok(sendersSrc.includes('KV binding: missing'), 'the sticker-skip notice must name a missing KV binding');
 });
 
+test('v6.1.21 wrangler: the KV and Workers AI bindings are declared', async () => {
+  const toml = (await import('node:fs')).readFileSync(new URL('../wrangler.toml', import.meta.url), 'utf8');
+  assert.ok(toml.includes('[[kv_namespaces]]') && toml.includes('binding = "ALERTS_KV"'), 'wrangler.toml must declare the ALERTS_KV binding (v6.1.20 saga: a missing binding fails silently)');
+  assert.ok(toml.includes('[ai]') && toml.includes('binding = "AI"'), 'wrangler.toml must declare the Workers AI binding');
+});
+
 test('v6.1.19 model name: only the short family name is shown (Nemotron, Qwen, ChatGPT)', async () => {
   const { getShortModelName } = await import('../src/utils.js');
   assert.equal(getShortModelName('nvidia/nemotron-3-ultra-550b-a55b'), 'Nemotron');
