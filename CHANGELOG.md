@@ -3,6 +3,13 @@
 All notable changes to TradeAgent IV are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [6.1.21] — 2026-11-15
+
+### Changed — Workers AI is now a live fallback in the AI chain
+- **The `AI` binding is declared in `wrangler.toml`.** The Workers AI step (Qwen3 30B, `@cf/qwen/qwen3-30b-a3b-fp8`) has been in the chain since v6.1.6 as step 2, but the binding was never declared — `tryWorkersAI` returned null on every tick, so the chain silently skipped it and Nemotron was the first provider that actually answered. The model was verified callable on this account via the API before shipping. No chain order or model changed; the step simply goes live, and the first live proof will be the next AI post's model line showing Qwen.
+- **Regression guard.** A test now asserts `wrangler.toml` declares both the `ALERTS_KV` KV binding and the `AI` binding — the v6.1.20 KV saga (a binding silently missing from the file for months) must not repeat for either binding.
+- Tests: 68/68 green + 1 new (wrangler bindings declared).
+
 ## [6.1.20] — 2026-11-14
 
 ### Fixed — the sticker works even when the worker has no KV binding (root cause of the 19:30 bundle skips)

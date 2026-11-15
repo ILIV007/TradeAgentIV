@@ -10,5 +10,10 @@ compatibility_date = "2026-06-01"
 binding = "ALERTS_KV"
 id = "9d52537a39ff42feb02dedcc5fd740a3"
 
+# Workers AI binding (owner-approved 2026-11-15): activates step 2 of the
+# AI chain (Qwen3 30B). No namespace id needed — the binding is the switch.
+[ai]
+binding = "AI"
+
 [triggers]
 crons = ["*/30 * * * *", "0 */8 * * *", "0 9,15,21 * * *"]
