@@ -265,7 +265,7 @@ async function getAIAnalysis(env, prompt, opts = {}) {
   let text = skip.has('Gemini') ? null : await tryGeminiDirect(env, prompt, GEMINI_URL, 'gemini-3.5-flash-lite', raw, { timeoutMs: Math.min(15000, remain()) });
   if (text) return await geminiResult(text);
 
-  // STEP 2: Workers AI Qwen3 30B — same platform, cannot geo-block.
+  // STEP 2: Workers AI Qwen3.8 27B — same platform, cannot geo-block.
   const wai = !skip.has('Workers AI') && remain() > 3000 ? await tryWorkersAI(env, prompt, raw, Math.min(25000, remain())) : null;
   if (wai) return await accept(wai, 'Workers AI');
 
@@ -304,7 +304,7 @@ function extractChatText(data) {
   return { text: text && text.trim() ? text : null, error: null, finish: data?.choices?.[0]?.finish_reason || null };
 }
 
-const WAI_MODEL = '@cf/qwen/qwen3-30b-a3b-fp8';
+const WAI_MODEL = '@cf/qwen/qwen3.8-27b';
 const GROQ_MODEL = 'llama-3.3-70b-versatile';
 
 // Cloudflare Workers AI runs on the same platform as the Worker itself:
@@ -314,7 +314,7 @@ const GROQ_MODEL = 'llama-3.3-70b-versatile';
 async function tryWorkersAI(env, prompt, raw, timeoutMs) {
   if (!env.AI) return null;
   try {
-    console.log('[AI] Trying Workers AI: Qwen3 30B...');
+    console.log('[AI] Trying Workers AI: Qwen3.8 27B...');
     const data = await Promise.race([
       env.AI.run(WAI_MODEL, { messages: [{ role: 'user', content: `/no_think\n${prompt}` }], max_tokens: 4096, temperature: 0.3 }),
       new Promise((_, rej) => setTimeout(() => rej(new Error(`Timeout after ${timeoutMs}ms`)), timeoutMs)),
@@ -862,7 +862,7 @@ function validateFlagship(text, s, lang = 'en') {
   for (const sc of p.scenarios) {
     if (!['UP', 'DOWN', 'FLAT'].includes(sc.lean)) errors.push(`${sc.kind}: bad lean`);
     if (!sc.text || sc.text.length < 20) errors.push(`${sc.kind}: text too short`);
-    if (sc.level != null && !['ABOVE', 'BELOW'].includes(sc.side)) errors.push(`${sc.kind}: level without side`);
+    if (sc.level != null && !['ABOVE', 'BELOW'].includes(sc.side) && sc.lean !== 'FLAT') errors.push(`${sc.kind}: level without side`);
   }
   if (!p.invalidation) errors.push('missing invalidation line');
   if (lang !== 'fa') {

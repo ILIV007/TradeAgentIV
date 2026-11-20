@@ -104,7 +104,7 @@ function getShortModelName(fullName) {
   if (lower.includes('kimi')) return 'Kimi';
   if (lower.includes('gemma')) return 'Gemma';
   if (lower.includes('nemotron')) return 'Nemotron';
-  // Provider labels, not model IDs: Workers AI runs Qwen3 30B, Groq runs
+  // Provider labels, not model IDs: Workers AI runs Qwen3.8 27B, Groq runs
   // Llama 3.3 70B — the post shows the model family, not the platform.
   if (lower.includes('workers')) return 'Qwen';
   if (lower.includes('groq')) return 'Llama';

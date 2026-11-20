@@ -290,6 +290,17 @@ test('v6 flagship: structure + grounding validation and parsing', async () => {
   assert.equal(validateFlagship(invented, s).ok, false);
   const noScenarios = flagshipDraft.split('===SCENARIOS===')[0];
   assert.equal(validateFlagship(noScenarios, s).ok, false);
+  // v6.1.22 (Nov 16): FLAT lean with a real level and Side NONE is valid —
+  // the model legitimately has no side for a flat BASE; the validator
+  // rejected it and killed the 13:00 flagship. A directional lean with a
+  // real level and no side still fails.
+  const flatLevel = flagshipDraft.replace('Lean: FLAT\nLevel: NONE\nSide: NONE', 'Lean: FLAT\nLevel: 81500\nSide: NONE');
+  const flatV = validateFlagship(flatLevel, s);
+  assert.ok(flatV.ok, flatV.errors.join('; '));
+  const upNoSide = flatLevel.replace('Lean: FLAT\nLevel: 81500', 'Lean: UP\nLevel: 81500');
+  const upV = validateFlagship(upNoSide, s);
+  assert.equal(upV.ok, false);
+  assert.ok(upV.errors.some((e) => e.includes('level without side')));
   const p = parseFlagship(flagshipDraft);
   assert.ok(p.verdict.includes('range-bound') && p.invalidation.includes('invalidates'));
 });
@@ -697,7 +708,7 @@ test('v6.1.6 AI chain: cross-infrastructure, geo-aware, dead models removed', as
   assert.ok(cfg.GROQ_URL.includes('api.groq.com'));
   const aiSrc = (await import('node:fs')).readFileSync(new URL('../src/ai.js', import.meta.url), 'utf8');
   for (const dead of ['gemini-2.5-flash', 'thinkingmachines/inkling:free', 'GEMINI_FALLBACK_URL_2']) assert.ok(!aiSrc.includes(dead), `dead reference still in ai.js: ${dead}`);
-  assert.ok(aiSrc.includes('@cf/qwen/qwen3-30b-a3b-fp8'), 'Workers AI step present');
+  assert.ok(aiSrc.includes('@cf/qwen/qwen3.8-27b'), 'Workers AI step present');
   assert.ok(aiSrc.includes('llama-3.3-70b-versatile'), 'Groq step present');
   assert.ok(aiSrc.includes('nvidia/nemotron-3-ultra-550b-a55b:free') && aiSrc.includes('google/gemma-4-31b-it:free') && aiSrc.includes('90000'), 'OR steps + global deadline present');
   assert.ok(aiSrc.includes('geminiGeoBlockedUntil'), 'geo-block memo present');

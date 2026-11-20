@@ -429,7 +429,7 @@ async function sendChannelFlagship(env, shared = null) {
       ];
       // Keep the rejected draft for inspection — the notice alone cannot show
       // whether the model stopped early (truncated) or skipped the sections.
-      await kvPutJSON(env, 'flagship:lastRejected', { ts: Date.now(), errors, source: result?.source || firstSource || null, draftLen: text?.length || 0, draft: text || null }, 7 * 86400);
+      await kvPutJSON(env, 'flagship:lastRejected', { ts: Date.now(), errors, source: result?.source || firstSource || null, draftLen: text?.length || 0, draft: text || null, reasons: [...firstReasons, ...reasons], attempt: 2 }, 7 * 86400);
       const block = detail.slice(0, 8).map((l) => `• ${esc(l)}`).join('\n');
       await notifyAdmin(env, '⚠️ <b>Flagship analysis failed validation</b> — no post was sent to the channel.' + (block ? `\n${block}` : ''));
       return;
