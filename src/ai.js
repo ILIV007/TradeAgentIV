@@ -243,9 +243,14 @@ async function getAIAnalysis(env, prompt, opts = {}) {
   // block 400, 503, quota). Workers AI is the same-platform anchor right
   // behind it; every step is a different infrastructure, Gemini is
   // geo-aware, and steps whose binding/secret is absent skip silently. One
-  // global ~90s deadline bounds the chain; every step gets min(cap, rest).
-  const deadline = Date.now() + 90000;
+  // global deadline bounds the chain; every step gets min(cap, rest).
+  // v6.1.23: callers may pass one absolute deadline (opts.deadline) shared
+  // across attempts — the flagship shares a single 120s budget for attempt
+  // 1 + retry (Nov 21: a fresh 90s retry pushed the tick past 3 min and
+  // died with no record, no notice, no post). Default stays 90s.
+  const deadline = opts?.deadline || Date.now() + 90000;
   const remain = () => deadline - Date.now();
+  if (remain() <= 0) { console.log('[AI] deadline already exhausted, skipping chain'); return null; }
   const geminiResult = async (t) => {
     const result = { text: t, source: 'Gemini' };
     if (!raw) await setAICache(env, promptHash, result);
