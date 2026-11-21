@@ -1457,3 +1457,101 @@ test('v6.1.19 sticker: a failed sticker never blocks the analysis, but the admin
     assert.ok(notice.text.includes('Sticker skipped before AI analysis'), notice.text);
   } finally { globalThis.fetch = realFetch; }
 });
+
+test('v6.1.23 chain: an already-exhausted shared deadline returns null without calling any provider', async () => {
+  const { getAIAnalysis } = await import('../src/ai.js');
+  const realFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  let aiRuns = 0;
+  globalThis.fetch = async () => { fetchCalls++; throw new Error('no HTTP expected'); };
+  try {
+    const env = { ALERTS_KV: kvStub(), GEMINI_API_KEY: 'g', OPENROUTER_API_KEY: 'o', AI: { run: async () => { aiRuns++; return { response: 'x' }; } } };
+    const r = await getAIAnalysis(env, 'test prompt', { deadline: Date.now() - 1000 });
+    assert.equal(r, null);
+    assert.equal(fetchCalls, 0, 'no provider is called once the shared budget is gone');
+    assert.equal(aiRuns, 0, 'Workers AI is not run either');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('v6.1.23 chain: an explicit future deadline still serves the chain normally', async () => {
+  const { getAIAnalysis } = await import('../src/ai.js');
+  const realFetch = globalThis.fetch;
+  // Gemini cannot be used here: earlier tests memo its geo-block for 30 min
+  // in this process, so Workers AI anchors instead — same as the v6.1.18
+  // anchor test, plus the explicit deadline.
+  globalThis.fetch = async () => { throw new Error('no HTTP expected'); };
+  try {
+    const env = { ALERTS_KV: kvStub(), OPENROUTER_API_KEY: 'o', AI: { run: async () => ({ response: AI_OK }) } };
+    const r = await getAIAnalysis(env, 'test prompt', { deadline: Date.now() + 120000 });
+    assert.ok(r && r.source === 'Workers AI', JSON.stringify(r));
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('v6.1.23 flagship: attempt 1 rejection is recorded before the retry runs', async () => {
+  const { sendChannelFlagship } = await import('../src/senders.js');
+  const coins = senderCoins();
+  const kv = makeKVStub();
+  const tg = [];
+  const events = [];
+  const rejectedPuts = [];
+  const origPut = kv.put.bind(kv);
+  kv.put = async (k, v, o) => {
+    if (k === 'flagship:lastRejected') { rejectedPuts.push(JSON.parse(v)); events.push('rejected-put'); }
+    return origPut(k, v, o);
+  };
+  // The production 13:00 failure shape: head valid, tail (INVALIDATION +
+  // PERSIAN) cut off — the draft the model returns when it hits max_tokens.
+  const truncDraft = flagshipE2EDraft.split('===INVALIDATION===')[0].trim();
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    const u = String(url);
+    if (u.includes('api.telegram.org')) { tg.push(JSON.parse(options.body)); return tgOkRes; }
+    // Gemini is geo-blocked in production AND in this process (an earlier
+    // test memos the block for 30 min), so the chain reaches OpenRouter.
+    if (u.includes('generativelanguage.googleapis.com')) return httpRes(400, {});
+    if (u.includes('openrouter.ai')) { events.push('or-call'); return httpRes(200, { choices: [{ message: { content: truncDraft }, finish_reason: 'length' }] }); }
+    return httpRes(200, stateDataRoute(u, coins));
+  };
+  try {
+    const env = { TELEGRAM_BOT_TOKEN: 'tok', TELEGRAM_CHANNEL_ID: '-100123', ADMIN_ID: '999', GEMINI_API_KEY: 'g', OPENROUTER_API_KEY: 'or', COINGECKO_API_KEY: 'test', ALERTS_KV: kv };
+    await sendChannelFlagship(env);
+    assert.ok(!tg.some((b) => String(b.chat_id) === '-100123'), 'no channel post on rejected drafts');
+    // Nov 21: the retry died with no trace because the rejection was only
+    // recorded after it. The attempt-1 record must exist BEFORE the retry.
+    assert.ok(rejectedPuts.length >= 2, 'rejection recorded for attempt 1 and again for attempt 2');
+    assert.equal(rejectedPuts[0].attempt, 1, 'first record is the attempt-1 rejection');
+    assert.equal(rejectedPuts[0].draft, truncDraft, 'attempt-1 record keeps the rejected draft');
+    assert.ok(events.indexOf('rejected-put') < events.lastIndexOf('or-call'), 'attempt-1 record precedes the retry call');
+    const rej = JSON.parse(await kv.get('flagship:lastRejected'));
+    assert.equal(rej.attempt, 2, 'final record is the attempt-2 rejection');
+    const notices = tg.filter((b) => String(b.chat_id) === '999' && String(b.text || '').includes('Flagship analysis failed validation'));
+    assert.equal(notices.length, 1, 'exactly one failure notice — the early record sends none');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('v6.1.23 flagship: a successful flagship writes the pre-send attempt record', async () => {
+  const { sendChannelFlagship } = await import('../src/senders.js');
+  const coins = senderCoins();
+  const kv = makeKVStub();
+  const tg = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    const u = String(url);
+    if (u.includes('getStickerSet')) return httpRes(200, { ok: true, result: { name: 'TradeAgentIVstickers', stickers: [] } });
+    if (u.includes('api.telegram.org')) { tg.push(JSON.parse(options.body)); return tgOkRes; }
+    // OpenRouter, not Gemini: earlier tests memo the Gemini geo-block for
+    // 30 min, so a Gemini draft would never arrive in this process.
+    if (u.includes('openrouter')) return httpRes(200, { choices: [{ message: { content: flagshipE2EDraft }, finish_reason: 'stop' }] });
+    return httpRes(200, stateDataRoute(u, coins));
+  };
+  try {
+    const env = { TELEGRAM_BOT_TOKEN: 'tok', TELEGRAM_CHANNEL_ID: '-100123', ADMIN_ID: '999', OPENROUTER_API_KEY: 'or', COINGECKO_API_KEY: 'test', ALERTS_KV: kv };
+    await sendChannelFlagship(env);
+    assert.ok(JSON.stringify(tg.slice(1)).includes('orderly tape'), 'the analysis still posts');
+    assert.ok(!tg.some((b) => String(b.chat_id) === '999'), 'no admin notify on success');
+    const att = JSON.parse(await kv.get('flagship:lastAttempt'));
+    assert.ok(att && att.ok === true, 'pre-send attempt record exists');
+    assert.equal(att.attempt, 1, 'attempt 1 passed, so no retry ran');
+    assert.equal(att.source, 'Nemotron', 'record names the serving provider');
+  } finally { globalThis.fetch = realFetch; }
+});

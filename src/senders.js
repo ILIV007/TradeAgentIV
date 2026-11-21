@@ -396,7 +396,13 @@ async function sendChannelFlagship(env, shared = null) {
     const s = shared ?? await getFreshState(env);
     const lang = await getLang(env);
     const prompt = buildFlagshipPrompt(s, lang);
-    let result = await getAIAnalysis(env, prompt, { raw: true });
+    // v6.1.23: ONE shared 120s budget for attempt 1 + retry. Nov 21: attempt
+    // 1 burned ~90s, the retry took a fresh 90s, and the tick died past 3
+    // min with no record, no notice, no post. The retry gets only the
+    // remainder of this budget, never a fresh one.
+    const flagshipDeadline = Date.now() + 120000;
+    let attempt = 1;
+    let result = await getAIAnalysis(env, prompt, { raw: true, deadline: flagshipDeadline });
     let text = result?.text ?? null;
     let v = text ? validateFlagship(text, s, lang) : null;
     // v6.1.17: the retry must not re-run the identical chain — same order,
@@ -412,9 +418,16 @@ async function sendChannelFlagship(env, shared = null) {
     if (!v?.ok) {
       const errs = v ? v.errors.join('; ') : 'AI unavailable';
       console.error('[FLAGSHIP] draft rejected:', errs);
-      result = await getAIAnalysis(env, `${prompt}\n\nIMPORTANT: a previous draft was rejected (${errs}). Rewrite completely, fixing every issue.`, { raw: true, skipSources: firstSource ? [firstSource] : [] });
-      text = result?.text ?? null;
-      v = text ? validateFlagship(text, s, lang) : null;
+      // v6.1.23: record attempt 1 NOW, before the retry — if the retry dies
+      // mid-flight, this record survives. No notice here: the retry may
+      // still recover, and a notice would be a false alarm.
+      await kvPutJSON(env, 'flagship:lastRejected', { ts: Date.now(), errors: firstErrors, source: firstSource, draftLen: text?.length || 0, draft: text || null, reasons: firstReasons, attempt: 1 }, 7 * 86400);
+      if (Date.now() < flagshipDeadline - 5000) {
+        attempt = 2;
+        result = await getAIAnalysis(env, `${prompt}\n\nIMPORTANT: a previous draft was rejected (${errs}). Rewrite completely, fixing every issue.`, { raw: true, skipSources: firstSource ? [firstSource] : [], deadline: flagshipDeadline });
+        text = result?.text ?? null;
+        v = text ? validateFlagship(text, s, lang) : null;
+      }
     }
     if (!v?.ok) {
       const reasons = getLastAIFailureReasons();
@@ -424,16 +437,20 @@ async function sendChannelFlagship(env, shared = null) {
         `source: ${result?.source || firstSource || 'unknown'}`,
         ...(text ? [`rejected draft: ${text.length} chars`, ...(preview ? [`preview: “${preview}”`] : [])] : ['AI returned no result']),
         ...errors.slice(0, 3),
+        ...(attempt === 1 ? ['retry skipped: shared 120s budget exhausted'] : []),
         ...firstReasons.slice(0, 2),
         ...reasons.slice(0, 2),
       ];
       // Keep the rejected draft for inspection — the notice alone cannot show
       // whether the model stopped early (truncated) or skipped the sections.
-      await kvPutJSON(env, 'flagship:lastRejected', { ts: Date.now(), errors, source: result?.source || firstSource || null, draftLen: text?.length || 0, draft: text || null, reasons: [...firstReasons, ...reasons], attempt: 2 }, 7 * 86400);
+      await kvPutJSON(env, 'flagship:lastRejected', { ts: Date.now(), errors, source: result?.source || firstSource || null, draftLen: text?.length || 0, draft: text || null, reasons: attempt === 2 ? [...firstReasons, ...reasons] : firstReasons, attempt }, 7 * 86400);
       const block = detail.slice(0, 8).map((l) => `• ${esc(l)}`).join('\n');
       await notifyAdmin(env, '⚠️ <b>Flagship analysis failed validation</b> — no post was sent to the channel.' + (block ? `\n${block}` : ''));
       return;
     }
+    // v6.1.23: durable pre-send trace — if sendRich throws, the loud
+    // dispatch catch notifies, and this record shows validation had passed.
+    await kvPutJSON(env, 'flagship:lastAttempt', { ts: Date.now(), ok: true, source: result?.source || firstSource || null, draftLen: text?.length || 0, attempt }, 7 * 86400);
     await sendStickerBeforeAnalysis(env);
     const sent = await sendRich(env, env.TELEGRAM_CHANNEL_ID, buildRichFlagship(s, v.parsed, lang), () => buildFlagshipClassic(s, v.parsed, lang), null, lang);
     const recs = (await kvGetJSON(env, 'scen:records')) || [];
